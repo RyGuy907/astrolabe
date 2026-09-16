@@ -178,6 +178,56 @@ often a home address to four decimal places. `config/locations.yaml` ships
 public examples only; put yours in `config/locations.local.yaml`, which uses
 the same schema, is merged over the top, and is gitignored.
 
+## Sky brightness from a light-pollution atlas (optional)
+
+By default the Bortle class of a site is something you choose. If you have a
+light-pollution raster, `engine/skybrightness.py` can read one instead:
+
+```bash
+pip install -e ".[skybrightness]"
+```
+
+```bash
+ASTRO_SKYBRIGHTNESS_RASTER=/path/to/atlas.tif planner targets
+```
+
+With the variable unset the feature is simply off and nothing changes.
+
+**No atlas ships with this project, deliberately.** The obvious dataset, Falchi
+et al. 2016 ([DOI 10.5880/GFZ.1.4.2016.001](https://doi.org/10.5880/GFZ.1.4.2016.001)),
+is not a public download — it is behind a request form — and is CC BY-NC, so a
+derivative of it does not belong in an MIT repository. EOG's VIIRS annual
+composites now need an account. Either file is gigabytes. Fetch one yourself
+and point this at it.
+
+**The raster must hold artificial sky brightness in mcd/m², not satellite
+radiance.** This matters more than it sounds. A satellite measures light
+leaving the ground beneath each pixel; the glow above your head is that light
+scattered by the atmosphere from everything for tens of kilometres around. A
+dark canyon an hour outside a city has almost no radiance of its own and still
+sits under the city's dome. Bridging the two takes a light-propagation model —
+that modelling is precisely what Falchi's atlas contributes, and what
+lightpollutionmap.info's sky-brightness layer means by "light spread modeled
+via convolution". Feeding raw VIIRS radiance to this module would produce
+numbers that are systematically too dark exactly where people drive to observe.
+
+The conversion is published rather than invented:
+
+```
+SQM = log10(B_total / 1.08e8) / -0.4       B in mcd/m²
+B_total = B_artificial + 0.171168465       the natural night sky
+```
+
+after lightpollutionmap.info's published formula; `-1/0.4` is the Pogson factor
+of `-2.5`. Two things anchor it in `tests/test_skybrightness.py`: the natural
+sky with no artificial component returns exactly **22.00 mag/arcsec²**, the
+accepted dark-sky value, and the relation round-trips against its own inverse.
+Outside the raster's coverage, or over a nodata cell, the answer is `None` —
+PLAN.md §2 asks for "we do not know" rather than a guess.
+
+The tests that need a raster skip loudly when one is not configured, so a green
+run never quietly means the lookup went untested.
+
 ## Obstruction horizons
 
 Each location may carry an optional `horizon:` profile — a preset, a preset

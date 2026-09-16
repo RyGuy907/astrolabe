@@ -32,6 +32,12 @@ dependencies = [
 # its module-level `pytest.importorskip` and every API test is skipped
 # silently while the suite still exits 0.
 dev = ["pytest>=8.0", "httpx>=0.27"]
+# Optional: reading a light-pollution raster with engine/skybrightness.py.
+# Not required, and no raster ships with this project -- see the README. The
+# dependency is kept out of the core set because rasterio bundles GDAL, which
+# is a large install to force on everyone for a feature most users will not
+# switch on.
+skybrightness = ["rasterio>=1.3"]
 
 [project.scripts]
 planner = "cli.main:app"

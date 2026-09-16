@@ -325,7 +325,7 @@ def test_the_astronomy_modules_are_all_offline():
     """
     astronomy = {"ephem.py", "targets.py", "planets.py", "events.py",
                  "scoring.py", "equipment.py", "horizon.py", "timeutil.py",
-                 "locations.py", "loader.py"}
+                 "locations.py", "loader.py", "skybrightness.py"}
     for path in ENGINE_FILES:
         if path.name not in astronomy:
             continue
