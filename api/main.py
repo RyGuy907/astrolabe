@@ -97,10 +97,25 @@ app.add_middleware(
 def _resolve_location(key: str | None) -> Location:
     """YAML sites plus runtime additions; 404 with the known keys on a miss."""
     locations = store.all_locations()
+
+    # No sites at all is an ordinary starting state, not a malformed request:
+    # nothing ships preconfigured, because every answer here depends on where
+    # the observer is standing.
+    if not locations:
+        raise HTTPException(
+            status_code=404,
+            detail="no observing sites yet. Add one with the \"Sites...\" "
+                   "button, which can place a site from a map, a place name, "
+                   "or raw coordinates.",
+        )
+
     if not key:
         from engine.locations import default_location_key
 
-        key = default_location_key()
+        # The configured default covers config sites; anything added through
+        # the UI lives in the store, which that function cannot see.
+        key = default_location_key() or sorted(locations)[0]
+
     if key not in locations:
         raise HTTPException(
             status_code=404,

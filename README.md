@@ -145,6 +145,15 @@ Two things the log does deliberately:
   novelty bonus (PLAN.md §3.3.4). It is 3 points — enough to nudge, not enough
   to put a faint smudge above a well-placed showpiece.
 
+## No site is configured for you
+
+`config/locations.yaml` ships empty, and the planner will not assume a
+location. When it gets dark, what clears your horizon, and which objects are
+bright enough for your sky all follow from the coordinates — a plausible
+default belonging to somebody else produces a complete, confident and entirely
+wrong night. The CLI says so, and the web UI opens on a prompt to add a site
+rather than a dashboard for a place you have never been.
+
 ## Adding an observing site
 
 The web UI's **Sites…** dialog offers three ways in, because no single one
@@ -191,7 +200,16 @@ pip install -e ".[skybrightness]"
 ASTRO_SKYBRIGHTNESS_RASTER=/path/to/atlas.tif planner targets
 ```
 
-With the variable unset the feature is simply off and nothing changes.
+Or simply drop the file at `config/skybrightness.tif`, which is checked when
+the variable is unset. Either way the file is gitignored: it is a third-party
+derived product and not ours to redistribute. With neither present the feature
+is off and nothing changes.
+
+A regional export is plenty. At 30 arcsec the grid is about 120 pixels per
+degree, so a box covering a whole state is a few megabytes — a 10° box is
+roughly 5.5 MB. Cover everywhere you might plausibly drive rather than just
+the site you use now: outside the raster's coverage the answer is `None`, and
+`None` falls back to assuming Bortle 5.
 
 **No atlas ships with this project, deliberately.** The obvious dataset, Falchi
 et al. 2016 ([DOI 10.5880/GFZ.1.4.2016.001](https://doi.org/10.5880/GFZ.1.4.2016.001)),

@@ -105,12 +105,21 @@ def test_the_suburban_reference_lands_where_plan_md_says():
 
 # --- the optional raster -----------------------------------------------------
 
-def test_lookup_is_off_rather_than_broken_without_a_raster(monkeypatch):
-    """The feature being unconfigured is not an error condition."""
+def test_lookup_is_off_rather_than_broken_without_a_raster(monkeypatch, tmp_path):
+    """The feature being unconfigured is not an error condition.
+
+    Both sources of a raster have to be removed: the environment variable and
+    the conventional `config/skybrightness.tif`, which exists on a machine
+    where one has been dropped in.
+    """
+    import engine.skybrightness as sb
+
     monkeypatch.delenv("ASTRO_SKYBRIGHTNESS_RASTER", raising=False)
-    assert sqm_at(34.0, -118.0) is None
-    assert bortle_at(34.0, -118.0) is None
-    assert is_configured() is False
+    monkeypatch.setattr(sb, "CONVENTIONAL_RASTER", tmp_path / "absent.tif")
+
+    assert sb.sqm_at(34.0, -118.0) is None
+    assert sb.bortle_at(34.0, -118.0) is None
+    assert sb.is_configured() is False
 
 
 def _raster_sample_points(count: int = 12) -> list[tuple[float, float]]:

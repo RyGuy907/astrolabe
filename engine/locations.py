@@ -187,21 +187,37 @@ def load_locations(path: Path | None = None) -> dict[str, Location]:
     return out
 
 
-def default_location_key(path: Path | None = None) -> str:
-    """The `default:` key, from the local override if it sets one."""
+def default_location_key(path: Path | None = None) -> str | None:
+    """Which site to open on, or None when there is nothing to open on.
+
+    The shipped config has no sites and no default, deliberately: every answer
+    this planner gives depends on where you are standing, and a plausible
+    default belonging to somebody else is worse than no answer. So "no sites
+    yet" is an ordinary state to be handled, not an error to be raised.
+
+    Order of preference: an explicit `default:` that actually resolves, then
+    the single site if there is only one, then the first by key, then None.
+    """
     raw = _merged_config(path)
-    key = raw.get("default")
-    if not key:
-        raise LocationError(
-            f"{path or DEFAULT_LOCATIONS_PATH} has no `default:` key"
-        )
-    return key
+    known = load_locations(path)
+    if not known:
+        return None
+
+    configured = raw.get("default")
+    if configured and configured in known:
+        return configured
+    return sorted(known)[0]
 
 
 def get_location(key: str | None = None, path: Path | None = None) -> Location:
-    """Look up a location by key, falling back to the configured default."""
+    """Look up a location by key, falling back to the default if there is one."""
     locations = load_locations(path)
     resolved = key or default_location_key(path)
+    if resolved is None:
+        raise LocationError(
+            "no observing sites are configured. Add one with the \"Sites...\" "
+            "button in the web UI, or in config/locations.yaml"
+        )
     if resolved not in locations:
         known = ", ".join(sorted(locations)) or "(none)"
         raise LocationError(f"unknown location {resolved!r}; known: {known}")

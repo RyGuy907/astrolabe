@@ -68,6 +68,12 @@ BRIGHTNESS_ZERO_POINT = 1.08e8
 #: Environment variable naming a local artificial-brightness raster.
 RASTER_ENV_VAR = "ASTRO_SKYBRIGHTNESS_RASTER"
 
+#: Checked when the environment variable is unset, so a raster can simply be
+#: dropped in and used without wiring anything up. Gitignored along with every
+#: other `.tif`, because the file is a third-party derived product and is not
+#: ours to redistribute.
+CONVENTIONAL_RASTER = Path(__file__).resolve().parent.parent / "config" / "skybrightness.tif"
+
 
 class SkyBrightnessUnavailable(RuntimeError):
     """A raster was configured but could not be used.
@@ -112,9 +118,15 @@ def bortle_from_sqm(sqm: float) -> int:
 
 
 def raster_path() -> Path | None:
-    """The configured raster, or None when the feature is switched off."""
+    """The configured raster, or None when the feature is switched off.
+
+    The environment variable wins, so a one-off run can point somewhere else;
+    otherwise a file at the conventional path is picked up automatically.
+    """
     raw = os.environ.get(RASTER_ENV_VAR, "").strip()
-    return Path(raw) if raw else None
+    if raw:
+        return Path(raw)
+    return CONVENTIONAL_RASTER if CONVENTIONAL_RASTER.is_file() else None
 
 
 @functools.lru_cache(maxsize=1)

@@ -58,19 +58,31 @@ def test_both_seeded_locations_load():
     assert set(locations) == {"home", "santa_monica_mtns"}
 
 
-def test_home_matches_the_configured_values():
-    """The shipped example config, not the tests' synthetic site.
+def test_the_shipped_config_assumes_no_observing_site():
+    """The planner refuses to guess where you are.
 
-    This is deliberately the one place that asserts what
-    `config/locations.yaml` actually contains. Everything else that needs a
-    site uses conftest.TEST_SITE, so editing the example config breaks this
-    test and nothing else.
+    `config/locations.yaml` ships with no sites and no default, and this is
+    the one test that asserts it. Everything else in the suite runs against a
+    temporary config from conftest, so this cannot be satisfied accidentally
+    by a test fixture.
+
+    The reasoning, since a stray example site would look harmless: when it
+    gets dark, what clears the horizon, and which objects are bright enough
+    all follow from the coordinates. A plausible default belonging to someone
+    else produces a complete, confident and entirely wrong night.
     """
-    home = get_location("home")
-    assert home.name == "Griffith Observatory"
-    assert (home.lat, home.lon) == (34.11833, -118.300333)
-    assert home.elevation_m == 346
-    assert home.bortle == 8
+    import yaml
+
+    from engine.locations import CONFIG_DIR
+
+    shipped = CONFIG_DIR / "locations.yaml"
+    raw = yaml.safe_load(shipped.read_text(encoding="utf-8")) or {}
+
+    assert not (raw.get("locations") or {}), (
+        "config/locations.yaml should ship with no sites; it is the user's "
+        "own location that every answer here depends on"
+    )
+    assert not raw.get("default")
 
 
 def test_timezone_is_resolved_from_coordinates():

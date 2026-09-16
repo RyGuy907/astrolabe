@@ -926,6 +926,14 @@ table.targets tr.charted { background: rgba(244, 201, 93, 0.06); }
   filter: grayscale(1) sepia(1) hue-rotate(-28deg) saturate(3) brightness(0.6);
 }
 
+/* First run, before any site exists. Deliberately a prompt rather than an
+   error: having no sites is the normal starting state here. */
+.empty-state { max-width: 62ch; }
+.empty-state h2 { font-size: 1.15rem; }
+.empty-state p { margin: 0 0 14px; line-height: 1.55; }
+.empty-state button { margin-bottom: 12px; }
+.empty-state p:last-child { margin-bottom: 0; }
+
 footer { text-align: center; padding-top: 8px; }
 
 /* Mobile is a graceful fallback, not a separate design — the altitude chart

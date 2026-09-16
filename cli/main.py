@@ -595,8 +595,25 @@ def locations() -> None:
     from engine.locations import load_locations, default_location_key
 
     default = default_location_key()
+    known = load_locations()
+    if not known:
+        # Nothing ships preconfigured, so an empty list is the normal first
+        # run rather than a broken install. Say what to do about it.
+        typer.echo("")
+        typer.echo("No observing sites configured yet.")
+        typer.echo("")
+        typer.echo("Nothing ships preconfigured: when it gets dark, what")
+        typer.echo("clears your horizon, and which objects are bright enough")
+        typer.echo("for your sky all depend on where you are standing.")
+        typer.echo("")
+        typer.echo("Add one in config/locations.yaml, or use the Sites button")
+        typer.echo("in the web UI, which can place a site from a map, a place")
+        typer.echo("name, or raw coordinates.")
+        typer.echo("")
+        return
+
     typer.echo("")
-    for key, loc in sorted(load_locations().items()):
+    for key, loc in sorted(known.items()):
         mark = "*" if key == default else " "
         bortle = f"Bortle {loc.bortle}" if loc.bortle else "Bortle -"
         typer.echo(

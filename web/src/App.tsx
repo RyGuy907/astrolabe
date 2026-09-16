@@ -164,7 +164,14 @@ export default function App() {
       .then((list) => {
         setLocations(list);
         const first = list[0];
-        if (!first) throw new Error("no locations configured");
+        // An empty list is the ordinary first run, not a failure: nothing
+        // ships preconfigured, because every answer this planner gives
+        // depends on where the observer is standing. The dashboard stays
+        // empty and asks for a site rather than inventing one.
+        if (!first) {
+          setPending({ night: false, targets: false, planets: false });
+          return;
+        }
         setLocationKey(first.key);
         setDate(resolveNightDate(first.timezone));
       })
@@ -501,7 +508,32 @@ export default function App() {
       )}
 
       {error && <div className="panel error">{error}</div>}
-      {pending.night && !night && <div className="panel muted">Loading…</div>}
+
+      {/* First run. Nothing is preconfigured, so the dashboard asks where you
+          are instead of assuming somewhere and quietly being wrong about the
+          darkness, the horizon and half the target list. */}
+      {!error && locations.length === 0 && !pending.night && (
+        <section className="panel empty-state">
+          <h2>Where are you observing?</h2>
+          <p>
+            No sites yet. This planner does not assume one: when it gets dark,
+            what clears your horizon, and which objects are bright enough for
+            your sky all depend on where you are standing, so a default
+            belonging to somebody else would be worse than no answer.
+          </p>
+          <button className="secondary" onClick={() => setManagingSites(true)}>
+            Add an observing site
+          </button>
+          <p className="muted small">
+            Pick a point on a map, search for a place by name, or type
+            coordinates. Everything else follows from that.
+          </p>
+        </section>
+      )}
+
+      {pending.night && !night && locations.length > 0 && (
+        <div className="panel muted">Loading…</div>
+      )}
 
       {night && location && (
         <main id="main" tabIndex={-1}>

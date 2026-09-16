@@ -114,6 +114,57 @@ TEST_SITE = Location(
 )
 
 
+#: The sites the suite assumes exist, written to a temporary config that
+#: replaces the shipped one for the whole session.
+#:
+#: `config/locations.yaml` ships empty on purpose -- the planner refuses to
+#: assume where you are standing, because when it gets dark, what clears your
+#: horizon and which objects are bright enough all follow from that. Tests
+#: still need sites to talk about, and pointing them at example content would
+#: reintroduce exactly the coupling that broke twelve tests when the seeded
+#: default last changed. So the suite brings its own.
+TEST_CONFIG_YAML = """
+default: home
+locations:
+  home:
+    name: "Test City Site"
+    lat: 34.11833
+    lon: -118.300333
+    elevation_m: 346
+    bortle: 8
+    horizon: hilly
+  santa_monica_mtns:
+    name: "Test Dark Site"
+    lat: 34.10
+    lon: -118.80
+    elevation_m: 600
+    bortle: 4
+    horizon: hilly
+"""
+
+
+@pytest.fixture(scope="session", autouse=True)
+def _test_locations_config(tmp_path_factory):
+    """Point the whole suite at its own locations config.
+
+    Session-scoped and autouse so that `get_location("home")`, the HTTP API
+    and the CLI all resolve the same sites without every test having to set
+    one up. The shipped config is left alone; tests that genuinely care what
+    it contains read it explicitly.
+    """
+    path = tmp_path_factory.mktemp("config") / "locations.yaml"
+    path.write_text(TEST_CONFIG_YAML, encoding="utf-8")
+
+    from engine import locations as locations_module
+
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr(locations_module, "DEFAULT_LOCATIONS_PATH", path)
+        # The gitignored personal override must not leak into a test run.
+        patch.setattr(locations_module, "LOCAL_LOCATIONS_PATH",
+                      path.parent / "locations.local.yaml")
+        yield path
+
+
 @pytest.fixture(scope="session")
 def home():
     """The standard observing site for astronomy assertions.

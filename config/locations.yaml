@@ -1,46 +1,39 @@
-default: home
+# Observing sites.
+#
+# This file ships EMPTY on purpose. The planner will not assume a location for
+# you: every answer it gives -- when it gets dark, what clears your horizon,
+# which objects are bright enough for your sky -- depends entirely on where you
+# are standing, and a plausible-looking default for somebody else's back garden
+# is worse than no answer at all.
+#
+# Add a site with the "Sites..." button in the web UI, which can place one from
+# a map, a place name, or raw coordinates. Or add one here by hand:
+#
+# default: home
+# locations:
+#   home:
+#     name: "Back garden"
+#     lat: 40.7608
+#     lon: -111.8910
+#     elevation_m: 1288
+#
+#     # Bortle class, 1-9. Optional: leave it out and a light-pollution atlas
+#     # fills it in if one is configured (see the README), and failing that the
+#     # planner says outright that it is assuming Bortle 5 rather than pretending
+#     # to know. Anything you put here is treated as YOUR measurement and is
+#     # never overwritten by the atlas.
+#     bortle: 8
+#
+#     # Obstruction horizon. Either a preset (flat | hilly | trees | ridge |
+#     # valley), a preset pointed where the obstruction actually is
+#     # ({preset: ridge, facing: 250}), or a measured azimuth->altitude map
+#     # ({0: 18, 90: 5, 180: 5, 270: 22}). The presets are GENERIC assumptions,
+#     # not a survey of your site, and are labelled as such throughout.
+#     horizon: {preset: ridge, facing: 250}
+#
+# Sites you add through the UI are stored separately and are not written here,
+# so this file stays yours. Your own sites can also go in
+# config/locations.local.yaml, which is gitignored -- worth doing, because an
+# observing site is often a home address to four decimal places.
 
-locations:
-  # Example sites, chosen so the shipped config contains no private address.
-  # Add your own with the "Sites..." button in the web UI, or put them in
-  # config/locations.local.yaml, which is gitignored.
-  home:
-    name: "Griffith Observatory"
-    # 34.11833 N, 118.300333 W, 346 m - https://en.wikipedia.org/wiki/Griffith_Observatory
-    lat: 34.11833
-    lon: -118.300333
-    elevation_m: 346
-    # ESTIMATE, not a measurement: inner Los Angeles reads Bortle 8 on
-    # published light-pollution maps. It is written here as a number because
-    # leaving it unset would silently fall back to Bortle 5 (see
-    # engine/targets.py), which would be a worse guess stated less honestly.
-    # Replace with an atlas lookup once engine/skybrightness.py exists.
-    bortle: 8
-    # Obstruction horizon. Any of:
-    #   horizon: hilly                          a preset
-    #   horizon: {preset: ridge, facing: 250}   a preset, pointed where the
-    #                                           obstruction actually is
-    #   horizon: {0: 18, 90: 5, 180: 5, 270: 22}   a measured az->alt map
-    #
-    # Presets, with the geometry each assumes (see engine/horizon.py):
-    #   flat    0 deg   nothing in the way
-    #   hilly  12 deg   distant rolling terrain. NOTE: below the default 25 deg
-    #                   altitude floor, so it will not change which targets are
-    #                   listed - correctly, since distant hills do not matter
-    #                   if you are not observing that low anyway.
-    #   trees  30 deg   trees or buildings close on every side
-    #   ridge  35 deg   one side blocked close in. Directional - set `facing`.
-    #   valley 35 deg   two opposing sides blocked. Directional.
-    #
-    # WARNING: the presets are GENERIC assumptions, not a survey of this site.
-    # Measure your real horizon and replace this with an explicit map when you
-    # can - a measured map is the only thing here that is not a guess, and it
-    # is the only form not flagged "generic" in the UI.
-    horizon: hilly
-  santa_monica_mtns:
-    name: "Santa Monica Mountains"
-    lat: 34.10
-    lon: -118.80
-    elevation_m: 600
-    bortle: 4
-    horizon: hilly
+locations: {}
