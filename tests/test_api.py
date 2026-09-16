@@ -133,9 +133,30 @@ def test_targets_response_shape(client):
 
 @requires_ephemeris
 def test_targets_still_rank_m31_first(client):
-    """The Phase 1 acceptance check, surfaced through HTTP."""
-    body = client.get("/api/targets?date=2026-09-15&location=home").json()
+    """The Phase 1 acceptance check, surfaced through HTTP.
+
+    Deliberately against `santa_monica_mtns` (Bortle 4) rather than the
+    default site. The API resolves locations from config, and the shipped
+    default is now Griffith Observatory at Bortle 8 -- an inner-city sky where
+    M31's surface brightness genuinely fails the contrast test. Asserting it
+    ranks first there would be asserting the physics is wrong.
+    """
+    body = client.get(
+        "/api/targets?date=2026-09-15&location=santa_monica_mtns"
+    ).json()
     assert body["groups"]["Galaxies"][0]["messier"] == 31
+
+
+@requires_ephemeris
+def test_a_city_sky_rejects_m31(client):
+    """The other half of that: from Bortle 8, M31 should not be recommended.
+
+    This is the light-pollution model doing its job, and it is worth pinning
+    explicitly rather than leaving as an unexamined consequence.
+    """
+    body = client.get("/api/targets?date=2026-09-15&location=home").json()
+    galaxies = body["groups"].get("Galaxies", [])
+    assert 31 not in [t["messier"] for t in galaxies]
 
 
 @requires_ephemeris
@@ -403,7 +424,10 @@ def clean_log():
 @requires_ephemeris
 def test_log_prefill_offers_the_nights_targets(client):
     """PLAN.md 5's key UX move, over HTTP."""
-    response = client.get("/api/log/prefill?date=2026-09-15&location=home&limit=4")
+    # Bortle 4 site, for the same reason as test_targets_still_rank_m31_first.
+    response = client.get(
+        "/api/log/prefill?date=2026-09-15&location=santa_monica_mtns&limit=4"
+    )
     assert response.status_code == 200
 
     body = response.json()

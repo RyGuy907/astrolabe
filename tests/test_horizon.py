@@ -367,15 +367,71 @@ def test_a_horizon_above_the_floor_removes_targets(home, kit, catalog):
     assert len(with_ridge) < len(without)
 
 
+def _by_name(site, kit, catalog, floor=5.0):
+    return {a.obj.name: a for a in
+            assess_targets(night_window(REFERENCE_DATE, site), kit,
+                           catalog=catalog, min_altitude_deg=floor)}
+
+
 @requires_ephemeris
-def test_a_steeper_horizon_removes_more(home, kit, catalog):
-    counts = {}
-    for name in ("flat", "hilly", "ridge"):
-        site = dataclasses.replace(home, horizon=preset(name))
-        counts[name] = len(assess_targets(night_window(REFERENCE_DATE, site),
-                                          kit, catalog=catalog,
-                                          min_altitude_deg=5.0))
-    assert counts["flat"] >= counts["hilly"] >= counts["ridge"]
+def test_a_steeper_horizon_never_lengthens_an_objects_window(home, kit, catalog):
+    """The invariant that actually holds: the horizon only raises the floor.
+
+    This replaces an assertion that the *number* of passing targets falls
+    monotonically as the horizon steepens. It does not, and the next test
+    documents why. What is genuinely guaranteed is per-object: no object can
+    spend more time above a higher floor.
+    """
+    flat_site = dataclasses.replace(home, horizon=FLAT)
+    ridge_site = dataclasses.replace(home, horizon=preset("ridge"))
+
+    flat = _by_name(flat_site, kit, catalog)
+    ridge = _by_name(ridge_site, kit, catalog)
+
+    shared = set(flat) & set(ridge)
+    assert shared, "expected some objects to clear both horizons"
+    for name in shared:
+        assert ridge[name].hours_above_floor <= flat[name].hours_above_floor + 1e-9, (
+            f"{name} gained observable time under a steeper horizon"
+        )
+
+
+@requires_ephemeris
+def test_a_steeper_horizon_can_admit_targets_a_shallower_one_rejects(home,
+                                                                     kit,
+                                                                     catalog):
+    """Non-monotonic target counts, and why that is correct behaviour.
+
+    Found when the seeded site changed and an assertion that `flat >= hilly >=
+    ridge` failed with 380 / 363 / **366** -- the steepest horizon admitting
+    more than the middle one.
+
+    The cause is an interaction between two filters. `moon_separation_deg` is
+    the minimum separation *while the moon is up, during the object's
+    above-floor window*. Raising the floor trims that window. For an object
+    low in the moonlit part of the sky, the trimmed window can fall entirely
+    after moonset -- so its moon separation stops being a small number and
+    becomes the "moon never up" sentinel, and it passes a filter it previously
+    failed.
+
+    That is the right answer, not a bug: if the ridge blocks the object while
+    the moon is up, the only time it is observable is after moonset, when the
+    moon genuinely is not a problem. The engine is being more careful than the
+    intuition was.
+    """
+    hilly = _by_name(dataclasses.replace(home, horizon=preset("hilly")),
+                     kit, catalog)
+    ridge = _by_name(dataclasses.replace(home, horizon=preset("ridge")),
+                     kit, catalog)
+
+    gained = set(ridge) - set(hilly)
+    for name in gained:
+        entry = ridge[name]
+        # Each one survives precisely because its remaining window dodges the
+        # moon, not because the filter got looser.
+        assert entry.moon_separation_deg >= entry.required_separation_deg, (
+            f"{name} was admitted without clearing the moon-separation rule"
+        )
 
 
 @requires_ephemeris

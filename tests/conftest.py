@@ -34,7 +34,8 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from engine.ephem import ephemeris_is_cached, night_window  # noqa: E402
-from engine.locations import get_location  # noqa: E402
+from engine.horizon import preset  # noqa: E402
+from engine.locations import Location, get_location  # noqa: E402
 
 REFERENCE_DATE = date(2026, 9, 15)
 
@@ -87,15 +88,42 @@ def pytest_terminal_summary(terminalreporter, exitstatus, config):
     )
 
 
+#: A fixed, synthetic observing site: suburban Southern California, Bortle 5.
+#:
+#: Not a real place and not read from `config/locations.yaml`. Tests that
+#: assert astronomy -- which objects clear the filters, what the limiting
+#: magnitude is, how the novelty bonus behaves -- need a *stable sky*, and the
+#: shipped config is an editable example that anyone may change.
+#:
+#: This was not hypothetical. When the seeded default moved to Griffith
+#: Observatory (Bortle 8, inner Los Angeles) twelve tests failed at once,
+#: including Phase 1's acceptance check that M31 ranks highly. Nothing was
+#: wrong: from a Bortle 8 sky M31's surface brightness genuinely fails the
+#: contrast test. But a change to an example config should not be able to
+#: invalidate the suite's astronomical expectations, so those expectations now
+#: hang off this instead.
+TEST_SITE = Location(
+    key="test_site",
+    name="Test Site (suburban, Bortle 5)",
+    lat=34.0,
+    lon=-118.5,
+    elevation_m=300.0,
+    bortle=5,
+    tz="America/Los_Angeles",
+    horizon=preset("hilly"),
+)
+
+
 @pytest.fixture(scope="session")
 def home():
-    """The default configured site, used as a generic observing location.
+    """The standard observing site for astronomy assertions.
 
-    Tests that pin externally-verified values do **not** use this fixture —
-    they define their own site, so that editing the shipped config can never
-    silently change what a reference test is asserting.
+    Named `home` for historical reasons and to keep the nine test modules
+    that use it unchanged; it is `TEST_SITE`, not the configured default.
+    Tests that genuinely check config wiring call `get_location("home")`
+    directly instead.
     """
-    return get_location("home")
+    return TEST_SITE
 
 
 @pytest.fixture(scope="session")

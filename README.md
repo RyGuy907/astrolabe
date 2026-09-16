@@ -5,6 +5,9 @@ point at? See [PLAN.md](PLAN.md) for the full spec.
 
 **Status: all phases (0-5) complete.** See [PHASES.md](PHASES.md) for per-phase state.
 
+The code is MIT licensed ([LICENSE](LICENSE)). The bundled star catalogue is
+not -- see [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+
 ## Setup
 
 ```bash
@@ -67,7 +70,7 @@ npm --prefix web run dev
 "Tonight" follows PLAN.md §3.1: before local noon you are mid-session, so the
 night in progress is the one that began yesterday.
 
-Also available: `planner locations`, `planner equipment`.
+Also available: `planner locations`.
 
 On first use of `planner targets`, the vendored OpenNGC CSV is parsed once into
 a SQLite cache next to the ephemeris. Both are local file reads.
@@ -83,7 +86,7 @@ engine/     pure Python; no web imports, no I/O beyond local caches
   locations.py   locations.yaml -> Location, timezone from coordinates
   ephem.py       Skyfield setup, night_window(), altaz_series()
   equipment.py   limiting magnitude, extinction, airmass
-  targets.py     filters, detectability, framing, ranking, grouping
+  targets.py     filters, detectability, ranking, grouping
   planets.py     apparitions, oppositions, elongations, next visibility
   events.py      meteor showers, lunar eclipses, conjunctions
   scoring.py     dual deep-sky/planetary condition scores
@@ -196,18 +199,25 @@ time.
 ## Verification
 
 Computed values are cross-checked against published external sources, per
-PLAN.md §7. Reference night: **2026-09-15, Agoura Hills (34.1361, -118.7745)**.
+PLAN.md §7. Reference night: **2026-09-15, Griffith Observatory
+(34.11833, −118.300333)** — a public landmark, so anyone can re-run the
+queries below and check the answers for themselves.
 
 | Quantity | Computed | External | Source | Delta |
 |---|---|---|---|---|
-| Sunset | 19:01:24 PDT | 19:01 | USNO | +0.4 s |
-| Civil twilight ends | 19:26:28 PDT | 19:26 | USNO | +28 s |
-| Astronomical twilight ends | 20:25:41 PDT | 20:26 | sunrise-sunset.org | −19 s |
-| Moonrise | 11:19:46 PDT | 11:20 | USNO | −14 s |
-| Moonset | 21:24:27 PDT | 21:24 | USNO | +27 s |
+| Sunset | 18:59:30 PDT | 19:00 | USNO | −30 s |
+| Civil twilight ends | 19:24:34 PDT | 19:25 | USNO | −26 s |
+| Astronomical twilight ends | 20:23:46 PDT | 20:24 | sunrise-sunset.org | −14 s |
+| Moonrise | 11:17:45 PDT | 11:18 | USNO | −15 s |
+| Moonset | 21:22:33 PDT | 21:23 | USNO | −27 s |
 | Moon illuminated (local noon) | 22.2% | 22% | USNO | +0.2 pp |
 
-Sources, both retrieved 2026-08-25:
+Every delta is under a minute against sources that publish to the minute.
+USNO was queried in both `tz=-7&dst=false` and `tz=-8&dst=true` form; the two
+agree exactly on every value, which is the cross-check that catches USNO's
+double-DST trap.
+
+Sources, both retrieved 2026-09-15:
 
 - **USNO** — US Naval Observatory Astronomical Applications API v4.0.1,
   `aa.usno.navy.mil/api/rstt/oneday`. Elevation-aware. Does not publish

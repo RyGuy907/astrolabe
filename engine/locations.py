@@ -20,6 +20,15 @@ BORTLE_SQM = {
 CONFIG_DIR = Path(__file__).resolve().parent.parent / "config"
 DEFAULT_LOCATIONS_PATH = CONFIG_DIR / "locations.yaml"
 
+#: Optional, gitignored override merged over the committed config.
+#:
+#: The shipped `locations.yaml` holds public example sites, because a real
+#: observing site is usually somebody's home to four decimal places -- about
+#: 11 m -- and that does not belong in a public repository. Keep your own
+#: sites here instead: same schema, merged on top, and a key defined in both
+#: files takes its definition from this one. A `default:` here also wins.
+LOCAL_LOCATIONS_PATH = CONFIG_DIR / "locations.local.yaml"
+
 
 class LocationError(KeyError):
     """Raised when a requested location key is not in the config."""
@@ -66,11 +75,37 @@ def _resolve_tz(lat: float, lon: float) -> str:
     return tz or "UTC"
 
 
+def _read_yaml(path: Path) -> dict:
+    with open(path, encoding="utf-8") as fh:
+        return yaml.safe_load(fh) or {}
+
+
+def _merged_config(path: Path | None = None) -> dict:
+    """The committed config, with any local override merged over it.
+
+    The override is only consulted when the caller did not name an explicit
+    path, so tests that point at a temporary config stay hermetic and cannot
+    pick up whatever sites the developer happens to have locally.
+    """
+    if path is not None:
+        return _read_yaml(path)
+
+    raw = _read_yaml(DEFAULT_LOCATIONS_PATH)
+    if not LOCAL_LOCATIONS_PATH.exists():
+        return raw
+
+    local = _read_yaml(LOCAL_LOCATIONS_PATH)
+    merged = dict(raw)
+    merged["locations"] = {**(raw.get("locations") or {}),
+                           **(local.get("locations") or {})}
+    if local.get("default"):
+        merged["default"] = local["default"]
+    return merged
+
+
 def load_locations(path: Path | None = None) -> dict[str, Location]:
     """Parse locations.yaml into `key -> Location`, resolving timezones."""
-    path = path or DEFAULT_LOCATIONS_PATH
-    with open(path, encoding="utf-8") as fh:
-        raw = yaml.safe_load(fh) or {}
+    raw = _merged_config(path)
 
     out: dict[str, Location] = {}
     for key, spec in (raw.get("locations") or {}).items():
@@ -90,13 +125,13 @@ def load_locations(path: Path | None = None) -> dict[str, Location]:
 
 
 def default_location_key(path: Path | None = None) -> str:
-    """The `default:` key from locations.yaml."""
-    path = path or DEFAULT_LOCATIONS_PATH
-    with open(path, encoding="utf-8") as fh:
-        raw = yaml.safe_load(fh) or {}
+    """The `default:` key, from the local override if it sets one."""
+    raw = _merged_config(path)
     key = raw.get("default")
     if not key:
-        raise LocationError(f"{path} has no `default:` key")
+        raise LocationError(
+            f"{path or DEFAULT_LOCATIONS_PATH} has no `default:` key"
+        )
     return key
 
 

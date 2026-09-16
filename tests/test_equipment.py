@@ -109,10 +109,13 @@ def test_limiting_mag_at_home_site(ad8):
 
     Naked eye 4.3 + (20.4-18.0)*3.5/3.9 = 6.45, plus 5*log10(203/6.5) = 7.47.
     """
-    home = get_location("home")
-    assert home.sqm == 20.4
-    assert naked_eye_limiting_mag(home.sqm) == pytest.approx(6.45, abs=0.01)
-    assert telescopic_limiting_mag(ad8, home.sqm, 6.5) == pytest.approx(13.93, abs=0.02)
+    # An explicit SQM, not whatever the example config currently ships: this
+    # test is about the limiting-magnitude maths, and pinning it to a config
+    # value made it fail when the seeded site changed.
+    sqm = BORTLE_SQM[5]
+    assert sqm == 20.4
+    assert naked_eye_limiting_mag(sqm) == pytest.approx(6.45, abs=0.01)
+    assert telescopic_limiting_mag(ad8, sqm, 6.5) == pytest.approx(13.93, abs=0.02)
 
 
 # --- airmass and extinction -------------------------------------------------

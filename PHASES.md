@@ -49,7 +49,7 @@ appear in the displayed Nebulae group. Both assertions are in
 **Delivered:**
 - [x] `engine/catalog/loader.py` — OpenNGC → SQLite, 12,371 objects after dedup
 - [x] `engine/catalog/data/` — vendored NGC.csv + addendum.csv (CC-BY-SA)
-- [x] `engine/targets.py` — filters, detectability, framing, ranking, grouping
+- [x] `engine/targets.py` — filters, detectability, ranking, grouping
 - [x] `cli` — `planner targets`
 - [x] Tests including the M42/M31 acceptance check
 
@@ -168,7 +168,7 @@ memoized, which is what keeps it from being far worse.
 
 ---
 
-## Phase 4 — API + web UI — not started
+## Phase 4 — API + web UI — done
 
 **Acceptance:** FastAPI endpoints per PLAN.md §6; React UI with date picker,
 location selector, score dial, hourly conditions strip, collapsible target
@@ -219,8 +219,9 @@ specifically remain offline.
 **Gap found after the phase closed and since fixed:** the web UI had no events
 view at all. `api.events()` existed in the TypeScript client but nothing called
 it, so meteor showers, eclipses and conjunctions were reachable only via
-`planner events` and `GET /api/events`. `web/src/components/EventsPanel.tsx`
-now surfaces them with a 30 day / 90 day / 1 year horizon selector, including
+`planner events` and `GET /api/events`. An Events tab in
+`web/src/components/SkyPanel.tsx`, plus the `EventAlert.tsx` banner, now
+surface them with a 30 day / 90 day / 1 year horizon selector, including
 the "solar eclipses not implemented" notice so an empty list is never read as
 "there are none".
 

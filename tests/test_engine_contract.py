@@ -59,11 +59,18 @@ def test_both_seeded_locations_load():
 
 
 def test_home_matches_the_configured_values():
+    """The shipped example config, not the tests' synthetic site.
+
+    This is deliberately the one place that asserts what
+    `config/locations.yaml` actually contains. Everything else that needs a
+    site uses conftest.TEST_SITE, so editing the example config breaks this
+    test and nothing else.
+    """
     home = get_location("home")
-    assert home.name == "Agoura Hills"
-    assert (home.lat, home.lon) == (34.1361, -118.7745)
-    assert home.elevation_m == 300
-    assert home.bortle == 5
+    assert home.name == "Griffith Observatory"
+    assert (home.lat, home.lon) == (34.11833, -118.300333)
+    assert home.elevation_m == 346
+    assert home.bortle == 8
 
 
 def test_timezone_is_resolved_from_coordinates():
@@ -73,7 +80,7 @@ def test_timezone_is_resolved_from_coordinates():
 
 
 def test_bortle_maps_to_sqm():
-    assert get_location("home").sqm == BORTLE_SQM[5] == 20.4
+    assert get_location("home").sqm == BORTLE_SQM[8] == 18.0
     assert get_location("santa_monica_mtns").sqm == BORTLE_SQM[4] == 20.9
 
 

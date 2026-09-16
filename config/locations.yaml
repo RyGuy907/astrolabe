@@ -1,12 +1,21 @@
 default: home
 
 locations:
+  # Example sites, chosen so the shipped config contains no private address.
+  # Add your own with the "Sites..." button in the web UI, or put them in
+  # config/locations.local.yaml, which is gitignored.
   home:
-    name: "Agoura Hills"
-    lat: 34.1361
-    lon: -118.7745
-    elevation_m: 300
-    bortle: 5
+    name: "Griffith Observatory"
+    # 34.11833 N, 118.300333 W, 346 m - https://en.wikipedia.org/wiki/Griffith_Observatory
+    lat: 34.11833
+    lon: -118.300333
+    elevation_m: 346
+    # ESTIMATE, not a measurement: inner Los Angeles reads Bortle 8 on
+    # published light-pollution maps. It is written here as a number because
+    # leaving it unset would silently fall back to Bortle 5 (see
+    # engine/targets.py), which would be a worse guess stated less honestly.
+    # Replace with an atlas lookup once engine/skybrightness.py exists.
+    bortle: 8
     # Obstruction horizon. Any of:
     #   horizon: hilly                          a preset
     #   horizon: {preset: ridge, facing: 250}   a preset, pointed where the
