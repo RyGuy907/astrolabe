@@ -113,28 +113,134 @@ def test_lookup_is_off_rather_than_broken_without_a_raster(monkeypatch):
     assert is_configured() is False
 
 
-@requires_raster
-def test_a_configured_raster_returns_a_plausible_sky():
-    """Whatever the raster, a readable value has to sit on the real scale."""
-    sqm = sqm_at(34.11833, -118.300333)      # Griffith Observatory
-    assert sqm is not None, "raster configured but returned nothing for Los Angeles"
-    assert 15.0 <= sqm <= 22.5, f"implausible SQM {sqm}; check the raster's units"
+def _raster_sample_points(count: int = 12) -> list[tuple[float, float]]:
+    """A spread of coordinates inside whatever raster is configured.
 
-
-@requires_raster
-def test_a_city_is_brighter_than_a_desert():
-    """The ordering that any correct raster must reproduce, whatever its units.
-
-    Downtown Los Angeles against the Racetrack Playa in Death Valley, an
-    IDA-certified dark-sky park roughly 300 km away.
+    The first version of these tests hardcoded Los Angeles and Death Valley,
+    which quietly assumed a raster covering California. Pointed at a regional
+    export of Utah they failed for the wrong reason -- the code was fine, the
+    coordinates simply were not covered. Reading the extent from the raster
+    keeps the assertions about the *data* rather than about which region
+    somebody happened to download.
     """
-    city = sqm_at(34.0522, -118.2437)
-    desert = sqm_at(36.6814, -117.5622)
-    assert city is not None and desert is not None
-    assert desert > city + 2.0, (
-        f"desert SQM {desert} should be far darker than city {city}; "
-        "if it is not, the raster units or axis order are probably wrong"
+    import rasterio
+
+    from engine.skybrightness import raster_path
+
+    with rasterio.open(str(raster_path())) as dataset:
+        west, south, east, north = dataset.bounds
+
+    # An interior grid; the outer margin is skipped because a clipped export
+    # often has nodata around its edge.
+    points = []
+    for i in range(1, 4):
+        for j in range(1, 5):
+            lat = south + (north - south) * i / 4
+            lon = west + (east - west) * j / 5
+            points.append((lat, lon))
+    return points[:count]
+
+
+@requires_raster
+def test_a_configured_raster_reads_plausible_sky_brightness():
+    """Every value the raster yields has to sit on the real SQM scale.
+
+    This is the check that catches wrong units, which is the likeliest way to
+    misuse this module: a raster in mcd/cm² rather than mcd/m² is out by four
+    orders of magnitude and would land nowhere near 15-22.5.
+    """
+    readings = [sqm_at(lat, lon) for lat, lon in _raster_sample_points()]
+    got = [r for r in readings if r is not None]
+
+    assert got, "raster configured but no sampled point returned a value"
+    for value in got:
+        assert 15.0 <= value <= 22.5, (
+            f"implausible SQM {value:.2f}; the raster's units are probably not "
+            "artificial brightness in mcd/m2"
+        )
+
+
+def _raster_percentiles(low: float = 1.0, high: float = 99.0):
+    """Low and high artificial-brightness percentiles from the raster itself.
+
+    Sampling a grid of coordinates and hoping to hit a city does not work: a
+    regular twelve-point grid over Utah landed entirely in empty desert and
+    spanned half a magnitude, because the lit ground is a handful of small
+    dots in a very dark state. Asking the data for its own distribution tests
+    the same thing without depending on where the points fall.
+    """
+    import numpy as np
+    import rasterio
+
+    from engine.skybrightness import raster_path
+
+    with rasterio.open(str(raster_path())) as dataset:
+        # Decimated read: a regional export is small, a global atlas is not,
+        # and the distribution survives downsampling perfectly well.
+        shape = (min(dataset.height, 1024), min(dataset.width, 1024))
+        band = dataset.read(1, out_shape=shape)
+        nodata = dataset.nodata
+
+    values = band[np.isfinite(band)]
+    if nodata is not None:
+        values = values[values != nodata]
+    values = values[values >= 0]
+    assert values.size, "raster contains no usable cells"
+    return float(np.percentile(values, low)), float(np.percentile(values, high))
+
+
+@requires_raster
+def test_the_raster_actually_varies():
+    """A constant raster would pass the range check and be useless.
+
+    Catches an all-nodata read, a misread band, and a projection error that
+    returns the same cell everywhere.
+    """
+    low, high = _raster_percentiles()
+    dark = sqm_from_artificial_brightness(low)
+    bright = sqm_from_artificial_brightness(high)
+
+    assert dark > bright, "more artificial light must mean a lower SQM"
+    assert dark - bright >= 0.5, (
+        f"sky brightness barely varies across the raster "
+        f"({bright:.2f}-{dark:.2f} SQM); suspect a band or projection error"
     )
+
+
+@requires_raster
+def test_darker_sky_means_a_higher_sqm_and_a_lower_bortle():
+    """The direction of the scale, which is easy to get backwards.
+
+    More light means a *lower* SQM and a *higher* Bortle class.
+    """
+    got = [(r, bortle_from_sqm(r)) for r in
+           (sqm_at(lat, lon) for lat, lon in _raster_sample_points())
+           if r is not None]
+    darkest = max(got, key=lambda pair: pair[0])
+    brightest = min(got, key=lambda pair: pair[0])
+    assert darkest[1] <= brightest[1], (
+        f"darkest sky SQM {darkest[0]:.2f} maps to Bortle {darkest[1]} while "
+        f"brightest SQM {brightest[0]:.2f} maps to Bortle {brightest[1]}"
+    )
+
+
+@requires_raster
+def test_outside_coverage_is_none_rather_than_a_guess():
+    """PLAN.md §2 asks for None outside coverage rather than a guess.
+
+    A regional export covers a box; the antipode of its centre certainly is
+    not in it.
+    """
+    import rasterio
+
+    from engine.skybrightness import raster_path
+
+    with rasterio.open(str(raster_path())) as dataset:
+        west, south, east, north = dataset.bounds
+    antipodal_lat = -((south + north) / 2)
+    antipodal_lon = ((west + east) / 2 + 180) % 360 - 180
+
+    assert sqm_at(antipodal_lat, antipodal_lon) is None
 
 
 # --- precedence: the observer outranks the atlas ----------------------------

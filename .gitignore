@@ -23,6 +23,15 @@ npm-debug.log*
 *.bsp
 *.sqlite3
 
+# --- Light-pollution rasters ---
+# Never committed. These are third-party derived products whose redistribution
+# terms are not ours to assume, they are large, and engine/skybrightness.py is
+# designed to read one you supply rather than one this repo ships. See the
+# README section on sky brightness.
+*.tif
+*.tiff
+*.h5
+
 # --- Local configuration ---
 # config/locations.yaml is committed with public example sites. Keep your own
 # observing sites — which are often your home address to four decimal places —
