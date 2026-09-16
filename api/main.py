@@ -63,6 +63,7 @@ from .schemas import (
     LocationModel,
     NewLocationRequest,
     SkyBrightnessCoverage,
+    SkyBrightnessReading,
     NightResponse,
     NightWindowModel,
     PlanetModel,
@@ -740,6 +741,27 @@ def skybrightness_coverage() -> SkyBrightnessCoverage:
     return SkyBrightnessCoverage(
         configured=is_configured(),
         bounds=list(bounds) if bounds else None,
+    )
+
+
+@app.get("/api/skybrightness/at", response_model=SkyBrightnessReading,
+         tags=["locations"])
+def skybrightness_at(lat: float = Query(..., ge=-90.0, le=90.0),
+                     lon: float = Query(..., ge=-180.0, le=180.0),
+                     ) -> SkyBrightnessReading:
+    """What the atlas says about one point, for the add-site form.
+
+    Lets the form fill the Bortle class in rather than asking the observer to
+    recall one. Outside coverage the answer is null, which the form treats as
+    "you will have to tell me" rather than quietly assuming a suburban sky.
+    """
+    from engine.skybrightness import bortle_from_sqm, sqm_at
+
+    sqm = sqm_at(lat, lon)
+    return SkyBrightnessReading(
+        sqm=sqm,
+        bortle=None if sqm is None else bortle_from_sqm(sqm),
+        in_coverage=sqm is not None,
     )
 
 

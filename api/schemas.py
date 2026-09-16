@@ -365,6 +365,25 @@ class SkyBrightnessCoverage(BaseModel):
     )
 
 
+class SkyBrightnessReading(BaseModel):
+    """The atlas's answer for one coordinate."""
+
+    sqm: float | None = Field(
+        default=None,
+        description="Total sky brightness, mag/arcsec^2, or null when the "
+                    "point falls outside the raster or on a nodata cell.",
+    )
+    bortle: int | None = Field(
+        default=None,
+        description="`sqm` expressed as a Bortle class, or null. Display "
+                    "only; SQM is the internal unit.",
+    )
+    in_coverage: bool = Field(
+        description="False when the atlas simply has nothing here, which is "
+                    "a real answer and not an error.",
+    )
+
+
 class GeocodeCandidate(BaseModel):
     label: str
     name: str

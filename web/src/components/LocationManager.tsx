@@ -34,6 +34,7 @@ import {
   ApiError,
   type GeocodeCandidate,
   type LocationModel,
+  type SkyBrightnessReading,
 } from "../api";
 import { SitePicker } from "./SitePicker";
 
@@ -236,14 +237,34 @@ export function LocationManager({ locations, onClose, onCreated, onDeleted }: Pr
   const [bortle, setBortle] = useState<string>("");
   const [horizon, setHorizon] = useState("flat");
   const [facing, setFacing] = useState(0);
+  //: What the atlas says for the coordinates currently in the form. Null
+  //: until asked; `in_coverage: false` means it has nothing here.
+  const [atlas, setAtlas] = useState<SkyBrightnessReading | null>(null);
+  //: True once the observer has touched the Bortle field themselves. From
+  //: that point the atlas stops overwriting it -- their judgement about
+  //: their own sky outranks a lookup, which is the same rule the engine
+  //: applies to a value set in config.
+  const [bortleEdited, setBortleEdited] = useState(false);
 
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [confirming, setConfirming] = useState<string | null>(null);
+  const [showAdvanced, setShowAdvanced] = useState(false);
 
   const dialog = useRef<HTMLDivElement>(null);
   useModalBehaviour(dialog, onClose);
+
+  const latValue = Number(lat);
+  const lonValue = Number(lon);
+  const latValid = lat.trim() !== "" && Number.isFinite(latValue) &&
+    latValue >= -90 && latValue <= 90;
+  const lonValid = lon.trim() !== "" && Number.isFinite(lonValue) &&
+    lonValue >= -180 && lonValue <= 180;
+  const elevationValid = elevation.trim() === "" || Number.isFinite(Number(elevation));
+  const keyValid = normaliseKey(key) !== "";
+  const keyTaken = locations.some((l) => l.key === normaliseKey(key));
+  const bortleChosen = bortle !== "";
 
   // --- debounced, cancellable geocode ---------------------------------------
   // The timer means a burst of keystrokes issues one request, not one each; the
@@ -284,6 +305,47 @@ export function LocationManager({ locations, onClose, onCreated, onDeleted }: Pr
     };
   }, [search]);
 
+  // Ask the atlas whenever the coordinates settle, and fill the Bortle class
+  // in. This is the whole point of having a raster: the observer should not
+  // be recalling a class from memory when the answer is on disk. Debounced
+  // and cancellable for the same reason the geocode call is -- these
+  // coordinates change on every keystroke in the lat/lon fields.
+  useEffect(() => {
+    if (!latValid || !lonValid) {
+      setAtlas(null);
+      return;
+    }
+    const controller = new AbortController();
+    const timer = window.setTimeout(() => {
+      api
+        .skyBrightnessAt(latValue, lonValue, controller.signal)
+        .then((reading) => {
+          setAtlas(reading);
+          if (bortleEdited) return;          // theirs now; leave it alone
+
+          if (reading.bortle !== null) {
+            setBortle(String(reading.bortle));
+          } else {
+            // Moving outside coverage has to clear the field, not leave the
+            // last answer sitting there. Otherwise looking at Salt Lake City
+            // and then at Los Angeles saves Los Angeles as Bortle 7 -- a
+            // stale reading for somewhere else, with nothing on screen
+            // saying so.
+            setBortle("");
+          }
+        })
+        .catch(() => {
+          /* no atlas, offline, or superseded: the field stays as it is */
+        });
+    }, 250);
+
+    return () => {
+      window.clearTimeout(timer);
+      controller.abort();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [latValid, lonValid, latValue, lonValue, bortleEdited]);
+
   function pickCandidate(candidate: GeocodeCandidate) {
     setChosen(candidate);
     setName(candidate.label);
@@ -309,6 +371,8 @@ export function LocationManager({ locations, onClose, onCreated, onDeleted }: Pr
     setLon("");
     setElevation("");
     setBortle("");
+    setBortleEdited(false);
+    setAtlas(null);
     setHorizon("flat");
     setFacing(0);
     setSearch("");
@@ -316,20 +380,14 @@ export function LocationManager({ locations, onClose, onCreated, onDeleted }: Pr
     setSearchState("idle");
   }
 
-  const latValue = Number(lat);
-  const lonValue = Number(lon);
-  const latValid = lat.trim() !== "" && Number.isFinite(latValue) &&
-    latValue >= -90 && latValue <= 90;
-  const lonValid = lon.trim() !== "" && Number.isFinite(lonValue) &&
-    lonValue >= -180 && lonValue <= 180;
-  const elevationValid = elevation.trim() === "" || Number.isFinite(Number(elevation));
-  const keyValid = normaliseKey(key) !== "";
-  const keyTaken = locations.some((l) => l.key === normaliseKey(key));
-  const bortleChosen = bortle !== "";
-
   const canSave =
     !busy && latValid && lonValid && elevationValid && keyValid && !keyTaken &&
     bortleChosen && name.trim() !== "";
+  //: The atlas answered for these coordinates, so the Bortle field filled
+  //: itself and the observer has not overridden it.
+  const bortleFromAtlas =
+    !bortleEdited && atlas?.bortle !== null && atlas?.bortle !== undefined &&
+    bortle === String(atlas.bortle);
 
   async function save() {
     setBusy(true);
@@ -513,6 +571,22 @@ export function LocationManager({ locations, onClose, onCreated, onDeleted }: Pr
                 placeholder="Site name"
               />
             </label>
+          </div>
+
+          {/* Name is the only field that needs a person. The coordinates come
+              from the map, the Bortle class from the atlas, and the key is
+              derived -- so the rest is here for when it is wrong, not as a
+              form to fill in. */}
+          <button
+            className="link-button advanced-toggle"
+            onClick={() => setShowAdvanced(!showAdvanced)}
+            aria-expanded={showAdvanced}
+          >
+            <span className="caret">{showAdvanced ? "▾" : "▸"}</span>
+            Advanced settings
+          </button>
+
+          <div className="site-form" hidden={!showAdvanced}>
             <label>
               <span>Key</span>
               <input
@@ -559,8 +633,21 @@ export function LocationManager({ locations, onClose, onCreated, onDeleted }: Pr
               />
             </label>
             <label>
-              <span>Bortle class</span>
-              <select value={bortle} onChange={(e) => setBortle(e.target.value)}>
+              <span>
+                Bortle class
+                {bortleFromAtlas && (
+                  <span className="field-note"> from atlas</span>
+                )}
+              </span>
+              <select
+                value={bortle}
+                onChange={(e) => {
+                  setBortle(e.target.value);
+                  // From here the atlas stops overwriting it: the observer's
+                  // own judgement about their own sky outranks a lookup.
+                  setBortleEdited(true);
+                }}
+              >
                 <option value="">— choose —</option>
                 {BORTLE_CLASSES.map(([value, label]) => (
                   <option key={value} value={String(value)}>
@@ -618,17 +705,6 @@ export function LocationManager({ locations, onClose, onCreated, onDeleted }: Pr
             </p>
           )}
 
-          {bortle === "unknown" && (
-            <p className="warning">
-              With no Bortle class this site is scored as{" "}
-              <strong>Bortle 5 (SQM 20.4)</strong>, a suburban sky. That sets the
-              limiting magnitude and the surface-brightness contrast test, so it
-              changes <em>which objects appear at all</em> — not just their
-              ranking. The site will be labelled “assumed” everywhere until you
-              set a real value.
-            </p>
-          )}
-
           {keyTaken && (
             <p className="warning">
               A site with the key <code>{normaliseKey(key)}</code> already exists.
@@ -640,9 +716,12 @@ export function LocationManager({ locations, onClose, onCreated, onDeleted }: Pr
             <button className="secondary" onClick={save} disabled={!canSave}>
               {busy ? "Saving…" : "Save site"}
             </button>
-            {!bortleChosen && (
+            {/* Only worth saying where the atlas cannot answer -- inside its
+                coverage the field fills itself and there is nothing to
+                prompt about. */}
+            {!bortleChosen && atlas?.in_coverage === false && (
               <span className="muted small">
-                Choose a Bortle class — or “I don’t know” — before saving.
+                Outside the atlas — set the Bortle class yourself.
               </span>
             )}
           </div>

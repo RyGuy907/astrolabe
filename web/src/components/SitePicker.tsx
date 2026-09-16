@@ -275,9 +275,6 @@ export function SitePicker({ lat, lon, onPick }: Props) {
           />
           <span>Show light pollution</span>
         </label>
-        <span className="muted small">
-          VIIRS night lights — bright means washed-out sky. Pick somewhere dark.
-        </span>
       </div>
 
       <p className="muted small">

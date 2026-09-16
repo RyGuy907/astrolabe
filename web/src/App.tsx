@@ -395,17 +395,12 @@ export default function App() {
               {location.lon.toFixed(3)} · {location.elevation_m.toFixed(0)} m
               {" · "}
               {location.sky_source === "assumed" ? (
-                <span
-                  className="tag tag-warn"
-                  title="No Bortle class set for this site, so targets are filtered as SQM 20.4 — a suburban sky. That changes which objects appear at all."
-                >
-                  Bortle 5 (assumed)
-                  <span className="visually-hidden">
-                    {" "}— no Bortle class is set for this site, so targets are
-                    filtered as SQM 20.4, a suburban sky. That changes which
-                    objects appear at all.
-                  </span>
-                </span>
+                // Two words, not a lecture. The atlas answers for anywhere it
+                // covers and the form will not save a site without a class,
+                // so this is now a rare state rather than the common one --
+                // but a site with no class really is assumed, and showing it
+                // as though it were a known Bortle 5 would be a lie.
+                <span className="tag">Bortle 5 (assumed)</span>
               ) : location.sky_source === "atlas" ? (
                 <span
                   className="tag"

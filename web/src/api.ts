@@ -40,6 +40,14 @@ export interface SkyBrightnessCoverage {
   bounds: number[] | null;
 }
 
+/** The atlas's answer for one coordinate. */
+export interface SkyBrightnessReading {
+  sqm: number | null;
+  bortle: number | null;
+  /** False when the atlas simply has nothing here — a real answer. */
+  in_coverage: boolean;
+}
+
 export interface GeocodeCandidate {
   label: string;
   name: string;
@@ -410,6 +418,12 @@ export const api = {
 
   /** Used by the map picker to open where the atlas actually has data. */
   skyBrightness: () => get<SkyBrightnessCoverage>("/api/skybrightness"),
+
+  /** What the atlas says at one point, so the form can fill Bortle in. */
+  skyBrightnessAt: (lat: number, lon: number, signal?: AbortSignal) =>
+    get<SkyBrightnessReading>(
+      `/api/skybrightness/at${query({ lat, lon })}`, signal,
+    ),
 
   createLocation: (body: NewLocationRequest) =>
     post<LocationModel>("/api/locations", body),

@@ -953,6 +953,22 @@ table.targets tr.charted { background: rgba(244, 201, 93, 0.06); }
 }
 .empty-state h2 { margin: 0; font-size: 1.15rem; }
 
+/* A quiet note beside a field label, for saying where a value came from. */
+.field-note {
+  color: var(--accent);
+  text-transform: none;
+  letter-spacing: 0;
+  font-weight: 600;
+}
+
+.advanced-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin: 4px 0 10px;
+  font-size: 0.85rem;
+}
+
 footer { text-align: center; padding-top: 8px; }
 
 /* Mobile is a graceful fallback, not a separate design — the altitude chart
