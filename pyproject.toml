@@ -8,25 +8,44 @@ version = "0.1.0"
 description = "Astronomy night-planning tool: is tonight worth going out, and what should I point at?"
 requires-python = ">=3.11"
 dependencies = [
+    # --- engine ---
     "skyfield>=1.49",
+    # numpy is a transitive dependency of skyfield, but engine/targets.py
+    # imports it directly, so it is declared directly.
+    "numpy>=1.26",
     "timezonefinder>=6.5",
     "pyyaml>=6.0",
-    "typer>=0.12",
     # zoneinfo has no system tz database on Windows.
     "tzdata>=2024.1; sys_platform == 'win32'",
+    # --- cli ---
+    "typer>=0.12",
+    # --- api ---
+    # Without these the documented run command, `uvicorn api.main:app`, fails
+    # on a clean install and the whole web UI is unreachable.
+    "fastapi>=0.110",
+    "uvicorn>=0.27",
+    "pydantic>=2.6",
 ]
 
 [project.optional-dependencies]
-dev = ["pytest>=8.0"]
+# httpx is required by fastapi.testclient. Without it tests/test_api.py hits
+# its module-level `pytest.importorskip` and every API test is skipped
+# silently while the suite still exits 0.
+dev = ["pytest>=8.0", "httpx>=0.27"]
 
 [project.scripts]
 planner = "cli.main:app"
 
 [tool.hatch.build.targets.wheel]
-packages = ["engine", "cli"]
+# `api` and `db` are part of the distribution, not just the source tree:
+# cli/log_commands.py imports `db`, so omitting it broke `planner` entirely
+# under a non-editable install while working fine under `pip install -e`.
+packages = ["engine", "cli", "api", "db"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+# Unregistered marks and similar sloppiness become errors rather than warnings.
+filterwarnings = ["ignore::DeprecationWarning"]
 markers = [
     "network: test requires network access to an external reference source",
 ]

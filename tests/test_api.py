@@ -16,7 +16,15 @@ import pytest
 
 from conftest import requires_ephemeris
 
-fastapi_testclient = pytest.importorskip("fastapi.testclient")
+# fastapi is a declared runtime dependency and httpx a declared `[dev]` one,
+# so a missing TestClient means a broken install, not an absent optional
+# feature. This used to be an `importorskip`, which silently removed all 42
+# tests in this file behind a single skip line while the suite exited 0.
+fastapi_testclient = pytest.importorskip(
+    "fastapi.testclient",
+    reason="fastapi/httpx missing — install with `pip install -e \".[dev]\"`; "
+           "the API tests cannot run and this is NOT a passing suite",
+)
 
 
 @pytest.fixture(autouse=True)
