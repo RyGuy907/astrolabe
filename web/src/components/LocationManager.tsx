@@ -28,7 +28,7 @@
  *    gets written is what was on screen.
  */
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   api,
   ApiError,
@@ -113,6 +113,93 @@ interface Props {
   onDeleted: (key: string) => void;
 }
 
+/** Selector for things a keyboard can reach. `:not([disabled])` matters — a
+ *  disabled Delete button on a config-owned site must not swallow a Tab. */
+const FOCUSABLE =
+  'a[href], button:not([disabled]), input:not([disabled]), ' +
+  'select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
+
+/**
+ * The behaviour `aria-modal="true"` promises but does not provide.
+ *
+ * Declaring a dialog modal tells assistive technology the rest of the page is
+ * inert. Nothing enforces that for the keyboard, so without this the user
+ * could Tab straight out of the dialog into content their screen reader has
+ * been told does not exist, with no visible focus ring to follow. This adds
+ * the four things that make the declaration true:
+ *
+ *   - focus moves into the dialog on open, and back to whatever opened it on
+ *     close, so keyboard position is never lost;
+ *   - Tab and Shift+Tab wrap inside the dialog;
+ *   - Escape closes it, which is the first thing anyone tries;
+ *   - the page behind stops scrolling, so the wheel does not silently move
+ *     content the user cannot see.
+ */
+function useModalBehaviour(
+  dialog: React.RefObject<HTMLElement>,
+  onClose: () => void,
+) {
+  // Held in a ref so the effect can stay mount-only: re-running it would
+  // steal focus back to the dialog on every parent render.
+  const close = useRef(onClose);
+  close.current = onClose;
+
+  useEffect(() => {
+    const node = dialog.current;
+    if (!node) return;
+
+    const previouslyFocused = document.activeElement as HTMLElement | null;
+    node.focus();
+
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+
+    function visibleFocusables(): HTMLElement[] {
+      return Array.from(
+        node!.querySelectorAll<HTMLElement>(FOCUSABLE),
+      ).filter((el) => el.getClientRects().length > 0);
+    }
+
+    function onKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        event.stopPropagation();
+        close.current();
+        return;
+      }
+      if (event.key !== "Tab") return;
+
+      const items = visibleFocusables();
+      if (items.length === 0) {
+        // Nothing to land on; keep focus on the dialog rather than letting it
+        // escape to the page behind.
+        event.preventDefault();
+        node!.focus();
+        return;
+      }
+
+      const first = items[0];
+      const last = items[items.length - 1];
+      const active = document.activeElement;
+
+      if (event.shiftKey && (active === first || active === node)) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && active === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    }
+
+    node.addEventListener("keydown", onKeyDown);
+    return () => {
+      node.removeEventListener("keydown", onKeyDown);
+      document.body.style.overflow = previousOverflow;
+      previouslyFocused?.focus?.();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+}
+
 /** Nearest compass point to a bearing, for display. */
 function compassPoint(bearing: number): string {
   const names = ["N", "NE", "E", "SE", "S", "SW", "W", "NW"];
@@ -154,6 +241,9 @@ export function LocationManager({ locations, onClose, onCreated, onDeleted }: Pr
   const [error, setError] = useState<string | null>(null);
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [confirming, setConfirming] = useState<string | null>(null);
+
+  const dialog = useRef<HTMLDivElement>(null);
+  useModalBehaviour(dialog, onClose);
 
   // --- debounced, cancellable geocode ---------------------------------------
   // The timer means a burst of keystrokes issues one request, not one each; the
@@ -290,14 +380,18 @@ export function LocationManager({ locations, onClose, onCreated, onDeleted }: Pr
   return (
     <div className="modal-backdrop" onClick={onClose}>
       <div
+        ref={dialog}
         className="modal"
         role="dialog"
         aria-modal="true"
-        aria-label="Observing sites"
+        aria-labelledby="sites-dialog-title"
+        // Focusable so opening the dialog can land focus on it, which makes a
+        // screen reader announce the dialog and its label before its contents.
+        tabIndex={-1}
         onClick={(e) => e.stopPropagation()}
       >
         <div className="modal-head">
-          <h3>Observing sites</h3>
+          <h2 id="sites-dialog-title">Observing sites</h2>
           <button className="modal-close" onClick={onClose} aria-label="Close">
             ×
           </button>
@@ -355,7 +449,6 @@ export function LocationManager({ locations, onClose, onCreated, onDeleted }: Pr
                 value={search}
                 placeholder="Town, park or landmark — e.g. Lone Pine"
                 onChange={(e) => setSearch(e.target.value)}
-                autoFocus
               />
               <p className="muted small">
                 {searchState === "waiting" && "…"}
