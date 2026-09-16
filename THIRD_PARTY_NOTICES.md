@@ -59,6 +59,31 @@ use or large-scale redistribution.
 - Responses are cached to SQLite with a 3-hour TTL, keyed by rounded
   coordinates and model run, to keep request volume low.
 
+### CDS hips2fits — deep-sky survey images
+
+- **Endpoint:** `alasky.cds.unistra.fr/hips-image-services/hips2fits`
+- **Source:** Centre de Données astronomiques de Strasbourg,
+  https://cds.unistra.fr — keyless. Requested directly by the browser from a
+  URL built out of each object's catalogued position and angular size, so no
+  image data passes through this application's own server.
+- **Survey used:** `CDS/P/DSS2/color`, chosen for whole-sky coverage.
+  PanSTARRS is sharper but stops near -30 degrees declination, which would
+  leave silent gaps for southern sites.
+- **Required acknowledgement**, reproduced in the application footer and
+  beneath every image: *"This research made use of hips2fits, a service
+  provided by CDS."*
+- No rate limits are documented, which is a reason for restraint rather than a
+  licence for volume: images are requested only for target rows the user has
+  opened, and lazily even then.
+
+### OpenStreetMap — map tiles for the site picker
+
+- **Endpoint:** `tile.openstreetmap.org`
+- **Usage policy:** https://operations.osmfoundation.org/policies/tiles/ —
+  permits small personal and portfolio use with attribution, and forbids bulk
+  prefetching. Attribution is rendered by the map control; nothing prefetches.
+  Re-read that policy before deploying publicly.
+
 ### 7Timer! ASTRO — seeing and transparency
 
 - **Endpoint:** `www.7timer.info/bin/api.pl`

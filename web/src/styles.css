@@ -851,6 +851,55 @@ table.targets tr.charted { background: rgba(244, 201, 93, 0.06); }
   color: var(--accent);
 }
 
+/* --- target survey image --------------------------------------------------- */
+.target-name {
+  background: none;
+  border: none;
+  padding: 0;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+  text-align: left;
+}
+.target-name:hover strong { color: var(--accent); }
+.target-name .caret { margin-right: 4px; }
+
+.target-detail td { background: var(--panel-2); }
+
+.target-image { margin: 0; padding: 6px 0 2px; display: flex; gap: 14px; align-items: flex-start; }
+.target-image img {
+  width: 320px;
+  height: 320px;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  background: #05070b;
+  display: block;
+  flex: none;
+}
+.target-image figcaption { max-width: 42ch; line-height: 1.5; }
+.target-image figcaption strong { color: var(--text); display: block; margin-bottom: 4px; }
+.target-image-failed {
+  width: 320px;
+  min-height: 120px;
+  border: 1px dashed var(--line);
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  padding: 12px;
+  flex: none;
+}
+
+/* Survey images are blue-white photographs and would undo dark adaptation
+   faster than anything else on the page. */
+:root[data-night-vision="on"] .target-image img {
+  filter: grayscale(1) sepia(1) hue-rotate(-28deg) saturate(3) brightness(0.55);
+}
+
+@media (max-width: 700px) {
+  .target-image { flex-direction: column; }
+  .target-image img, .target-image-failed { width: 100%; height: auto; aspect-ratio: 1; }
+}
+
 footer { text-align: center; padding-top: 8px; }
 
 /* Mobile is a graceful fallback, not a separate design — the altitude chart

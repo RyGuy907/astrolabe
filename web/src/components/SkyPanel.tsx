@@ -8,6 +8,7 @@
  */
 
 import { useDeferredValue, useMemo, useState } from "react";
+import { TargetImage } from "./TargetImage";
 import type {
   EventsResponse,
   PlanetsResponse,
@@ -85,8 +86,12 @@ function TargetRow({ target, timeZone, showAll }: {
   timeZone: string;
   showAll: boolean;
 }) {
+  // Per row, and closed by default. The image is only requested once a row is
+  // opened, so browsing a 270-row list costs nothing.
+  const [open, setOpen] = useState(false);
   const designation = target.messier ? `M${target.messier}` : target.name;
   return (
+    <>
     <tr className={target.visible_tonight && !target.too_faint ? undefined : "dim"}>
       <td>
         {target.score === null ? (
@@ -98,7 +103,15 @@ function TargetRow({ target, timeZone, showAll }: {
         )}
       </td>
       <td>
-        <strong>{target.display_name}</strong>
+        <button
+          className="target-name"
+          onClick={() => setOpen(!open)}
+          aria-expanded={open}
+          title={open ? "Hide the survey image" : "Show a survey image"}
+        >
+          <span className="caret">{open ? "▾" : "▸"}</span>
+          <strong>{target.display_name}</strong>
+        </button>
         <span className="muted"> · {target.object_type}</span>
         {/* "visible late" is the badge that changes plans, so it shows in
             both modes. "visible tonight" only earns space in the unfiltered
@@ -143,6 +156,19 @@ function TargetRow({ target, timeZone, showAll }: {
       </td>
       <td className="muted">{designation}</td>
     </tr>
+    {open && (
+      <tr className="target-detail">
+        <td colSpan={6}>
+          <TargetImage
+            name={target.display_name}
+            raDeg={target.ra_deg}
+            decDeg={target.dec_deg}
+            sizeArcmin={target.size_arcmin}
+          />
+        </td>
+      </tr>
+    )}
+    </>
   );
 }
 

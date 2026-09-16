@@ -574,8 +574,12 @@ export default function App() {
 
       <footer className="muted small">
         Ephemeris DE440s · catalog OpenNGC (CC-BY-SA) · weather Open-Meteo and
-        7Timer · meteor showers IMO Working List. All times shown in the
-        observing site's timezone.
+        7Timer · meteor showers IMO Working List · survey images via hips2fits,
+        a service provided by CDS · map tiles ©{" "}
+        <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noreferrer">
+          OpenStreetMap
+        </a>{" "}
+        contributors. All times shown in the observing site's timezone.
       </footer>
     </div>
   );
