@@ -37,6 +37,9 @@ interface Props {
   onEventDaysChange: (days: number) => void;
   showAll: boolean;
   onShowAllChange: (all: boolean) => void;
+  /** True while /api/targets is in flight. It is much slower than the other
+   *  calls, so the tab needs to say so rather than looking empty. */
+  targetsPending: boolean;
 }
 
 const EVENT_HORIZONS = [30, 90, 365];
@@ -115,7 +118,7 @@ function TargetRow({ target, timeZone, showAll }: {
 
 export function SkyPanel({
   targets, planets, events, timeZone, charted, onToggleChart,
-  eventDays, onEventDaysChange, showAll, onShowAllChange,
+  eventDays, onEventDaysChange, showAll, onShowAllChange, targetsPending,
 }: Props) {
   const [tab, setTab] = useState<Tab>("targets");
   const [openGroups, setOpenGroups] = useState<Record<string, boolean>>({});
@@ -210,7 +213,10 @@ export function SkyPanel({
     : 0;
 
   return (
-    <section className="panel sky-panel">
+    <section className="panel sky-panel" aria-labelledby="sky-heading">
+      <h2 id="sky-heading" className="visually-hidden">
+        Targets, planets and events
+      </h2>
       <div className="tabs" role="tablist">
         <button
           role="tab"
@@ -260,6 +266,17 @@ export function SkyPanel({
       </div>
 
       <div className={`tab-body ${isStale ? "stale" : ""}`}>
+        {tab === "targets" && !targets && targetsPending && (
+          <p className="muted" role="status">
+            Computing tonight's targets… this one takes a few seconds — every
+            catalogued object is sampled across the night.
+          </p>
+        )}
+
+        {tab === "targets" && !targets && !targetsPending && (
+          <p className="muted">No target list for this night.</p>
+        )}
+
         {tab === "targets" && targets && (
           <>
             <div className="event-controls">

@@ -12,11 +12,27 @@ interface Props {
 export function ConditionsStrip({ slots, timeZone, weatherAvailable }: Props) {
   // Slots are half-hourly; show every other one so the strip stays readable.
   const hourly = slots.filter((_, index) => index % 2 === 0);
-  if (hourly.length === 0) return null;
+
+  // Returning null here used to make the whole panel disappear, which reads as
+  // a broken page rather than as an answer. There are no slots whenever the
+  // night cannot be scored -- most starkly at a polar site in summer, where
+  // the engine correctly reports "No astronomical night" -- so say that.
+  if (hourly.length === 0) {
+    return (
+      <section className="panel">
+        <h2>Hourly conditions</h2>
+        <p className="muted">
+          No hours to score for this night. Either there is no astronomical
+          night at this latitude on this date, or the forecast does not reach
+          it.
+        </p>
+      </section>
+    );
+  }
 
   return (
     <section className="panel">
-      <h3>Hourly conditions</h3>
+      <h2>Hourly conditions</h2>
       <div className="strip">
         {hourly.map((slot) => (
           <div key={slot.time} className="strip-cell">

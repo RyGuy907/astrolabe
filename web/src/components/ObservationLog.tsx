@@ -106,19 +106,21 @@ export function ObservationLog({ date, locationKey, timeZone }: Props) {
 
   return (
     <section className="panel">
-      <button
-        className="group-head"
-        onClick={() => setOpen(!open)}
-        aria-expanded={open}
-      >
+      <h2 className="panel-heading">
+        <button
+          className="group-head"
+          onClick={() => setOpen(!open)}
+          aria-expanded={open}
+        >
         <span className="caret">{open ? "▾" : "▸"}</span>
         Observation log
         <span className="muted">
           {session
             ? `session ${session.id} · ${session.observations.length} logged`
             : "not started for this night"}
-        </span>
-      </button>
+          </span>
+        </button>
+      </h2>
 
       {open && (
         <>

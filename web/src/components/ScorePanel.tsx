@@ -99,7 +99,12 @@ export function ScorePanel({ score, window: night }: {
   const tz = night.location.timezone;
 
   return (
-    <section className="panel score-panel">
+    <section className="panel score-panel" aria-labelledby="score-heading">
+      {/* Visually redundant next to the dials, but it gives the panel a name
+          in the document outline so a screen reader can jump to it. */}
+      <h2 id="score-heading" className="visually-hidden">
+        Tonight's conditions
+      </h2>
       <div className="score-top">
         <div className="dials">
           <Dial

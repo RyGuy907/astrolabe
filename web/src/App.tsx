@@ -89,7 +89,13 @@ export default function App() {
   // "Visible tonight" lists only what passes the observability filters;
   // "All targets" drops the filtering entirely and badges each row instead.
   const [showAllTargets, setShowAllTargets] = useState(false);
-  const [loading, setLoading] = useState(true);
+  // Tracked per request, not as one flag. The three calls differ by an order
+  // of magnitude -- /api/night answers in ~0.2 s, /api/planets in ~0.8 s warm,
+  // /api/targets in ~5 s -- so a single flag meant the whole dashboard waited
+  // on the slowest one.
+  const [pending, setPending] = useState({
+    night: true, targets: true, planets: true,
+  });
   const [error, setError] = useState<string | null>(null);
   const [managingSites, setManagingSites] = useState(false);
 
@@ -114,7 +120,10 @@ export default function App() {
             ? `API error: ${e.message}`
             : "Could not reach the API. Is it running on port 8000?",
         );
-        setLoading(false);
+        // The per-request effect below never runs without a location, so
+        // clear the pending flags here or the shell shows "Loading..."
+        // forever underneath the error.
+        setPending({ night: false, targets: false, planets: false });
       });
   }, []);
 
@@ -124,33 +133,47 @@ export default function App() {
   useEffect(() => {
     if (!locationKey || !date) return;
     let cancelled = false;
-    setLoading(true);
     setError(null);
 
-    Promise.all([
-      api.night(date, locationKey),
-      // Always the unfiltered superset: the "visible tonight" view is
-      // derived from it in SkyPanel, so switching modes costs no round-trip.
-      // Two separate fetches would double a ~3.5 s server computation.
-      api.targets(date, locationKey, 1000, 25, "constellation", "brightness",
-                  true),
-      api.planets(date, locationKey, false),
-    ])
-      .then(([nightData, targetsData, planetsData]) => {
-        if (cancelled) return;
-        setNight(nightData);
-        setTargets(targetsData);
-        setPlanets(planetsData);
-      })
-      .catch((e) => {
-        if (cancelled) return;
-        setError(
-          e instanceof ApiError
-            ? `API error: ${e.message}`
-            : "Could not reach the API. Is it running on port 8000?",
-        );
-      })
-      .finally(() => !cancelled && setLoading(false));
+    // Drop the previous night's numbers instead of leaving them on screen.
+    // They used to sit there under the *new* site's name and date for as long
+    // as the slowest call took, which reads as wrong data rather than as
+    // loading -- the header would say "Sydney" above Lone Pine's sunset.
+    setNight(null);
+    setTargets(null);
+    setPlanets(null);
+    setPending({ night: true, targets: true, planets: true });
+
+    const fail = (e: unknown) => {
+      if (cancelled) return;
+      setError(
+        e instanceof ApiError
+          ? `API error: ${e.message}`
+          : "Could not reach the API. Is it running on port 8000?",
+      );
+    };
+    const settle = (key: "night" | "targets" | "planets") => {
+      if (!cancelled) setPending((current) => ({ ...current, [key]: false }));
+    };
+
+    api.night(date, locationKey)
+      .then((data) => !cancelled && setNight(data))
+      .catch(fail)
+      .finally(() => settle("night"));
+
+    api.planets(date, locationKey, false)
+      .then((data) => !cancelled && setPlanets(data))
+      .catch(fail)
+      .finally(() => settle("planets"));
+
+    // Always the unfiltered superset: the "visible tonight" view is derived
+    // from it in SkyPanel, so switching modes costs no round-trip. Two
+    // separate fetches would double a ~5 s server computation.
+    api.targets(date, locationKey, 1000, 25, "constellation", "brightness",
+                true)
+      .then((data) => !cancelled && setTargets(data))
+      .catch(fail)
+      .finally(() => settle("targets"));
 
     return () => {
       cancelled = true;
@@ -289,6 +312,14 @@ export default function App() {
 
   return (
     <div className="app">
+      {/* First thing in the tab order. The page has ~115 focusable elements in
+          one flat sequence -- most of them target rows -- so without this,
+          reaching the observation log by keyboard means tabbing past all of
+          them. */}
+      <a className="skip-link" href="#main">
+        Skip to tonight's plan
+      </a>
+
       <header className="app-head">
         <div className="brand">
           <h1>Astro Night Planner</h1>
@@ -373,10 +404,10 @@ export default function App() {
       )}
 
       {error && <div className="panel error">{error}</div>}
-      {loading && !night && <div className="panel muted">Loading…</div>}
+      {pending.night && !night && <div className="panel muted">Loading…</div>}
 
       {night && location && (
-        <>
+        <main id="main" tabIndex={-1}>
           <EventAlert
             events={events}
             fromDate={date}
@@ -391,7 +422,7 @@ export default function App() {
           <div className="dashboard-row">
             <section className="panel chart-panel">
               <div className="panel-head">
-                <h3>Altitude through the night</h3>
+                <h2>Altitude through the night</h2>
                 <span className="muted small">
                   {visibleCount} of {series.length} shown · click a name to
                   hide it, × to remove it · add constellations from Targets
@@ -425,6 +456,7 @@ export default function App() {
                 onEventDaysChange={setEventDays}
                 showAll={showAllTargets}
                 onShowAllChange={setShowAllTargets}
+                targetsPending={pending.targets}
               />
             </div>
           </div>
@@ -440,7 +472,7 @@ export default function App() {
             locationKey={locationKey}
             timeZone={location.timezone}
           />
-        </>
+        </main>
       )}
 
       <footer className="muted small">
