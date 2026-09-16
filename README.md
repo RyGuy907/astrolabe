@@ -142,6 +142,39 @@ Two things the log does deliberately:
   novelty bonus (PLAN.md §3.3.4). It is 3 points — enough to nudge, not enough
   to put a faint smudge above a well-placed showpiece.
 
+## Adding an observing site
+
+The web UI's **Sites…** dialog offers three ways in, because no single one
+covers real observing sites:
+
+- **Pick on map** — click a point. Most dark-sky sites have no name a
+  gazetteer would know: during testing, `Lone Pine, Calif` returned zero
+  results while fully online (Open-Meteo does not parse comma-qualified
+  queries), and `Griffith Observatory` returns nothing at all because it is a
+  landmark rather than a populated place. A click has no such gap.
+- **Find by name** — faster when the place *does* have one.
+- **Enter coordinates** — the fallback, and the one that still works with no
+  network.
+
+Coordinates are all the engine needs: the timezone is resolved from them with
+`timezonefinder`, and every astronomical quantity follows from geometry. What
+a click cannot tell you is **sky darkness**, so Bortle stays a required choice
+in the form — "I don't know" is stored as a real null rather than silently
+inheriting Bortle 5, and the site is then labelled "Bortle 5 (assumed)"
+everywhere it appears. Filling that in automatically is the light-pollution
+raster work in [HANDOFF.md](HANDOFF.md) item 2.
+
+Map tiles come from OpenStreetMap under
+[their tile usage policy](https://operations.osmfoundation.org/policies/tiles/),
+which permits small personal and portfolio use with attribution and forbids
+bulk prefetching. Nothing here prefetches. Re-read that policy before
+deploying this anywhere public.
+
+Your own sites do not belong in version control — a real observing site is
+often a home address to four decimal places. `config/locations.yaml` ships
+public examples only; put yours in `config/locations.local.yaml`, which uses
+the same schema, is merged over the top, and is gitignored.
+
 ## Obstruction horizons
 
 Each location may carry an optional `horizon:` profile — a preset, a preset

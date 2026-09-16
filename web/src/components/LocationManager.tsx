@@ -35,6 +35,7 @@ import {
   type GeocodeCandidate,
   type LocationModel,
 } from "../api";
+import { SitePicker } from "./SitePicker";
 
 /** Long enough that ordinary typing issues no requests, short enough that a
  *  pause between words still feels instant. */
@@ -129,7 +130,9 @@ function normaliseKey(raw: string): string {
 }
 
 export function LocationManager({ locations, onClose, onCreated, onDeleted }: Props) {
-  const [entry, setEntry] = useState<"search" | "manual">("search");
+  // "map" leads: it is the only mode that can reach a site with no name,
+  // which is most dark-sky sites.
+  const [entry, setEntry] = useState<"map" | "search" | "manual">("map");
 
   const [search, setSearch] = useState("");
   const [candidates, setCandidates] = useState<GeocodeCandidate[]>([]);
@@ -305,6 +308,12 @@ export function LocationManager({ locations, onClose, onCreated, onDeleted }: Pr
 
           <div className="segmented">
             <button
+              className={entry === "map" ? "on" : ""}
+              onClick={() => setEntry("map")}
+            >
+              Pick on map
+            </button>
+            <button
               className={entry === "search" ? "on" : ""}
               onClick={() => setEntry("search")}
             >
@@ -317,6 +326,27 @@ export function LocationManager({ locations, onClose, onCreated, onDeleted }: Pr
               Enter coordinates
             </button>
           </div>
+
+          {entry === "map" && (
+            <SitePicker
+              lat={latValid ? latValue : null}
+              lon={lonValid ? lonValue : null}
+              onPick={(pickedLat, pickedLon) => {
+                setLat(String(pickedLat));
+                setLon(String(pickedLon));
+                setChosen(null);
+                setError(null);
+                // A map point has no name of its own. Offer one the user can
+                // overwrite, rather than blocking Save on an empty field.
+                if (!name.trim()) {
+                  const suggestion =
+                    `Site ${pickedLat.toFixed(3)}, ${pickedLon.toFixed(3)}`;
+                  setName(suggestion);
+                  if (!keyEdited) setKey(normaliseKey(suggestion));
+                }
+              }}
+            />
+          )}
 
           {entry === "search" && (
             <div className="site-search">

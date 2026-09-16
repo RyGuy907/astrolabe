@@ -673,6 +673,60 @@ table.targets tr.charted { background: rgba(244, 201, 93, 0.06); }
   .site-form label.wide { grid-column: span 1; }
 }
 
+/* --- map site picker ------------------------------------------------------
+   Leaflet ships a light-themed default. This is a tool opened at night with
+   dark-adapted eyes, so the basemap is dimmed and desaturated rather than
+   blazing white in the middle of a dark dialog. The controls and the pin are
+   deliberately left undimmed so they stay legible. */
+.site-picker { margin-bottom: 12px; }
+
+.site-map {
+  height: 320px;
+  width: 100%;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel-2);
+  z-index: 0;   /* Leaflet panes otherwise sit above sibling content */
+}
+.site-picker > p { margin: 6px 0 0; }
+
+.site-map .leaflet-tile-pane {
+  filter: brightness(0.62) saturate(0.7) contrast(1.05);
+}
+.site-map .leaflet-container { background: var(--panel-2); }
+
+.site-map .leaflet-control-attribution {
+  background: rgba(13, 16, 23, 0.82);
+  color: var(--muted-text);
+  font-size: 0.68rem;
+}
+.site-map .leaflet-control-attribution a { color: var(--accent); }
+
+.site-map .leaflet-control-zoom a {
+  background: var(--panel);
+  color: var(--text);
+  border-color: var(--line);
+}
+.site-map .leaflet-control-zoom a:hover { background: var(--panel-2); }
+
+/* A filled dot with a ring, so it reads against both dark terrain and pale
+   coastline. */
+.site-pin span {
+  display: block;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--accent);
+  border: 3px solid #1a1206;
+  box-shadow: 0 0 0 2px rgba(244, 201, 93, 0.45), 0 2px 6px rgba(0, 0, 0, 0.6);
+  cursor: grab;
+}
+.site-pin span:active { cursor: grabbing; }
+
+@media (max-width: 700px) {
+  .site-map { height: 240px; }
+}
+
 footer { text-align: center; padding-top: 8px; }
 
 /* Mobile is a graceful fallback, not a separate design — the altitude chart
