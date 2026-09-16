@@ -1,0 +1,15 @@
+default_scope: ad8
+
+scopes:
+  ad8:
+    name: "Apertura AD8 Dobsonian"
+    aperture_mm: 203
+    focal_length_mm: 1200
+    focal_ratio: 5.9
+    type: newtonian
+
+
+# Dark-adapted pupil diameter. Used for the aperture's magnitude gain
+# (5*log10(D/pupil)), not for any eyepiece calculation.
+observer:
+  eye_pupil_mm: 6.5

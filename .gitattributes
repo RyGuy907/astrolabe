@@ -1,0 +1,12 @@
+# Normalise line endings so the repo reads identically on Windows, macOS and
+# Linux and diffs stay free of whole-file CRLF churn.
+* text=auto eol=lf
+
+# Vendored data: keep byte-for-byte as published, so checksums against the
+# upstream source still match.
+engine/catalog/data/*.csv -text
+engine/data/*.json -text
+
+# Generated; collapse in diffs and exclude from language statistics.
+web/package-lock.json linguist-generated=true
+engine/catalog/data/*.csv linguist-vendored=true

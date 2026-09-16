@@ -1,0 +1,431 @@
+"""Pydantic response models for the HTTP layer.
+
+**Every datetime crosses this boundary as ISO-8601 UTC**, matching the engine's
+internal rule. Each response also carries the site's IANA `timezone` so the
+frontend — the display layer — can convert once, at render time. The API never
+sends local times.
+"""
+
+from __future__ import annotations
+
+from datetime import date, datetime
+
+from pydantic import BaseModel, Field
+
+
+class LocationModel(BaseModel):
+    key: str
+    name: str
+    lat: float
+    lon: float
+    elevation_m: float
+    bortle: int | None = None
+    sqm: float | None = None
+    timezone: str
+    horizon_name: str
+    horizon_is_generic: bool = Field(
+        description="True for a built-in preset, which is a generic assumption "
+                    "about terrain rather than a survey of the site.",
+    )
+    horizon_max_deg: float
+    horizon_facing: int | None = Field(
+        default=None,
+        description="Bearing the preset's obstruction was rotated onto, for "
+                    "the directional presets. None if it was never rotated.",
+    )
+    horizon_binds: bool = Field(
+        default=False,
+        description="True when the profile rises above the default altitude "
+                    "floor and can therefore change which targets are listed. "
+                    "A profile below the floor is inert, which is worth "
+                    "saying rather than leaving the user to infer.",
+    )
+    source: str = Field(default="config",
+                        description="config (YAML) or stored (added at runtime)")
+
+
+class IntervalModel(BaseModel):
+    start: datetime
+    end: datetime
+    hours: float
+
+
+class NightWindowModel(BaseModel):
+    date: date
+    location: LocationModel
+
+    sunset: datetime | None
+    sunrise: datetime | None
+    civil_dusk: datetime | None
+    nautical_dusk: datetime | None
+    astronomical_dusk: datetime | None
+    astronomical_dawn: datetime | None
+    nautical_dawn: datetime | None
+    civil_dawn: datetime | None
+
+    moonrise: datetime | None
+    moonset: datetime | None
+    moon_illumination: float
+    moon_waxing: bool
+    moon_up_at_dusk: bool
+
+    astronomical_night: list[IntervalModel]
+    dark_intervals: list[IntervalModel]
+    astronomical_night_hours: float
+    dark_hours: float
+
+
+class FactorsModel(BaseModel):
+    clear: float
+    transparency: float
+    moon: float
+    seeing: float
+    wind: float
+    dew: float
+
+
+class SlotModel(BaseModel):
+    time: datetime
+    deep_sky: float
+    planetary: float
+    moon_altitude_deg: float
+    cloud_cover: float | None = None
+    wind_gust_kmh: float | None = None
+    temperature_c: float | None = None
+    humidity_pct: float | None = None
+    dew_point_spread_c: float | None = None
+
+
+class ScoreModel(BaseModel):
+    deep_sky_peak: float
+    deep_sky_mean: float
+    planetary_peak: float
+    planetary_mean: float
+    deep_sky_grade: str
+    planetary_grade: str
+    is_gradeable: bool = Field(
+        description="False when weather is unavailable. The scores then "
+                    "describe darkness and moonlight only and must not be "
+                    "presented as a verdict on conditions.",
+    )
+    best_window: IntervalModel | None
+    best_window_score: float
+    dark_hours: float
+    weather_available: bool
+    weather_note: str | None
+    weather_sources: list[str]
+    seeing_estimated: bool
+    dew_warning: bool
+    verdict: str
+    peak_factors_deep_sky: FactorsModel | None
+    peak_factors_planetary: FactorsModel | None
+    limiting_factor: str | None
+    slots: list[SlotModel]
+
+
+class NightResponse(BaseModel):
+    window: NightWindowModel
+    score: ScoreModel
+
+
+class TargetModel(BaseModel):
+    name: str
+    display_name: str
+    group: str
+    object_type: str
+    messier: int | None
+    constellation: str | None
+
+    ra_deg: float
+    dec_deg: float
+    magnitude: float | None
+    size_arcmin: float | None
+    surface_brightness: float | None
+
+    # Null for objects that are not observable tonight. The unfiltered view
+    # lists them anyway, badged, rather than pretending they do not exist.
+    score: float | None = None
+    peak_altitude_deg: float | None = None
+    peak_time: datetime | None = None
+    hours_above_floor: float | None = None
+    best_window: IntervalModel | None = None
+    moon_separation_deg: float | None = None
+    contrast_margin: float | None = None
+    visible_tonight: bool = False
+    visible_late: bool = Field(
+        default=False,
+        description="Only clears the altitude floor after local midnight.",
+    )
+    too_faint: bool = Field(
+        default=False,
+        description="Up and pointable, but below the detection threshold for "
+                    "this sky - light pollution, moonlight, or both. Listed "
+                    "rather than filtered, and sorted last.",
+    )
+    notes: list[str] = Field(default_factory=list)
+
+
+class GroupInfo(BaseModel):
+    """A bucket header. For constellations this carries the plottable centroid."""
+
+    key: str
+    label: str
+    is_constellation: bool = False
+    ra_deg: float | None = None
+    dec_deg: float | None = None
+    spread_deg: float | None = None
+    is_wide: bool = Field(
+        default=False,
+        description="A constellation whose extent makes one centroid a rough "
+                    "summary — Hydra spans over 100 degrees of RA.",
+    )
+    visibility: str = Field(
+        default="none",
+        description="tonight | late | none — when the constellation itself "
+                    "clears the altitude floor, judged on its centroid.",
+    )
+    window_start: datetime | None = None
+    window_end: datetime | None = None
+    hours_up: float = 0.0
+    peak_altitude_deg: float | None = None
+    has_gap: bool = Field(
+        default=False,
+        description="Dips below the floor and returns, so the window is not "
+                    "continuous end to end.",
+    )
+
+
+class TargetsResponse(BaseModel):
+    date: date
+    location: LocationModel
+    scope: str
+    min_altitude_deg: float
+    total_passing: int
+    total_too_faint: int = 0
+    window: IntervalModel | None
+    using_true_dark: bool
+    horizon_warning: str | None
+    group_by: str
+    sort: str
+    include_all: bool
+    group_info: dict[str, GroupInfo]
+    groups: dict[str, list[TargetModel]]
+
+
+class PlanetModel(BaseModel):
+    name: str
+    observable: bool
+    peak_altitude_deg: float
+    peak_time: datetime | None
+    hours_above_floor: float
+    magnitude: float | None
+    apparent_diameter_arcsec: float | None
+    illuminated_fraction: float | None
+    distance_au: float | None
+    elongation_deg: float | None
+    trend: str
+    event_name: str | None
+    event_date: date | None
+    days_to_event: int | None
+    ring_tilt_deg: float | None
+    next_visible_date: date | None
+    best_altitude_deg: float | None = Field(
+        default=None,
+        description="Set when the altitude floor is unreachable within a year, "
+                    "so the UI can say what the planet does reach.",
+    )
+    notes: list[str]
+
+
+class PlanetsResponse(BaseModel):
+    date: date
+    location: LocationModel
+    min_altitude_deg: float
+    planets: list[PlanetModel]
+
+
+class ShowerModel(BaseModel):
+    name: str
+    code: str
+    peak_date: date
+    zhr: float
+    velocity_km_s: float
+    parent: str | None
+    best_time: datetime | None
+    best_radiant_altitude_deg: float
+    estimated_rate_per_hour: float
+    moon_illumination: float
+    notes: list[str]
+
+
+class EclipseModel(BaseModel):
+    time: datetime
+    kind: str
+    moon_altitude_deg: float
+    visible_from_location: bool
+
+
+class ConjunctionModel(BaseModel):
+    time: datetime
+    body_a: str
+    body_b: str
+    separation_deg: float
+    involves_moon: bool
+
+
+class EventsResponse(BaseModel):
+    from_date: date
+    days: int
+    location: LocationModel
+    showers: list[ShowerModel]
+    lunar_eclipses: list[EclipseModel]
+    conjunctions: list[ConjunctionModel]
+
+
+class AltitudePointModel(BaseModel):
+    time: datetime
+    altitude_deg: float
+    azimuth_deg: float
+
+
+class AltitudeSeriesModel(BaseModel):
+    label: str
+    kind: str                       # planet | moon | sun | deep-sky
+    points: list[AltitudePointModel]
+
+
+class AltitudeResponse(BaseModel):
+    """Payload for the altitude-vs-time chart, PLAN.md §4's key visual."""
+
+    date: date
+    location: LocationModel
+    start: datetime
+    end: datetime
+    astronomical_night: list[IntervalModel]
+    dark_intervals: list[IntervalModel]
+    min_altitude_deg: float
+    horizon_at_azimuth: dict[str, float]
+    series: list[AltitudeSeriesModel]
+
+
+class NewLocationRequest(BaseModel):
+    query: str | None = Field(
+        default=None, description="Place name to geocode, e.g. 'Lone Pine, CA'.",
+    )
+    key: str | None = None
+    name: str | None = None
+    lat: float | None = None
+    lon: float | None = None
+    elevation_m: float | None = None
+    bortle: int | None = None
+    horizon: str | None = Field(
+        default=None,
+        description="Preset name: flat, hilly, trees, ridge or valley.",
+    )
+    horizon_facing: int | None = Field(
+        default=None, ge=0, lt=360,
+        description="Bearing in degrees of the obstruction, for the "
+                    "directional presets (ridge, valley). Ignored by the "
+                    "symmetric ones.",
+    )
+
+
+class GeocodeCandidate(BaseModel):
+    label: str
+    name: str
+    lat: float
+    lon: float
+    elevation_m: float
+    suggested_key: str
+
+
+# --- observation log (PLAN.md §5) -------------------------------------------
+
+class ObservationModel(BaseModel):
+    id: int | None = None
+    session_id: int | None = None
+    object_id: str | None = None
+    object_name: str
+    observed_at_utc: datetime | None = None
+    eyepiece: str | None = None
+    notes: str | None = None
+    rating: int | None = Field(default=None, ge=1, le=5)
+    sketch_path: str | None = None
+
+
+class SessionModel(BaseModel):
+    id: int | None = None
+    date: date
+    location_key: str
+    start_utc: datetime | None = None
+    end_utc: datetime | None = None
+    scope_key: str | None = None
+    conditions: dict | None = Field(
+        default=None,
+        description="Conditions frozen at session time. A forecast expires; "
+                    "this keeps the entry meaningful afterwards.",
+    )
+    seeing_actual: int | None = Field(default=None, ge=1, le=5)
+    transparency_actual: int | None = Field(default=None, ge=1, le=5)
+    notes: str | None = None
+    observations: list[ObservationModel] = Field(default_factory=list)
+
+
+class NewSessionRequest(BaseModel):
+    date: str | None = None
+    location: str | None = None
+    scope: str | None = None
+    notes: str | None = None
+    seeing_actual: int | None = Field(default=None, ge=1, le=5)
+    transparency_actual: int | None = Field(default=None, ge=1, le=5)
+    snapshot_conditions: bool = Field(
+        default=True,
+        description="Compute and freeze the night's conditions on the session.",
+    )
+
+
+class NewObservationRequest(BaseModel):
+    object_name: str
+    object_id: str | None = None
+    observed_at_utc: datetime | None = None
+    eyepiece: str | None = None
+    notes: str | None = None
+    rating: int | None = Field(default=None, ge=1, le=5)
+    sketch_path: str | None = None
+
+
+class LogCandidateModel(BaseModel):
+    """A target from the night's computed list, offered for one-click logging.
+
+    PLAN.md §5 calls this the key UX move: pre-populate the log from what was
+    actually recommended, rather than making the observer retype it.
+    """
+
+    object_id: str
+    object_name: str
+    group: str
+    score: float
+    peak_altitude_deg: float
+    already_logged: bool
+
+
+class LogPrefillResponse(BaseModel):
+    date: date
+    location_key: str
+    scope_key: str | None
+    candidates: list[LogCandidateModel]
+    conditions: dict | None
+
+
+class ObjectHistoryModel(BaseModel):
+    object_id: str
+    times_observed: int
+    entries: list[dict]
+
+
+class LogStatsModel(BaseModel):
+    sessions: int
+    observations: int
+    distinct_objects: int
+    first_session: str | None
+    last_session: str | None

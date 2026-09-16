@@ -1,0 +1,37 @@
+default: home
+
+locations:
+  home:
+    name: "Agoura Hills"
+    lat: 34.1361
+    lon: -118.7745
+    elevation_m: 300
+    bortle: 5
+    # Obstruction horizon. Any of:
+    #   horizon: hilly                          a preset
+    #   horizon: {preset: ridge, facing: 250}   a preset, pointed where the
+    #                                           obstruction actually is
+    #   horizon: {0: 18, 90: 5, 180: 5, 270: 22}   a measured az->alt map
+    #
+    # Presets, with the geometry each assumes (see engine/horizon.py):
+    #   flat    0 deg   nothing in the way
+    #   hilly  12 deg   distant rolling terrain. NOTE: below the default 25 deg
+    #                   altitude floor, so it will not change which targets are
+    #                   listed - correctly, since distant hills do not matter
+    #                   if you are not observing that low anyway.
+    #   trees  30 deg   trees or buildings close on every side
+    #   ridge  35 deg   one side blocked close in. Directional - set `facing`.
+    #   valley 35 deg   two opposing sides blocked. Directional.
+    #
+    # WARNING: the presets are GENERIC assumptions, not a survey of this site.
+    # Measure your real horizon and replace this with an explicit map when you
+    # can - a measured map is the only thing here that is not a guess, and it
+    # is the only form not flagged "generic" in the UI.
+    horizon: hilly
+  santa_monica_mtns:
+    name: "Santa Monica Mountains"
+    lat: 34.10
+    lon: -118.80
+    elevation_m: 600
+    bortle: 4
+    horizon: hilly

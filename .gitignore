@@ -1,0 +1,38 @@
+# --- Python ---
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+*.egg-info/
+build/
+dist/
+.mypy_cache/
+.ruff_cache/
+
+# --- Node / web ---
+node_modules/
+web/dist/
+web/tsconfig.tsbuildinfo
+npm-debug.log*
+
+# --- Local caches and runtime data ---
+# The DE440s ephemeris (~32 MB) and the parsed catalog are fetched or built
+# once into a per-user cache directory, never committed.
+.cache/
+*.bsp
+*.sqlite3
+
+# --- Local configuration ---
+# config/locations.yaml is committed with public example sites. Keep your own
+# observing sites — which are often your home address to four decimal places —
+# in this override instead, which is never committed.
+config/locations.local.yaml
+
+# --- Editors and tooling ---
+.claude/
+.vscode/
+.idea/
+*.swp
+.DS_Store
+Thumbs.db
