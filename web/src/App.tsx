@@ -367,6 +367,9 @@ export default function App() {
     setSeries((current) => current.filter((s) => s.label !== label));
   }
 
+  /** Nothing in the toolbar means anything until a site exists. */
+  const hasSites = locations.length > 0;
+
   const chartedIds = series.map((s) => s.id);
   const hiddenLabels = series.filter((s) => !s.visible).map((s) => s.label);
   const visibleCount = series.length - hiddenLabels.length;
@@ -430,6 +433,11 @@ export default function App() {
         </div>
 
         <div className="controls">
+          {/* Before any site exists these controls have nothing to act on: an
+              empty picker, a date for nowhere, a floor filtering nothing. The
+              only useful control is the one that adds a site, so it is the
+              only one shown. */}
+          {hasSites && (
           <label>
             <span>Location</span>
             <select
@@ -447,11 +455,14 @@ export default function App() {
               ))}
             </select>
           </label>
+          )}
 
           <button className="secondary" onClick={() => setManagingSites(true)}>
             Sites…
           </button>
 
+          {hasSites && (
+          <>
           <label>
             <span>Night of</span>
             <div className="date-row">
@@ -483,6 +494,8 @@ export default function App() {
           <button className="secondary" onClick={goToTonight} disabled={isTonight}>
             Tonight
           </button>
+          </>
+          )}
 
           <button
             className="secondary night-vision-toggle"
