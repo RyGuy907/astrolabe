@@ -25,7 +25,8 @@
  * provided by CDS."
  */
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { loadCachedImage } from "../imageCache";
 
 const HIPS2FITS = "https://alasky.cds.unistra.fr/hips-image-services/hips2fits";
 
@@ -82,34 +83,77 @@ interface Props {
 
 export function TargetImage({ name, raDeg, decDeg, sizeArcmin }: Props) {
   const [state, setState] = useState<"loading" | "ready" | "failed">("loading");
+  const [src, setSrc] = useState<string | null>(null);
+  const [fromCache, setFromCache] = useState(false);
   const fov = cutoutFov(sizeArcmin);
+  const url = cutoutUrl(raDeg, decDeg, sizeArcmin);
+
+  // Goes through the browser cache rather than straight to <img src>, because
+  // hips2fits sends no caching headers and re-renders every request: measured
+  // 1363 ms cold against 3 ms from the cache. See src/imageCache.ts for why
+  // this is a cache and not a mirror.
+  useEffect(() => {
+    let cancelled = false;
+    let objectUrl: string | null = null;
+    const controller = new AbortController();
+
+    setState("loading");
+    setSrc(null);
+
+    loadCachedImage(url, controller.signal)
+      .then((image) => {
+        if (cancelled) {
+          URL.revokeObjectURL(image.objectUrl);
+          return;
+        }
+        objectUrl = image.objectUrl;
+        setSrc(image.objectUrl);
+        setFromCache(image.fromCache);
+        setState("ready");
+      })
+      .catch((error) => {
+        if (cancelled || (error as Error)?.name === "AbortError") return;
+        setState("failed");
+      });
+
+    return () => {
+      cancelled = true;
+      controller.abort();
+      // Object URLs are held by the document until revoked; a list the user
+      // opens and closes repeatedly would otherwise leak a blob each time.
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+    };
+  }, [url]);
 
   return (
     <figure className="target-image">
-      {state !== "failed" ? (
+      {state === "loading" && (
+        <div className="target-image-failed" role="status">
+          <p className="muted small">Loading survey image…</p>
+        </div>
+      )}
+      {state === "ready" && src && (
         <img
-          src={cutoutUrl(raDeg, decDeg, sizeArcmin)}
+          src={src}
           width={PIXELS}
           height={PIXELS}
-          // Deliberately NOT loading="lazy". The guarantee that browsing a
-          // 270-row list costs nothing comes from the row rendering this
-          // component only once it is expanded -- verified: zero image
-          // requests before any row is opened. Given that, lazy loading buys
-          // nothing, because the element does not exist until the user has
-          // asked for it. It also actively broke the load: inside the target
-          // list's own scrolling container the intersection heuristic never
-          // fired, so the image sat at complete=false indefinitely while the
-          // identical URL loaded in ~1 s through a plain Image().
+          // Deliberately NOT loading="lazy". Browsing a 270-row list costs
+          // nothing because the row renders this component only once it is
+          // expanded -- measured at zero image requests before any row is
+          // opened -- so lazy loading buys nothing here. It also actively
+          // broke the load once: inside the target list's own scrolling
+          // container the intersection heuristic never fired, and the image
+          // sat at complete=false indefinitely.
           decoding="async"
           alt={
             `Sky survey image of ${name}, ${fov.toFixed(2)} degrees across, ` +
             `centred on right ascension ${raDeg.toFixed(3)} degrees and ` +
             `declination ${decDeg.toFixed(3)} degrees.`
           }
-          onLoad={() => setState("ready")}
           onError={() => setState("failed")}
         />
-      ) : (
+      )}
+      {state === "failed" && (
         // Same contract as the geocoder degrading to an empty list: say what
         // happened rather than leaving a broken frame.
         <div className="target-image-failed">
@@ -129,7 +173,7 @@ export function TargetImage({ name, raDeg, decDeg, sizeArcmin }: Props) {
         <a href="https://cds.unistra.fr/" target="_blank" rel="noreferrer">
           CDS
         </a>
-        .
+        .{fromCache && " Served from this browser's cache."}
       </figcaption>
     </figure>
   );
