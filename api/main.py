@@ -62,6 +62,7 @@ from .schemas import (
     IntervalModel,
     LocationModel,
     NewLocationRequest,
+    SkyBrightnessCoverage,
     NightResponse,
     NightWindowModel,
     PlanetModel,
@@ -727,6 +728,19 @@ def remove_location(key: str) -> None:
         )
     if not store.delete_location(key):
         raise HTTPException(status_code=404, detail=f"unknown location {key!r}")
+
+
+@app.get("/api/skybrightness", response_model=SkyBrightnessCoverage,
+         tags=["locations"])
+def skybrightness_coverage() -> SkyBrightnessCoverage:
+    """Where the configured light-pollution atlas has data, if there is one."""
+    from engine.skybrightness import coverage_bounds, is_configured
+
+    bounds = coverage_bounds()
+    return SkyBrightnessCoverage(
+        configured=is_configured(),
+        bounds=list(bounds) if bounds else None,
+    )
 
 
 @app.get("/api/health", tags=["meta"])

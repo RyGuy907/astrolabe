@@ -186,6 +186,26 @@ def bortle_at(lat: float, lon: float) -> int | None:
     return None if sqm is None else bortle_from_sqm(sqm)
 
 
+def coverage_bounds() -> tuple[float, float, float, float] | None:
+    """(west, south, east, north) of the configured raster, or None.
+
+    Lets the UI open the map where the data actually is. A regional export
+    covers one area, and centring the picker somewhere with no coverage means
+    every click falls back to assuming Bortle 5 -- which works, and is a poor
+    first impression. Reading it from the file means swapping the raster moves
+    the map with it, rather than leaving a stale constant behind.
+    """
+    path = raster_path()
+    if path is None:
+        return None
+    try:
+        dataset = _open_raster(str(path))
+        west, south, east, north = dataset.bounds
+        return (float(west), float(south), float(east), float(north))
+    except Exception:                    # noqa: BLE001 - optional, never fatal
+        return None
+
+
 def is_configured() -> bool:
     """Whether a raster is available, for callers that want to say so."""
     return raster_path() is not None

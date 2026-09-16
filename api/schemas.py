@@ -352,6 +352,19 @@ class NewLocationRequest(BaseModel):
     )
 
 
+class SkyBrightnessCoverage(BaseModel):
+    """Whether a light-pollution atlas is configured, and where it reaches."""
+
+    configured: bool = Field(
+        description="True when engine/skybrightness.py has a raster to read.",
+    )
+    bounds: list[float] | None = Field(
+        default=None,
+        description="[west, south, east, north] in degrees, or null. The map "
+                    "picker opens here so that clicks land inside coverage.",
+    )
+
+
 class GeocodeCandidate(BaseModel):
     label: str
     name: str

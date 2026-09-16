@@ -528,19 +528,9 @@ export default function App() {
       {!error && locations.length === 0 && !pending.night && (
         <section className="panel empty-state">
           <h2>Where are you observing?</h2>
-          <p>
-            No sites yet. This planner does not assume one: when it gets dark,
-            what clears your horizon, and which objects are bright enough for
-            your sky all depend on where you are standing, so a default
-            belonging to somebody else would be worse than no answer.
-          </p>
           <button className="secondary" onClick={() => setManagingSites(true)}>
             Add an observing site
           </button>
-          <p className="muted small">
-            Pick a point on a map, search for a place by name, or type
-            coordinates. Everything else follows from that.
-          </p>
         </section>
       )}
 

@@ -742,8 +742,21 @@ table.targets tr.charted { background: rgba(244, 201, 93, 0.06); }
 }
 .site-picker > p { margin: 6px 0 0; }
 
-.site-map .leaflet-tile-pane {
-  filter: brightness(0.62) saturate(0.7) contrast(1.05);
+/* Render the basemap as night rather than a dimmed noon.
+ *
+ * OSM's standard style is a daylight map -- green land, blue water, white
+ * roads -- and merely turning the brightness down leaves it looking like
+ * daytime seen through sunglasses, which is what made the night-lights
+ * overlay sit so oddly on top of it. Inverting and rotating the hue back is
+ * the usual recipe for a dark basemap: white paper becomes dark ground,
+ * roads read as faint lines, and water stays blue-ish rather than turning
+ * orange.
+ *
+ * Applied to the basemap layer alone, so the light-pollution overlay is not
+ * inverted with it -- that would turn the glow into holes. */
+.site-map .basemap-tiles {
+  filter: invert(1) hue-rotate(180deg) brightness(0.75) saturate(0.55)
+          contrast(0.95);
 }
 .site-map .leaflet-container { background: var(--panel-2); }
 
@@ -842,8 +855,9 @@ table.targets tr.charted { background: rgba(244, 201, 93, 0.06); }
 }
 
 /* The basemap is the brightest thing on screen; dim it hard as well. */
-:root[data-night-vision="on"] .site-map .leaflet-tile-pane {
-  filter: grayscale(1) sepia(1) hue-rotate(-28deg) saturate(3) brightness(0.4);
+:root[data-night-vision="on"] .site-map .basemap-tiles {
+  filter: invert(1) grayscale(1) sepia(1) hue-rotate(-28deg) saturate(2.5)
+          brightness(0.45);
 }
 
 .night-vision-toggle[aria-pressed="true"] {
@@ -900,8 +914,10 @@ table.targets tr.charted { background: rgba(244, 201, 93, 0.06); }
   .target-image img, .target-image-failed { width: 100%; height: auto; aspect-ratio: 1; }
 }
 
-/* Night-lights overlay. `screen` lets the glow sit over the basemap without
-   hiding the coastlines and roads that make a location recognisable. */
+/* Night-lights overlay. `screen` lets the glow sit over the dark basemap the
+   way it does on a real night-lights map: cities add light, empty ground adds
+   nothing, and the coastlines and roads underneath stay readable. It only
+   looks right over a dark base, which is why the basemap is inverted above. */
 .light-pollution-tiles { mix-blend-mode: screen; }
 
 .site-map-controls {
@@ -926,13 +942,16 @@ table.targets tr.charted { background: rgba(244, 201, 93, 0.06); }
   filter: grayscale(1) sepia(1) hue-rotate(-28deg) saturate(3) brightness(0.6);
 }
 
-/* First run, before any site exists. Deliberately a prompt rather than an
-   error: having no sites is the normal starting state here. */
-.empty-state { max-width: 62ch; }
-.empty-state h2 { font-size: 1.15rem; }
-.empty-state p { margin: 0 0 14px; line-height: 1.55; }
-.empty-state button { margin-bottom: 12px; }
-.empty-state p:last-child { margin-bottom: 0; }
+/* First run, before any site exists. A question and a button; the reasoning
+   lives in the README, not on screen. */
+.empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 14px;
+  padding: 28px;
+}
+.empty-state h2 { margin: 0; font-size: 1.15rem; }
 
 footer { text-align: center; padding-top: 8px; }
 

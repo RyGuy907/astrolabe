@@ -329,6 +329,23 @@ def test_created_location_is_immediately_usable(client):
         client.delete("/api/locations/api_usable")
 
 
+def test_skybrightness_coverage_reports_whether_an_atlas_is_configured(client):
+    """The map picker opens on the atlas's coverage, so it has to ask.
+
+    Shape only: whether a raster is present depends on the machine, and the
+    point of the endpoint is that both answers are valid.
+    """
+    body = client.get("/api/skybrightness").json()
+    assert isinstance(body["configured"], bool)
+
+    if body["configured"]:
+        west, south, east, north = body["bounds"]
+        assert -180 <= west < east <= 180
+        assert -90 <= south < north <= 90
+    else:
+        assert body["bounds"] is None
+
+
 def test_create_location_with_a_directional_horizon(client):
     """The bearing has to survive the API and the store, not just the engine."""
     payload = {"key": "api_facing_site", "name": "Facing Site",

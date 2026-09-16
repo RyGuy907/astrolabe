@@ -33,6 +33,13 @@ export interface LocationModel {
 }
 
 /** A geocoder hit. Mirrors `GeocodeCandidate` in api/schemas.py. */
+/** Where the configured light-pollution atlas has data, if there is one. */
+export interface SkyBrightnessCoverage {
+  configured: boolean;
+  /** [west, south, east, north] in degrees, or null. */
+  bounds: number[] | null;
+}
+
 export interface GeocodeCandidate {
   label: string;
   name: string;
@@ -400,6 +407,9 @@ export const api = {
    *  when the geocoder is unreachable; the API cannot tell those apart. */
   geocode: (q: string, signal?: AbortSignal) =>
     get<GeocodeCandidate[]>(`/api/geocode${query({ q })}`, signal),
+
+  /** Used by the map picker to open where the atlas actually has data. */
+  skyBrightness: () => get<SkyBrightnessCoverage>("/api/skybrightness"),
 
   createLocation: (body: NewLocationRequest) =>
     post<LocationModel>("/api/locations", body),

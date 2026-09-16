@@ -38,12 +38,12 @@
 import { useEffect, useRef, useState } from "react";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
+import { api } from "../api";
 
-/** Where the map opens when there is nothing else to go on. Deliberately
- *  zoomed out: a wide view says "pick anywhere" rather than implying the user
- *  should be near one particular city. */
-const DEFAULT_CENTER: [number, number] = [34.0, -118.2];
-const DEFAULT_ZOOM = 5;
+/** Where the map opens with no coordinates and no atlas: a wide view, which
+ *  says "pick anywhere" rather than implying a particular part of the world. */
+const DEFAULT_CENTER: [number, number] = [30.0, 0.0];
+const DEFAULT_ZOOM = 2;
 const PICKED_ZOOM = 11;
 
 const TILE_URL = "https://tile.openstreetmap.org/{z}/{x}/{y}.png";
@@ -133,6 +133,7 @@ export function SitePicker({ lat, lon, onPick }: Props) {
     const tiles = L.tileLayer(TILE_URL, {
       attribution: TILE_ATTRIBUTION,
       maxZoom: 19,
+      className: "basemap-tiles",
     });
     // Offline or blocked: say so rather than leaving a grey box the user
     // cannot interpret. Same contract as the geocoder degrading to [].
@@ -159,9 +160,40 @@ export function SitePicker({ lat, lon, onPick }: Props) {
     map.current = instance;
     if (showLights) lightsLayer.current.addTo(instance);
 
-    // The dialog lays out around the map; Leaflet needs telling once the
-    // container has its final size or it renders a partial tile grid.
-    const settle = window.setTimeout(() => instance.invalidateSize(), 120);
+    // The dialog lays out around the map, so Leaflet starts out believing its
+    // container is zero-sized. Everything that depends on the viewport has to
+    // wait for invalidateSize(), including fitBounds -- called earlier it is
+    // silently a no-op, which is how the map kept opening on the whole world
+    // despite the coverage request succeeding.
+    const settle = window.setTimeout(() => {
+      if (map.current !== instance) return;
+      instance.invalidateSize();
+
+      // Open where the light-pollution atlas actually has data. A regional
+      // export covers one area, and a map centred outside it means every click
+      // falls back to assuming Bortle 5 -- which works, and is a poor first
+      // impression. Asking the server rather than hardcoding a region means
+      // swapping the raster moves the map with it. Skipped when the form
+      // already has coordinates, which beat any default.
+      if (hasPoint) return;
+      api.skyBrightness()
+        .then((coverage) => {
+          const box = coverage.bounds;
+          if (!box || map.current !== instance) return;
+          const [west, south, east, north] = box;
+          // animate:false is not a nicety. Leaflet's animated path returns
+          // early and finishes on a CSS transitionend, so where frames are
+          // not composited -- a hidden tab, a headless pane -- the view never
+          // arrives and fitBounds is silently a no-op. An opening view should
+          // snap anyway; flying from the whole world to one state is motion
+          // for its own sake.
+          instance.fitBounds([[south, west], [north, east]],
+                             { padding: [12, 12], animate: false });
+        })
+        .catch(() => {
+          /* no atlas, or no server: the wide default view stands */
+        });
+    }, 150);
 
     return () => {
       window.clearTimeout(settle);
