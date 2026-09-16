@@ -109,6 +109,31 @@ export default function App() {
   const [series, setSeries] = useState<ChartSeries[]>([]);
   const [eventDays, setEventDays] = useState(90);
   const [minAltitude, setMinAltitude] = useState(25);
+
+  // Persisted because the one thing worse than a bright screen at the eyepiece
+  // is a bright screen at the eyepiece every time you reload. localStorage can
+  // throw (private windows, blocked site data), so every access is guarded and
+  // the app renders correctly when it fails.
+  const [nightVision, setNightVision] = useState<boolean>(() => {
+    try {
+      return window.localStorage.getItem("astro:night-vision") === "on";
+    } catch {
+      return false;
+    }
+  });
+
+  useEffect(() => {
+    const root = document.documentElement;
+    if (nightVision) root.setAttribute("data-night-vision", "on");
+    else root.removeAttribute("data-night-vision");
+    try {
+      window.localStorage.setItem(
+        "astro:night-vision", nightVision ? "on" : "off",
+      );
+    } catch {
+      /* a preference we could not save is not worth breaking the page over */
+    }
+  }, [nightVision]);
   // "Visible tonight" lists only what passes the observability filters;
   // "All targets" drops the filtering entirely and badges each row instead.
   const [showAllTargets, setShowAllTargets] = useState(false);
@@ -433,6 +458,15 @@ export default function App() {
 
           <button className="secondary" onClick={goToTonight} disabled={isTonight}>
             Tonight
+          </button>
+
+          <button
+            className="secondary night-vision-toggle"
+            onClick={() => setNightVision((on) => !on)}
+            aria-pressed={nightVision}
+            title="Red palette that preserves dark adaptation at the eyepiece"
+          >
+            Night vision
           </button>
         </div>
       </header>

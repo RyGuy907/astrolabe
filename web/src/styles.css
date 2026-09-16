@@ -789,6 +789,68 @@ table.targets tr.charted { background: rgba(244, 201, 93, 0.06); }
 }
 .badge-key .badge { margin-right: 2px; }
 
+/* --- night-vision mode ----------------------------------------------------
+   Dark-themed is not the same as dark-adapted-safe. Full dark adaptation takes
+   20-30 minutes and is undone in seconds by short-wavelength light; the normal
+   palette is full of it -- #e5e9f0 body text, #6fb1fc badges, blue-grey chart
+   bands. This mode keeps light long-wavelength and dim, which is the whole
+   reason observers use red torches.
+
+   Two mechanisms, because the interface has two kinds of colour:
+
+   1. Palette tokens are redefined. Status colours (good/ok/poor/bad) can no
+      longer differ by hue, so they differ by lightness instead -- and every
+      place that uses them also prints the number or the letter grade, so hue
+      was never carrying the meaning alone.
+
+   2. Genuinely multi-hue content -- the eight chart series, the map tiles, the
+      conditions bars -- is mapped to red with a filter rather than recoloured.
+      A filter preserves relative lightness, so eight curves stay tellable
+      apart when they can no longer differ in hue. */
+:root[data-night-vision="on"] {
+  --bg: #080202;
+  --panel: #130404;
+  --panel-2: #1c0707;
+  --line: #3a1210;
+  --text: #ff7360;
+  /* Lightened from a first pass at #bb5445, which measured 4.38:1 against the
+     night-vision background -- under AA for normal-size text, and the
+     brightness filter below pulls the effective ratio lower still. */
+  --muted-text: #d97465;
+  --accent: #ff4a38;
+
+  /* Lightness, not hue, now carries the ranking. */
+  --good: #ff9481;
+  --ok: #ff7360;
+  --poor: #cf5140;
+  --bad: #9c3427;
+  --muted: #5e211b;
+}
+
+/* Red on near-black is a high-contrast combination, and at full brightness it
+   still spoils dark adaptation. Take the whole page down a stop. */
+:root[data-night-vision="on"] body { filter: brightness(0.82); }
+
+/* Map every remaining hue onto red while keeping relative lightness. */
+:root[data-night-vision="on"] .chart svg,
+:root[data-night-vision="on"] .legend-chip i,
+:root[data-night-vision="on"] .strip-bar > span,
+:root[data-night-vision="on"] .score-pill,
+:root[data-night-vision="on"] .factor-fill,
+:root[data-night-vision="on"] .dial-value {
+  filter: grayscale(1) sepia(1) hue-rotate(-28deg) saturate(4);
+}
+
+/* The basemap is the brightest thing on screen; dim it hard as well. */
+:root[data-night-vision="on"] .site-map .leaflet-tile-pane {
+  filter: grayscale(1) sepia(1) hue-rotate(-28deg) saturate(3) brightness(0.4);
+}
+
+.night-vision-toggle[aria-pressed="true"] {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
 footer { text-align: center; padding-top: 8px; }
 
 /* Mobile is a graceful fallback, not a separate design — the altitude chart

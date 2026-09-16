@@ -424,14 +424,16 @@ export function SkyPanel({
                           className={`badge badge-con-${info.visibility}`}
                           title={CONSTELLATION_MEANING[info.visibility]}
                         >
-                          <span className="visually-hidden">
-                            {CONSTELLATION_MEANING[info.visibility]}:{" "}
-                          </span>
                           {info.visibility === "tonight"
                             ? "visible tonight"
                             : info.visibility === "late"
                               ? "visible late"
                               : "not visible"}
+                          {/* After the label, matching the Badge helper, so
+                              every badge reads "label - meaning". */}
+                          <span className="visually-hidden">
+                            {" "}— {CONSTELLATION_MEANING[info.visibility]}
+                          </span>
                         </span>
                       )}
                       {/* The window is the actionable part: "up" matters far
