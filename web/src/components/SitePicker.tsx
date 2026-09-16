@@ -50,6 +50,32 @@ const TILE_URL = "https://tile.openstreetmap.org/{z}/{x}/{y}.png";
 const TILE_ATTRIBUTION =
   '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors';
 
+/**
+ * VIIRS night lights, as an overlay you can pick a dark site off.
+ *
+ * This is the same VIIRS data as the light-pollution atlases, delivered as
+ * ordinary map tiles by NASA's GIBS rather than as a multi-gigabyte GeoTIFF.
+ * That matters: the two datasets HANDOFF item 2 suggested vendoring have both
+ * become gated -- Falchi is behind a human-reviewed request form and is
+ * CC BY-NC, and EOG's VIIRS download now redirects to an OAuth login. GIBS
+ * needs no key and no account, so nothing has to be vendored, downsampled, or
+ * relicensed.
+ *
+ * NOTE the axis order. GIBS is WMTS, whose path is TileMatrix/TileRow/TileCol
+ * -- z/y/x -- where Leaflet's own convention is z/x/y. Getting this backwards
+ * silently returns tiles for the wrong place rather than failing.
+ */
+const LIGHT_POLLUTION_URL =
+  "https://gibs.earthdata.nasa.gov/wmts/epsg3857/best/VIIRS_Black_Marble" +
+  "/default/2016-01-01/GoogleMapsCompatible_Level8/{z}/{y}/{x}.png";
+const LIGHT_POLLUTION_ATTRIBUTION =
+  'Night lights: VIIRS Black Marble, NASA <a href="https://nasa-gibs.github.io/gibs-api-docs/">GIBS</a>';
+
+/** GoogleMapsCompatible_Level8 stops at zoom 8; past that Leaflet upscales
+ *  what it has rather than requesting tiles that do not exist. Upscaled is
+ *  honest here -- the underlying data really is about 500 m per pixel. */
+const LIGHT_POLLUTION_MAX_NATIVE_ZOOM = 8;
+
 /** Five decimal places is about a metre — far finer than any observing site
  *  needs, and enough that the number stops looking arbitrary. */
 const COORD_DP = 5;
@@ -81,6 +107,8 @@ export function SitePicker({ lat, lon, onPick }: Props) {
   const map = useRef<L.Map | null>(null);
   const marker = useRef<L.Marker | null>(null);
   const [tilesFailed, setTilesFailed] = useState(false);
+  const [showLights, setShowLights] = useState(true);
+  const lightsLayer = useRef<L.TileLayer | null>(null);
 
   // `onPick` gets a new identity on every render of the parent, so it is held
   // in a ref and read at event time. Listing it as an effect dependency would
@@ -111,6 +139,16 @@ export function SitePicker({ lat, lon, onPick }: Props) {
     tiles.on("tileerror", () => setTilesFailed(true));
     tiles.addTo(instance);
 
+    // Partly transparent so the coastline and roads underneath stay readable;
+    // the point is to place the glow against geography you recognise.
+    lightsLayer.current = L.tileLayer(LIGHT_POLLUTION_URL, {
+      attribution: LIGHT_POLLUTION_ATTRIBUTION,
+      maxNativeZoom: LIGHT_POLLUTION_MAX_NATIVE_ZOOM,
+      maxZoom: 19,
+      opacity: 0.75,
+      className: "light-pollution-tiles",
+    });
+
     instance.on("click", (event: L.LeafletMouseEvent) => {
       pick.current(
         Number(event.latlng.lat.toFixed(COORD_DP)),
@@ -119,6 +157,7 @@ export function SitePicker({ lat, lon, onPick }: Props) {
     });
 
     map.current = instance;
+    if (showLights) lightsLayer.current.addTo(instance);
 
     // The dialog lays out around the map; Leaflet needs telling once the
     // container has its final size or it renders a partial tile grid.
@@ -129,11 +168,20 @@ export function SitePicker({ lat, lon, onPick }: Props) {
       instance.remove();
       map.current = null;
       marker.current = null;
+      lightsLayer.current = null;
     };
     // Mount once. Coordinate changes are handled below, so typing in the
     // lat/lon boxes moves the pin instead of rebuilding the map.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  useEffect(() => {
+    const instance = map.current;
+    const layer = lightsLayer.current;
+    if (!instance || !layer) return;
+    if (showLights) layer.addTo(instance);
+    else layer.remove();
+  }, [showLights]);
 
   // Keep the pin in step with whatever the form holds, wherever those numbers
   // came from — a click here, a geocoder candidate, or typing.
@@ -186,10 +234,23 @@ export function SitePicker({ lat, lon, onPick }: Props) {
           directly.
         </p>
       )}
+      <div className="site-map-controls">
+        <label className="lights-toggle">
+          <input
+            type="checkbox"
+            checked={showLights}
+            onChange={(e) => setShowLights(e.target.checked)}
+          />
+          <span>Show light pollution</span>
+        </label>
+        <span className="muted small">
+          VIIRS night lights — bright means washed-out sky. Pick somewhere dark.
+        </span>
+      </div>
+
       <p className="muted small">
         Click anywhere to drop a pin, or drag it to adjust. Hold Ctrl and
-        scroll to zoom. Coordinates fill in below — the sky darkness at that
-        point does not, so set the Bortle class yourself.
+        scroll to zoom.
       </p>
     </div>
   );

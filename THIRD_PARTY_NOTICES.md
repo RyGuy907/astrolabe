@@ -96,6 +96,25 @@ use or large-scale redistribution.
 - The MPC asks that use of its data be acknowledged. Note its terms on bulk
   or automated querying before increasing how often this is fetched.
 
+### NASA GIBS — VIIRS night-lights overlay
+
+- **Endpoint:** `gibs.earthdata.nasa.gov/wmts/epsg3857/best/VIIRS_Black_Marble`
+- **Source:** NASA Global Imagery Browse Services,
+  https://nasa-gibs.github.io/gibs-api-docs/ — keyless, no account. Requested
+  directly by the browser as ordinary map tiles; nothing passes through this
+  application's own server and nothing is vendored.
+- **Why tiles rather than a vendored raster:** HANDOFF item 2 proposed
+  vendoring Falchi et al. 2016 or a VIIRS composite. Both have since become
+  gated. Falchi (DOI 10.5880/GFZ.1.4.2016.001) is behind a human-reviewed
+  request form and is CC BY-NC; EOG's VIIRS annual downloads now redirect to an
+  OAuth login. GIBS serves the same VIIRS data openly, so nothing needs to be
+  downloaded, downsampled or relicensed.
+- NASA data is openly available and asks to be credited. GIBS's API
+  documentation does not state rate limits or a required attribution string, so
+  the overlay is credited in the map's attribution control and requests are
+  kept to what the user is actually viewing. Confirm current terms with NASA
+  before any public deployment.
+
 ### 7Timer! ASTRO — seeing and transparency
 
 - **Endpoint:** `www.7timer.info/bin/api.pl`

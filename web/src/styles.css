@@ -900,6 +900,32 @@ table.targets tr.charted { background: rgba(244, 201, 93, 0.06); }
   .target-image img, .target-image-failed { width: 100%; height: auto; aspect-ratio: 1; }
 }
 
+/* Night-lights overlay. `screen` lets the glow sit over the basemap without
+   hiding the coastlines and roads that make a location recognisable. */
+.light-pollution-tiles { mix-blend-mode: screen; }
+
+.site-map-controls {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-top: 8px;
+}
+.lights-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.85rem;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.lights-toggle input { accent-color: var(--accent); }
+
+/* In night-vision mode the overlay is the brightest thing on screen. */
+:root[data-night-vision="on"] .light-pollution-tiles {
+  filter: grayscale(1) sepia(1) hue-rotate(-28deg) saturate(3) brightness(0.6);
+}
+
 footer { text-align: center; padding-top: 8px; }
 
 /* Mobile is a graceful fallback, not a separate design — the altitude chart
