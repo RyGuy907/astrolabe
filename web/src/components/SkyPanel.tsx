@@ -50,6 +50,36 @@ const EVENT_HORIZONS = [30, 90, 365];
 const SEARCH_ROWS_PER_GROUP = 25;
 const SEARCH_GROUPS = 15;
 
+/**
+ * A short label whose meaning is not hover-only.
+ *
+ * These badges carried their explanation in a `title` alone -- 223 of them on
+ * a typical page. A title is invisible on touch, never shown to a keyboard
+ * user, and unreliable as an accessible name, so "too faint" was a word with
+ * no way to find out what it meant unless you had a mouse. The label stays
+ * visible and compact; the meaning goes in text that assistive technology
+ * reads and the layout ignores. `title` is kept as the mouse affordance, and
+ * the key under the table covers sighted touch users.
+ */
+function Badge({ kind, meaning, children }: {
+  kind: string;
+  meaning: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <span className={`badge badge-${kind}`} title={meaning}>
+      {children}
+      <span className="visually-hidden"> — {meaning}</span>
+    </span>
+  );
+}
+
+const CONSTELLATION_MEANING: Record<string, string> = {
+  tonight: "Clears the altitude floor before midnight",
+  late: "Only clears the altitude floor after midnight",
+  none: "Never clears the altitude floor tonight",
+};
+
 function TargetRow({ target, timeZone, showAll }: {
   target: TargetModel;
   timeZone: string;
@@ -74,12 +104,12 @@ function TargetRow({ target, timeZone, showAll }: {
             both modes. "visible tonight" only earns space in the unfiltered
             view, where it separates rows from the ones that never come up. */}
         {target.visible_late && (
-          <span
-            className="badge badge-late"
-            title="Only clears the altitude floor after local midnight"
+          <Badge
+            kind="late"
+            meaning="Only clears the altitude floor after local midnight"
           >
             visible late
-          </span>
+          </Badge>
         )}
         {showAll && target.visible_tonight && !target.visible_late &&
           !target.too_faint && (
@@ -88,12 +118,12 @@ function TargetRow({ target, timeZone, showAll }: {
         {/* Up and pointable, but the sky will beat you. Shown rather than
             filtered so the limit is visible, and sorted last. */}
         {target.too_faint && (
-          <span
-            className="badge badge-faint"
-            title="Up tonight, but below the detection threshold for this sky"
+          <Badge
+            kind="faint"
+            meaning="Up tonight, but below the detection threshold for this sky"
           >
             too faint
-          </span>
+          </Badge>
         )}
         {target.notes.length > 0 && (
           <div className="target-notes">{target.notes.join(" · ")}</div>
@@ -310,6 +340,29 @@ export function SkyPanel({
               {query && ` ${matchCount} match${matchCount === 1 ? "" : "es"}.`}
             </p>
 
+            {/* The API returns this and the CLI prints it on every run; the
+                web UI dropped it on the floor. It is the honesty note saying a
+                horizon profile is a generic assumption, or that it is below
+                the floor and changing nothing -- exactly the kind of caveat
+                this project refuses to hide elsewhere. */}
+            {targets.horizon_warning && (
+              <p className="note">{targets.horizon_warning}</p>
+            )}
+
+            {/* A visible key, so the badges can be decoded without a mouse.
+                Repeating each explanation on all 200-odd rows would bury the
+                table; saying it once will not. */}
+            <p className="muted small badge-key">
+              <span className="badge badge-late">visible late</span> only clears
+              the floor after midnight ·{" "}
+              <span className="badge badge-faint">too faint</span> up, but below
+              what this sky will show ·{" "}
+              <span className="muted small">wide</span> spans enough sky that one
+              curve is a rough summary ·{" "}
+              <span className="muted small">gap</span> dips below the floor and
+              returns, so the window is not continuous
+            </p>
+
             {query && groupNames.length === 0 && !isStale && (
               <p className="muted">Nothing matches “{search.trim()}”.</p>
             )}
@@ -343,6 +396,14 @@ export function SkyPanel({
                             ? `Remove ${label} from the chart`
                             : `Chart ${label}`
                         }
+                        // The visible text is "+" or a tick, which names
+                        // nothing on its own; title is not a reliable
+                        // accessible name, so state it explicitly.
+                        aria-label={
+                          onChart
+                            ? `Remove ${label} from the chart`
+                            : `Chart ${label}`
+                        }
                         aria-pressed={onChart}
                       >
                         {onChart ? "✓" : "+"}
@@ -361,14 +422,11 @@ export function SkyPanel({
                       {info?.is_constellation && (
                         <span
                           className={`badge badge-con-${info.visibility}`}
-                          title={
-                            info.visibility === "tonight"
-                              ? "Clears the altitude floor before midnight"
-                              : info.visibility === "late"
-                                ? "Only clears the altitude floor after midnight"
-                                : "Never clears the altitude floor tonight"
-                          }
+                          title={CONSTELLATION_MEANING[info.visibility]}
                         >
+                          <span className="visually-hidden">
+                            {CONSTELLATION_MEANING[info.visibility]}:{" "}
+                          </span>
                           {info.visibility === "tonight"
                             ? "visible tonight"
                             : info.visibility === "late"
@@ -395,7 +453,15 @@ export function SkyPanel({
                           {formatTime(info.window_end, timeZone)}
                           {info.peak_altitude_deg !== null &&
                             ` · peak ${Math.round(info.peak_altitude_deg)}°`}
-                          {info.has_gap && " · gap"}
+                          {info.has_gap && (
+                            <>
+                              {" · gap"}
+                              <span className="visually-hidden">
+                                {" "}— dips below the floor and returns, so the
+                                window is not continuous
+                              </span>
+                            </>
+                          )}
                         </span>
                       )}
                       {info?.is_wide && (
@@ -404,6 +470,10 @@ export function SkyPanel({
                           title={`Spans about ${Math.round(info.spread_deg ?? 0)}°, so a single curve is a rough summary`}
                         >
                           wide
+                          <span className="visually-hidden">
+                            {" "}— spans about {Math.round(info.spread_deg ?? 0)}°,
+                            so a single curve is a rough summary
+                          </span>
                         </span>
                       )}
                     </button>
@@ -477,6 +547,11 @@ export function SkyPanel({
                           onToggleChart(planet.name, planet.name, "body")
                         }
                         title="Toggle on the altitude chart"
+                        aria-label={
+                          charted.includes(planet.name)
+                            ? `Remove ${titleCase(planet.name)} from the chart`
+                            : `Chart ${titleCase(planet.name)}`
+                        }
                         aria-pressed={charted.includes(planet.name)}
                       >
                         {charted.includes(planet.name) ? "✓" : "+"}

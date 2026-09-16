@@ -779,6 +779,16 @@ table.targets tr.charted { background: rgba(244, 201, 93, 0.06); }
   .site-map { height: 240px; }
 }
 
+/* The badge key: reuses the real badges so the sample and the thing it
+   explains cannot drift apart. */
+.badge-key {
+  margin: 0 0 10px;
+  line-height: 1.9;
+  border-left: 2px solid var(--line);
+  padding-left: 10px;
+}
+.badge-key .badge { margin-right: 2px; }
+
 footer { text-align: center; padding-top: 8px; }
 
 /* Mobile is a graceful fallback, not a separate design — the altitude chart

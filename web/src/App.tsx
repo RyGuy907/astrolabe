@@ -359,6 +359,11 @@ export default function App() {
                   title="No Bortle class set for this site, so targets are filtered as SQM 20.4 — a suburban sky. That changes which objects appear at all."
                 >
                   Bortle 5 (assumed)
+                  <span className="visually-hidden">
+                    {" "}— no Bortle class is set for this site, so targets are
+                    filtered as SQM 20.4, a suburban sky. That changes which
+                    objects appear at all.
+                  </span>
                 </span>
               ) : (
                 `Bortle ${location.bortle}`
@@ -366,6 +371,9 @@ export default function App() {
               {location.horizon_is_generic && (
                 <span className="tag tag-warn" title="Built-in preset, not a survey">
                   generic horizon
+                  <span className="visually-hidden">
+                    {" "}— a built-in preset, not a survey of this site
+                  </span>
                 </span>
               )}
             </p>
