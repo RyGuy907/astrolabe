@@ -676,15 +676,16 @@ export function LocationManager({ locations, onClose, onCreated, onDeleted }: Pr
                       </div>
                     </td>
                     <td className="nowrap">
-                      {site.bortle === null ? (
+                      {site.sky_source === "assumed" ? (
                         <span className="tag tag-warn" title="No Bortle class set">
                           Bortle 5 assumed
                         </span>
                       ) : (
                         <>
-                          Bortle {site.bortle}
+                          Bortle {site.effective_bortle}
                           <div className="target-notes">
-                            SQM {site.sqm?.toFixed(1)}
+                            SQM {site.sqm?.toFixed(1)} ·{" "}
+                            {site.sky_source === "atlas" ? "from atlas" : "you set this"}
                           </div>
                         </>
                       )}

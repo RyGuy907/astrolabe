@@ -19,8 +19,30 @@ class LocationModel(BaseModel):
     lat: float
     lon: float
     elevation_m: float
-    bortle: int | None = None
-    sqm: float | None = None
+    bortle: int | None = Field(
+        default=None,
+        description="The observer's own Bortle class, or null. Never filled "
+                    "in from the atlas -- a value here is a measurement they "
+                    "made, and it outranks any lookup.",
+    )
+    sqm: float | None = Field(
+        default=None,
+        description="Effective sky brightness, mag/arcsec^2. From the "
+                    "observer's Bortle if they gave one, otherwise from the "
+                    "atlas, otherwise null.",
+    )
+    sky_source: str = Field(
+        default="assumed",
+        description='Where sqm came from: "observer", "atlas" or "assumed". '
+                    '"assumed" means nothing is known and target filtering '
+                    "falls back to Bortle 5, which changes which objects "
+                    "appear at all.",
+    )
+    effective_bortle: int = Field(
+        default=5,
+        description="The class filtering actually uses, however it was "
+                    "arrived at. Display only; SQM is the internal unit.",
+    )
     timezone: str
     horizon_name: str
     horizon_is_generic: bool = Field(

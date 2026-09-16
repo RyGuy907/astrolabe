@@ -75,16 +75,22 @@ const ALTITUDE_FLOORS: { deg: number; label: string; note: string }[] = [
 /**
  * How a site's sky brightness reads in the header and the site picker.
  *
- * A location with no Bortle is not scored as "unknown" — `engine/targets.py`
- * falls back to `BORTLE_SQM[5]`, which sets the limiting magnitude and the
- * contrast test and so changes which objects appear at all. The fallback is
- * reasonable; letting it happen invisibly is not, so a missing value is
- * labelled as an assumption everywhere the value is shown.
+ * Three cases, kept distinct because they are three different degrees of
+ * knowing. An observer's own class is a measurement. An atlas value is a
+ * lookup. "Assumed" means nothing is known and `engine/targets.py` falls back
+ * to Bortle 5 — which sets the limiting magnitude and the contrast test, so it
+ * changes which objects appear at all. That fallback is reasonable; letting it
+ * happen invisibly is not.
  */
 function bortleLabel(location: LocationModel): string {
-  return location.bortle === null
-    ? "Bortle 5 (assumed)"
-    : `Bortle ${location.bortle}`;
+  switch (location.sky_source) {
+    case "observer":
+      return `Bortle ${location.bortle}`;
+    case "atlas":
+      return `Bortle ${location.effective_bortle} (from atlas)`;
+    default:
+      return "Bortle 5 (assumed)";
+  }
 }
 
 /**
@@ -378,7 +384,7 @@ export default function App() {
               {" "}{location.name} · {location.lat.toFixed(3)},{" "}
               {location.lon.toFixed(3)} · {location.elevation_m.toFixed(0)} m
               {" · "}
-              {location.bortle === null ? (
+              {location.sky_source === "assumed" ? (
                 <span
                   className="tag tag-warn"
                   title="No Bortle class set for this site, so targets are filtered as SQM 20.4 — a suburban sky. That changes which objects appear at all."
@@ -388,6 +394,17 @@ export default function App() {
                     {" "}— no Bortle class is set for this site, so targets are
                     filtered as SQM 20.4, a suburban sky. That changes which
                     objects appear at all.
+                  </span>
+                </span>
+              ) : location.sky_source === "atlas" ? (
+                <span
+                  className="tag"
+                  title={`Read from the configured light-pollution atlas: SQM ${location.sqm?.toFixed(2)}. You did not set a Bortle class for this site, so this is what target filtering uses.`}
+                >
+                  Bortle {location.effective_bortle} (from atlas)
+                  <span className="visually-hidden">
+                    {" "}— read from the light-pollution atlas at SQM{" "}
+                    {location.sqm?.toFixed(2)}, not a class you set
                   </span>
                 </span>
               ) : (

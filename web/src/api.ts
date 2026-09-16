@@ -12,8 +12,14 @@ export interface LocationModel {
   lat: number;
   lon: number;
   elevation_m: number;
+  /** The observer's own Bortle class, or null. Never filled from the atlas. */
   bortle: number | null;
+  /** Effective sky brightness; observer's value, else atlas, else null. */
   sqm: number | null;
+  /** "observer" | "atlas" | "assumed" — where `sqm` came from. */
+  sky_source: string;
+  /** The class target filtering actually uses, however it was arrived at. */
+  effective_bortle: number;
   timezone: string;
   horizon_name: string;
   horizon_is_generic: boolean;

@@ -47,10 +47,19 @@ class Location:
     lat: float
     lon: float
     elevation_m: float = 0.0
+    #: The observer's own Bortle class, or None. This is a *measurement the
+    #: observer made*, and it outranks the atlas: HANDOFF is explicit that an
+    #: explicit value must never be silently overwritten by a lookup.
     bortle: int | None = None
     tz: str = field(default="UTC")
     # Optional obstruction horizon. Defaults to flat, i.e. a clear horizon.
     horizon: HorizonProfile = field(default=FLAT)
+    #: SQM read from a light-pollution atlas, when one is configured and the
+    #: observer gave no Bortle. Filled at construction rather than lazily in a
+    #: property, so `Location` stays a frozen value rather than something that
+    #: does I/O when you look at it -- and stays hashable, which `night_window`
+    #: depends on for its cache.
+    atlas_sqm: float | None = None
 
     def __post_init__(self) -> None:
         if not -90.0 <= self.lat <= 90.0:
@@ -62,8 +71,43 @@ class Location:
 
     @property
     def sqm(self) -> float | None:
-        """Sky brightness in mag/arcsec^2, or None if bortle is unset."""
-        return None if self.bortle is None else BORTLE_SQM[self.bortle]
+        """Sky brightness in mag/arcsec^2, or None if nothing is known.
+
+        PLAN.md §2: SQM is the internal unit and Bortle is display only. The
+        observer's own class wins; the atlas fills in only where they gave
+        none.
+        """
+        if self.bortle is not None:
+            return BORTLE_SQM[self.bortle]
+        return self.atlas_sqm
+
+    @property
+    def sky_source(self) -> str:
+        """Where `sqm` came from: "observer", "atlas", or "assumed".
+
+        "assumed" is the honest name for having nothing: `engine/targets.py`
+        falls back to Bortle 5, which sets the limiting magnitude and the
+        contrast test and therefore decides which objects appear at all. That
+        fallback is reasonable; it happening invisibly is not, so every layer
+        above can and does say which of the three it is looking at.
+        """
+        if self.bortle is not None:
+            return "observer"
+        if self.atlas_sqm is not None:
+            return "atlas"
+        return "assumed"
+
+    @property
+    def effective_bortle(self) -> int:
+        """The class the engine will actually filter by, however it was got.
+
+        Display only, and deliberately never None: it answers "what is being
+        used", which with the Bortle-5 fallback always has an answer.
+        """
+        from .skybrightness import bortle_from_sqm
+
+        sqm = self.sqm
+        return 5 if sqm is None else bortle_from_sqm(sqm)
 
 
 @functools.lru_cache(maxsize=8)
@@ -73,6 +117,23 @@ def _resolve_tz(lat: float, lon: float) -> str:
 
     tz = TimezoneFinder().timezone_at(lat=lat, lng=lon)
     return tz or "UTC"
+
+
+def atlas_sqm_for(lat: float, lon: float, bortle: int | None) -> float | None:
+    """Look up the atlas, but only where the observer supplied nothing.
+
+    Imported lazily because `skybrightness` imports `BORTLE_SQM` from this
+    module; at module scope the two would form an import cycle. Any failure is
+    swallowed -- an optional lookup must not be able to stop a site loading.
+    """
+    if bortle is not None:
+        return None
+    try:
+        from .skybrightness import sqm_at
+
+        return sqm_at(lat, lon)
+    except Exception:                    # noqa: BLE001 - optional, never fatal
+        return None
 
 
 def _read_yaml(path: Path) -> dict:
@@ -111,15 +172,17 @@ def load_locations(path: Path | None = None) -> dict[str, Location]:
     for key, spec in (raw.get("locations") or {}).items():
         lat = float(spec["lat"])
         lon = float(spec["lon"])
+        bortle = spec.get("bortle")
         out[key] = Location(
             key=key,
             name=spec.get("name", key),
             lat=lat,
             lon=lon,
             elevation_m=float(spec.get("elevation_m", 0.0)),
-            bortle=spec.get("bortle"),
+            bortle=bortle,
             tz=spec.get("tz") or _resolve_tz(lat, lon),
             horizon=parse_horizon(spec.get("horizon")),
+            atlas_sqm=atlas_sqm_for(lat, lon, bortle),
         )
     return out
 

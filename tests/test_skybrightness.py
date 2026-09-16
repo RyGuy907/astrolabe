@@ -137,6 +137,63 @@ def test_a_city_is_brighter_than_a_desert():
     )
 
 
+# --- precedence: the observer outranks the atlas ----------------------------
+
+def test_an_observers_bortle_is_never_overwritten_by_the_atlas():
+    """HANDOFF is explicit: an explicit value is the observer's own
+    measurement and outranks a lookup. `atlas_sqm_for` refuses to even look."""
+    from engine.locations import atlas_sqm_for
+
+    assert atlas_sqm_for(34.0, -118.0, bortle=3) is None
+
+
+def test_the_three_sky_sources_are_distinguishable():
+    """Three different degrees of knowing, and the UI shows each differently,
+    so nothing downstream should have to guess which it has."""
+    from engine.locations import Location
+
+    common = dict(key="k", name="n", lat=34.0, lon=-118.0, tz="UTC")
+
+    observer = Location(**common, bortle=3)
+    assert observer.sky_source == "observer"
+    assert observer.sqm == BORTLE_SQM[3]
+    assert observer.effective_bortle == 3
+
+    atlas = Location(**common, bortle=None, atlas_sqm=21.35)
+    assert atlas.sky_source == "atlas"
+    assert atlas.sqm == 21.35
+    assert atlas.effective_bortle == 3          # nearest class to 21.35
+
+    nothing = Location(**common)
+    assert nothing.sky_source == "assumed"
+    assert nothing.sqm is None
+    assert nothing.effective_bortle == 5        # the documented fallback
+
+
+def test_an_observer_value_wins_even_when_an_atlas_value_is_present():
+    """Belt and braces: even if both fields are somehow set, the observer's
+    class is what `sqm` reports."""
+    from engine.locations import Location
+
+    both = Location(key="k", name="n", lat=34.0, lon=-118.0, tz="UTC",
+                    bortle=2, atlas_sqm=18.0)
+    assert both.sqm == BORTLE_SQM[2]
+    assert both.sky_source == "observer"
+
+
+def test_a_location_carrying_an_atlas_value_is_still_hashable():
+    """`night_window` is lru_cached on Location. A field that broke hashing
+    would silently disable that cache -- it has happened once already, with
+    the horizon profile."""
+    from engine.locations import Location
+
+    site = Location(key="k", name="n", lat=34.0, lon=-118.0, tz="UTC",
+                    atlas_sqm=20.1)
+    assert hash(site) is not None
+    assert site == Location(key="k", name="n", lat=34.0, lon=-118.0, tz="UTC",
+                            atlas_sqm=20.1)
+
+
 @requires_raster
 def test_out_of_coverage_is_none_rather_than_a_guess():
     """PLAN.md §2: return None outside coverage rather than guessing."""

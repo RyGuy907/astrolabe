@@ -34,7 +34,7 @@ from engine.events import (
 from engine.constellations import (assess_constellations, centroid,
                                    constellation_name)
 from engine.horizon import build as build_horizon
-from engine.locations import Location, LocationError
+from engine.locations import Location, LocationError, atlas_sqm_for
 from engine.planets import ALL_PLANETS, report_all
 from engine.scoring import score_night, verdict
 from engine.targets import (
@@ -130,6 +130,8 @@ def _location_model(location: Location, source: str = "config") -> LocationModel
         elevation_m=location.elevation_m,
         bortle=location.bortle,
         sqm=location.sqm,
+        sky_source=location.sky_source,
+        effective_bortle=location.effective_bortle,
         timezone=location.tz,
         horizon_name=location.horizon.name,
         horizon_is_generic=location.horizon.is_generic,
@@ -688,6 +690,7 @@ def create_location(request: NewLocationRequest) -> LocationModel:
             elevation_m=elevation or 0.0, bortle=request.bortle,
             tz=_resolve_tz(lat, lon),
             horizon=build_horizon(request.horizon, request.horizon_facing),
+            atlas_sqm=atlas_sqm_for(lat, lon, request.bortle),
         )
     except (ValueError, KeyError) as exc:
         raise HTTPException(status_code=422, detail=str(exc))

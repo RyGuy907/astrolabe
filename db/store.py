@@ -16,7 +16,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from engine.horizon import parse_horizon, serialise as serialise_horizon
-from engine.locations import Location, _resolve_tz
+from engine.locations import Location, _resolve_tz, atlas_sqm_for
 
 SCHEMA_VERSION = 1
 
@@ -58,6 +58,9 @@ def connect(path: Path | None = None) -> sqlite3.Connection:
 
 
 def _row_to_location(row: sqlite3.Row) -> Location:
+    # The atlas value is looked up on load rather than stored, so a site saved
+    # before a raster was configured picks one up as soon as there is one, and
+    # a stale reading can never outlive the file it came from.
     return Location(
         key=row["key"],
         name=row["name"],
@@ -67,6 +70,7 @@ def _row_to_location(row: sqlite3.Row) -> Location:
         bortle=row["bortle"],
         tz=row["tz"] or _resolve_tz(row["lat"], row["lon"]),
         horizon=parse_horizon(row["horizon"]),
+        atlas_sqm=atlas_sqm_for(row["lat"], row["lon"], row["bortle"]),
     )
 
 
