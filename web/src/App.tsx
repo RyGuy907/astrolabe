@@ -51,6 +51,28 @@ interface ChartSeries {
 const PLANET_CHART_FLOOR_DEG = 8;
 
 /**
+ * Altitude floors offered in the UI.
+ *
+ * 25 deg is the engine default and a sensible one -- below it, extinction and
+ * seeing degrade fast. But it was hardcoded here, which had two consequences
+ * worth fixing. Obstruction-horizon presets are compared against this floor
+ * (`max(min_altitude, horizon)`), so with it pinned at 25 the shallower
+ * presets could never change a result; and planets low in twilight, which is
+ * where Mercury and Venus live, were filtered out with no way to see them.
+ *
+ * Each option names what it costs, because lowering the floor is a trade, not
+ * an improvement.
+ */
+const ALTITUDE_FLOORS: { deg: number; label: string; note: string }[] = [
+  { deg: 10, label: "10°", note: "includes low twilight objects; heavy extinction and poor seeing" },
+  { deg: 15, label: "15°", note: "generous; still hazy near the horizon" },
+  { deg: 20, label: "20°", note: "slightly below the default" },
+  { deg: 25, label: "25° (default)", note: "the engine's default; a good general floor" },
+  { deg: 30, label: "30°", note: "strict; only well-placed objects" },
+  { deg: 40, label: "40°", note: "very strict; near-zenith work only" },
+];
+
+/**
  * How a site's sky brightness reads in the header and the site picker.
  *
  * A location with no Bortle is not scored as "unknown" — `engine/targets.py`
@@ -86,6 +108,7 @@ export default function App() {
 
   const [series, setSeries] = useState<ChartSeries[]>([]);
   const [eventDays, setEventDays] = useState(90);
+  const [minAltitude, setMinAltitude] = useState(25);
   // "Visible tonight" lists only what passes the observability filters;
   // "All targets" drops the filtering entirely and badges each row instead.
   const [showAllTargets, setShowAllTargets] = useState(false);
@@ -161,7 +184,7 @@ export default function App() {
       .catch(fail)
       .finally(() => settle("night"));
 
-    api.planets(date, locationKey, false)
+    api.planets(date, locationKey, false, minAltitude)
       .then((data) => !cancelled && setPlanets(data))
       .catch(fail)
       .finally(() => settle("planets"));
@@ -169,8 +192,8 @@ export default function App() {
     // Always the unfiltered superset: the "visible tonight" view is derived
     // from it in SkyPanel, so switching modes costs no round-trip. Two
     // separate fetches would double a ~5 s server computation.
-    api.targets(date, locationKey, 1000, 25, "constellation", "brightness",
-                true)
+    api.targets(date, locationKey, 1000, minAltitude, "constellation",
+                "brightness", true)
       .then((data) => !cancelled && setTargets(data))
       .catch(fail)
       .finally(() => settle("targets"));
@@ -178,7 +201,7 @@ export default function App() {
     return () => {
       cancelled = true;
     };
-  }, [date, locationKey]);
+  }, [date, locationKey, minAltitude]);
 
   // --- events, on their own horizon ---
   useEffect(() => {
@@ -232,14 +255,14 @@ export default function App() {
 
     api
       .altitude(date, locationKey, bodies.join(","), undefined,
-                constellations.join(",") || undefined)
+                constellations.join(",") || undefined, minAltitude)
       .then((data) => !cancelled && setAltitude(data))
       .catch(() => !cancelled && setAltitude(null));
 
     return () => {
       cancelled = true;
     };
-  }, [series, date, locationKey]);
+  }, [series, date, locationKey, minAltitude]);
 
   /** Reload the site list after an add or a delete.
    *
@@ -385,6 +408,21 @@ export default function App() {
             </div>
           </label>
 
+          <label>
+            <span>Altitude floor</span>
+            <select
+              value={String(minAltitude)}
+              onChange={(e) => setMinAltitude(Number(e.target.value))}
+              title="Objects below this altitude are excluded"
+            >
+              {ALTITUDE_FLOORS.map((floor) => (
+                <option key={floor.deg} value={String(floor.deg)}>
+                  {floor.label}
+                </option>
+              ))}
+            </select>
+          </label>
+
           <button className="secondary" onClick={goToTonight} disabled={isTonight}>
             Tonight
           </button>
@@ -416,6 +454,23 @@ export default function App() {
               skyPanelRef.current?.scrollIntoView({ behavior: "smooth", block: "center" })
             }
           />
+
+          {minAltitude !== 25 && (
+            <p className="panel note">
+              Altitude floor set to <strong>{minAltitude}°</strong> instead of
+              the default 25°:{" "}
+              {ALTITUDE_FLOORS.find((f) => f.deg === minAltitude)?.note}.
+              {minAltitude < 25 && location.horizon_name !== "flat" && (
+                <>
+                  {" "}Your <strong>{location.horizon_name}</strong> horizon
+                  profile reaches {location.horizon_max_deg.toFixed(0)}°, so it
+                  {location.horizon_max_deg > minAltitude
+                    ? " is now the binding constraint in the directions it covers."
+                    : " still sits below this floor and is not affecting these results."}
+                </>
+              )}
+            </p>
+          )}
 
           <ScorePanel score={night.score} window={night.window} />
 

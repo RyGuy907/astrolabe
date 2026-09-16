@@ -417,18 +417,21 @@ export const api = {
                              include_all: includeAll ? "true" : undefined })}`,
     ),
 
-  planets: (date: string, location: string, findNext = false) =>
+  planets: (date: string, location: string, findNext = false,
+            minAltitude = 25) =>
     get<PlanetsResponse>(
-      `/api/planets${query({ date, location, find_next: String(findNext) })}`,
+      `/api/planets${query({ date, location, find_next: String(findNext),
+                             min_altitude: minAltitude })}`,
     ),
 
   events: (from: string, location: string, days = 90) =>
     get<EventsResponse>(`/api/events${query({ from, location, days })}`),
 
   altitude: (date: string, location: string, bodies: string,
-             objects?: string, constellations?: string) =>
+             objects?: string, constellations?: string, minAltitude = 25) =>
     get<AltitudeResponse>(
-      `/api/altitude${query({ date, location, bodies, objects, constellations })}`,
+      `/api/altitude${query({ date, location, bodies, objects, constellations,
+                              min_altitude: minAltitude })}`,
     ),
 
   // --- observation log ---
