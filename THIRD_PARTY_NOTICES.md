@@ -84,6 +84,18 @@ use or large-scale redistribution.
   prefetching. Attribution is rendered by the map control; nothing prefetches.
   Re-read that policy before deploying publicly.
 
+### Minor Planet Center — comet orbital elements
+
+- **Endpoint:** `www.minorplanetcenter.net/iau/MPCORB/CometEls.txt`
+- **Source:** IAU Minor Planet Center, https://www.minorplanetcenter.net —
+  keyless. Fetched once into the local cache directory through Skyfield's
+  loader, by `engine/events.py`.
+- Used only by `planner events` for comet availability; no astronomy depends
+  on it, the HTTP API never calls it, and it degrades to
+  "MPC unavailable" rather than failing.
+- The MPC asks that use of its data be acknowledged. Note its terms on bulk
+  or automated querying before increasing how often this is fetched.
+
 ### 7Timer! ASTRO — seeing and transparency
 
 - **Endpoint:** `www.7timer.info/bin/api.pl`

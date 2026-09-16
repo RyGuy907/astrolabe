@@ -81,7 +81,10 @@ marks weather unavailable. 219 tests pass.
 
 **Delivered:**
 - [x] `engine/weather.py` — Open-Meteo + 7Timer clients, SQLite cache (3 h TTL),
-      blending, and graceful degradation. The **only** networked engine module.
+      blending, and graceful degradation. At the time, the only networked
+      engine module; `geocode.py` joined it in Phase 4, and `events.py` was
+      later found to reach the MPC through Skyfield's loader without the AST
+      guard seeing it — see the correction below.
 - [x] `engine/scoring.py` — dual deep-sky/planetary scores, six-factor
       multiplicative breakdown, letter grade, best contiguous window
 - [x] `cli` — `planner tonight`
@@ -320,6 +323,36 @@ everywhere. A measured az->alt map is the only unflagged form. A DEM-derived
 horizon was considered and rejected for now: it sees terrain only, so at a
 suburban site it would confidently return "flat" while trees and rooflines do
 the actual blocking.
+
+---
+
+## Correction — the network guard had a blind spot — fixed
+
+Found 2026-09-16 while auditing the repository for publication.
+
+`tests/test_tz_boundaries.py` enforced network isolation by scanning engine
+modules for imports of `urllib`, `requests`, `socket` and friends. That misses
+any module which names a remote resource and lets a library open the socket
+for it — and `engine/events.py` does exactly that, handing
+`minorplanetcenter.net/iau/MPCORB/CometEls.txt` to Skyfield's `Loader` to fetch
+comet orbital elements. It imports nothing suspicious, so the guard saw
+nothing, and the claim that only two engine modules touch the network was not
+quite true.
+
+**Nothing was behaving badly.** `bright_comets()` checks `network_enabled()`,
+catches every exception and degrades to `CometStatus(available=False)`; no
+astronomy depends on it and the HTTP API never calls it. The defect was in the
+guard and in the documentation, not in the behaviour — which is the more
+embarrassing kind for a project whose stated character is not hiding caveats.
+
+**Fixed by declaring remote resources by URL as well as by import.**
+`REMOTE_URLS_ALLOWED` now lists each engine module permitted to name an
+http(s) endpoint, with the reason; a new test fails on any undeclared one, and
+a second test fails if a declaration outlives the URL it describes. The guard
+was verified to bite by injecting a URL into `engine/horizon.py` and watching
+it fail, then reverting.
+
+The MPC also had no entry in `THIRD_PARTY_NOTICES.md`. It has one now.
 
 ---
 

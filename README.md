@@ -92,6 +92,9 @@ engine/     pure Python; no web imports, no I/O beyond local caches
   scoring.py     dual deep-sky/planetary condition scores
   weather.py     Open-Meteo + 7Timer (networked; degrades to unavailable)
   geocode.py     place name -> coordinates (networked; degrades to empty)
+  events.py      showers and eclipses are local; comet elements come from the
+                 MPC through Skyfield's loader (networked; degrades to
+                 "MPC unavailable"). No astronomy depends on it.
   horizon.py     obstruction horizon profiles
   catalog/       OpenNGC ingest (vendored CSV -> SQLite) and lookup
 cli/        Typer front end; the only layer that converts UTC to local

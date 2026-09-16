@@ -211,6 +211,28 @@ FORBIDDEN_IMPORTS = {
 NETWORK_ALLOWED = {"weather.py", "geocode.py"}
 FRAMEWORK_IMPORTS = {"fastapi", "starlette", "uvicorn", "flask", "django"}
 
+# --- the blind spot the import scan alone leaves -----------------------------
+#
+# `test_only_weather_reaches_the_network` looks for imports of urllib, requests
+# and friends. That misses any module which reaches the network through a
+# library that does the socket work for it -- and `events.py` does exactly
+# that, handing an MPC URL to Skyfield's Loader. It imports nothing suspicious,
+# so the guard saw nothing, and "only two engine modules touch the network" was
+# not quite true.
+#
+# So remote resources are declared by URL as well as by import. Each entry is a
+# claim that the module still works with the network gone.
+REMOTE_URLS_ALLOWED = {
+    "weather.py": "Open-Meteo and 7Timer forecasts; PLAN.md 1 designates this "
+                  "the networked part of the engine.",
+    "geocode.py": "Open-Meteo geocoding, for adding a site by name.",
+    "events.py": "MPC comet orbital elements, fetched through Skyfield's "
+                 "Loader rather than a direct socket, which is why the import "
+                 "scan above does not see it. Guarded by network_enabled() "
+                 "and degrades to CometStatus(available=False); no astronomy "
+                 "depends on it, and the API never calls it.",
+}
+
 
 @pytest.mark.parametrize("path", ENGINE_FILES, ids=lambda p: p.name)
 def test_engine_imports_nothing_web_related(path):
@@ -248,6 +270,51 @@ def test_only_weather_reaches_the_network():
     assert networked <= NETWORK_ALLOWED, (
         f"unexpected networked engine modules: {sorted(networked - NETWORK_ALLOWED)}"
     )
+
+
+def test_no_undeclared_remote_resource_in_the_engine():
+    """Every http(s) URL in engine/ belongs to a module that declares one.
+
+    Catches the case the import scan cannot: a module that names a remote
+    resource and lets a third-party library open the socket for it.
+    """
+    import re
+
+    offenders: dict[str, set[str]] = {}
+    for path in ENGINE_FILES:
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        urls = {
+            node.value for node in ast.walk(tree)
+            if isinstance(node, ast.Constant) and isinstance(node.value, str)
+            and re.match(r"^https?://", node.value)
+        }
+        if urls and path.name not in REMOTE_URLS_ALLOWED:
+            offenders[path.name] = urls
+
+    assert not offenders, (
+        "engine modules naming a remote resource without declaring it in "
+        f"REMOTE_URLS_ALLOWED: { {k: sorted(v) for k, v in offenders.items()} }"
+    )
+
+
+def test_every_declared_remote_module_still_names_a_url():
+    """The declarations must not outlive the thing they describe.
+
+    A stale entry would quietly re-open the blind spot for whatever file
+    inherits that name next.
+    """
+    import re
+
+    names_with_urls = set()
+    for path in ENGINE_FILES:
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        if any(isinstance(node, ast.Constant) and isinstance(node.value, str)
+               and re.match(r"^https?://", node.value)
+               for node in ast.walk(tree)):
+            names_with_urls.add(path.name)
+
+    stale = set(REMOTE_URLS_ALLOWED) - names_with_urls
+    assert not stale, f"REMOTE_URLS_ALLOWED lists modules with no URL: {sorted(stale)}"
 
 
 def test_the_astronomy_modules_are_all_offline():
