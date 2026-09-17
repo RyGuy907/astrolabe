@@ -206,8 +206,10 @@ export function LocationManager({ locations, editingKey, onClose, onCreated }: P
   const [lon, setLon] = useState("");
   const [elevation, setElevation] = useState("");
   const [bortle, setBortle] = useState<string>("");
-  //: Uniform obstruction angle in degrees, applied to every bearing.
-  const [horizon, setHorizon] = useState(0);
+  //: Uniform obstruction angle in degrees, applied to every bearing. Null
+  //: until chosen: this is the site's altitude floor now, so defaulting it to
+  //: zero would quietly claim a clear horizon for somebody in a forest.
+  const [horizon, setHorizon] = useState<number | null>(null);
   //: What the atlas says for the coordinates currently in the form. Null
   //: until asked; `in_coverage: false` means it has nothing here.
   const [atlas, setAtlas] = useState<SkyBrightnessReading | null>(null);
@@ -383,16 +385,18 @@ export function LocationManager({ locations, editingKey, onClose, onCreated }: P
     setBortle("");
     setBortleEdited(false);
     setAtlas(null);
-    setHorizon(0);
+    setHorizon(null);
     setMeasuredHorizon(null);
     setSearch("");
     setCandidates([]);
     setSearchState("idle");
   }
 
+  //: A measured profile counts: it is a horizon, and a better one.
+  const horizonChosen = horizon !== null || measuredHorizon !== null;
   const canSave =
     !busy && latValid && lonValid && elevationValid && keyValid && !keyTaken &&
-    bortleChosen && name.trim() !== "";
+    bortleChosen && horizonChosen && name.trim() !== "";
   //: The atlas answered for these coordinates, so the Bortle field filled
   //: itself and the observer has not overridden it.
   const bortleFromAtlas =
@@ -417,7 +421,7 @@ export function LocationManager({ locations, editingKey, onClose, onCreated }: P
         // bare number is a uniform ring and stays flagged.
         horizon: measuredHorizon
           ? JSON.stringify(measuredHorizon)
-          : String(horizon),
+          : String(horizon ?? 0),
         horizon_facing: null,
       });
       resetForm();
@@ -570,6 +574,40 @@ export function LocationManager({ locations, editingKey, onClose, onCreated }: P
             </label>
           </div>
 
+          <div className="site-form">
+            <label className="wide">
+              <span>
+                Obstruction angle
+                {measuredHorizon && (
+                  <span className="field-note"> measured, overrides this</span>
+                )}
+              </span>
+              <select
+                value={horizon === null ? "" : String(horizon)}
+                onChange={(e) => setHorizon(
+                  e.target.value === "" ? null : Number(e.target.value))}
+                disabled={measuredHorizon !== null}
+                className={horizonChosen ? "" : "invalid"}
+              >
+                <option value="">— choose —</option>
+                {OBSTRUCTION_ANGLES.map((deg) => (
+                  <option key={deg} value={String(deg)}>{deg}°</option>
+                ))}
+              </select>
+            </label>
+          </div>
+
+          {latValid && lonValid && (
+            <details className="horizon-measure-block">
+              <summary>Measure the horizon by constellation</summary>
+              <HorizonMeasure
+                lat={latValue}
+                lon={lonValue}
+                onMeasured={setMeasuredHorizon}
+              />
+            </details>
+          )}
+
           {/* Name is the only field that needs a person. The coordinates come
               from the map, the Bortle class from the atlas, and the key is
               derived -- so the rest is here for when it is wrong, not as a
@@ -656,39 +694,7 @@ export function LocationManager({ locations, editingKey, onClose, onCreated }: P
                 <option value="unknown">I don’t know</option>
               </select>
             </label>
-            <label className="wide">
-              <span>
-                Obstruction angle
-                {measuredHorizon && (
-                  <span className="field-note"> measured, overrides this</span>
-                )}
-              </span>
-              <select
-                value={String(horizon)}
-                onChange={(e) => setHorizon(Number(e.target.value))}
-                disabled={measuredHorizon !== null}
-              >
-                {OBSTRUCTION_ANGLES.map((deg) => (
-                  <option key={deg} value={String(deg)}>{deg}°</option>
-                ))}
-              </select>
-            </label>
           </div>
-
-          {/* Above the angle control because it produces a better answer: a
-              named constellation is something you can actually see, and its
-              altitude comes from the ephemeris rather than from an estimate.
-              Only offered once there are coordinates to compute a sky for. */}
-          {latValid && lonValid && (
-            <details className="horizon-measure-block">
-              <summary>Measure the horizon by constellation</summary>
-              <HorizonMeasure
-                lat={latValue}
-                lon={lonValue}
-                onMeasured={setMeasuredHorizon}
-              />
-            </details>
-          )}
           </>
           )}
 

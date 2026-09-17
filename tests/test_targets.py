@@ -725,3 +725,61 @@ def test_the_rescued_objects_are_the_famous_ones(catalog):
     }
     # Orion, Andromeda, Triangulum, the Lagoon, the Eagle.
     assert {42, 31, 33, 8, 16} <= rescued
+
+
+# ---------------------------------------------------------------------------
+# Targets over a session
+# ---------------------------------------------------------------------------
+
+@requires_ephemeris
+def test_a_session_narrows_the_target_list(kit, catalog, home):
+    """Fewer hours, fewer things that clear the horizon for long enough."""
+    from engine.session import default_session
+
+    window = night_window(REFERENCE_DATE, home)
+    whole = assess_targets(window, kit, catalog=catalog)
+    session = assess_targets(window, kit, catalog=catalog,
+                             session=default_session(window))
+    assert len(session) <= len(whole)
+    assert len(session) > 0
+
+
+@requires_ephemeris
+def test_late_means_after_you_go_home_not_after_midnight(kit, catalog, home):
+    """With a session, "late" is measured against the hour the observer says
+    they are packing up. Something that only clears the horizon afterwards is
+    a different night's target, whatever the clock says."""
+    from engine.session import default_session
+
+    window = night_window(REFERENCE_DATE, home)
+    session = default_session(window)
+    results = assess_targets(window, kit, catalog=catalog, session=session,
+                             include_too_faint=True)
+    for assessment in results:
+        if assessment.above_floor:
+            expected = assessment.above_floor[0][0] >= session[1]
+            assert assessment.visible_late == expected
+
+
+@requires_ephemeris
+def test_the_horizon_alone_can_be_the_floor(kit, catalog):
+    """With `min_altitude_deg=0` the site's obstruction angle is the only
+    floor, which is what the web UI asks for -- the measurements should be by
+    site, not by a universal 25 degrees."""
+    from engine.horizon import parse_horizon
+    from engine.locations import Location
+
+    def site(angle: int) -> Location:
+        return Location(key="p", name="P", lat=34.0, lon=-118.5,
+                        elevation_m=300.0, bortle=5,
+                        tz="America/Los_Angeles", horizon=parse_horizon(angle))
+
+    counts = {}
+    for angle in (0, 20, 40):
+        window = night_window(REFERENCE_DATE, site(angle))
+        counts[angle] = len(assess_targets(window, kit, catalog=catalog,
+                                           min_altitude_deg=0.0))
+
+    # A higher treeline admits strictly fewer objects. That the horizon is
+    # doing the filtering at all is the assertion.
+    assert counts[0] > counts[20] > counts[40]

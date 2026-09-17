@@ -20,10 +20,12 @@ import { useMemo, useState } from "react";
 import type {
   FactorsModel,
   NightWindowModel,
+  ObservingWindow,
   ScoreModel,
   SlotModel,
 } from "../api";
 import { ConditionsStrip } from "./ConditionsStrip";
+import { SessionEditor } from "./SessionEditor";
 import {
   formatHours,
   formatTemp,
@@ -99,9 +101,12 @@ function FactorBar({ name, value }: { name: string; value: number }) {
   );
 }
 
-export function ScorePanel({ score, window: night }: {
+export function ScorePanel({ score, window: night, session, onSessionChange }: {
   score: ScoreModel;
   window: NightWindowModel;
+  session: ObservingWindow | null;
+  /** null restores the default hours: dusk to 01:00 local. */
+  onSessionChange: (session: [string, string] | null) => void;
 }) {
   const [open, setOpen] = useState(false);
   const tz = night.location.timezone;
@@ -161,6 +166,18 @@ export function ScorePanel({ score, window: night }: {
 
           {/* The six facts you act on, in the space the dials used to leave empty. */}
           <div className="key-facts">
+            {session && (
+              <div>
+                <span>Observing</span>
+                <strong>
+                  {formatTime(session.start, tz)}–{formatTime(session.end, tz)}
+                </strong>
+                <em>
+                  {formatHours(session.hours)}
+                  {session.is_default ? "" : " · your hours"}
+                </em>
+              </div>
+            )}
             <div>
               <span>True dark</span>
               <strong>{formatHours(night.dark_hours)}</strong>
@@ -251,6 +268,13 @@ export function ScorePanel({ score, window: night }: {
       {open && (
         <div className="score-more">
           <div>
+            {session && (
+              <SessionEditor
+                session={session}
+                timeZone={tz}
+                onChange={onSessionChange}
+              />
+            )}
             <h4>Twilight — all times {timeZoneAbbreviation(tz)}</h4>
             <dl className="facts">
               {([

@@ -1180,6 +1180,42 @@ table.targets tr.charted { background: rgba(244, 201, 93, 0.06); }
 }
 .checkbox-field input { accent-color: var(--accent); }
 
+/* The observing-hours editor, inside the score panel's disclosure. */
+.session-editor { margin-bottom: 18px; }
+.session-editor h4 { margin: 0 0 8px; }
+.session-fields {
+  display: flex;
+  align-items: flex-end;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.session-fields label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 0.7rem;
+}
+.session-fields label > span {
+  color: var(--muted-text);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+.session-fields input[type="time"] {
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  color: var(--text);
+  padding: 7px 10px;
+  font: inherit;
+  font-size: 0.9rem;
+}
+.session-editor p { margin: 8px 0 0; }
+
+/* A required field with nothing chosen yet. Same treatment as a bad value,
+   because an empty obstruction angle is now an unanswered question rather
+   than a field left at its default. */
+.site-form select.invalid { border-color: var(--bad); }
+
 footer { text-align: center; padding-top: 8px; }
 
 /* Mobile is a graceful fallback, not a separate design — the altitude chart

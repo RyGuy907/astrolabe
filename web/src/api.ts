@@ -62,6 +62,17 @@ export interface HorizonMarks {
   marks: SkyMark[];
 }
 
+/** The hours the observer plans to be outside. Mirrors ObservingWindowModel. */
+export interface ObservingWindow {
+  start: string;
+  end: string;
+  hours: number;
+  /** How much of it is true dark -- astronomical night, moon down. */
+  dark_hours: number;
+  /** False once the observer has chosen the hours themselves. */
+  is_default: boolean;
+}
+
 export interface GeocodeCandidate {
   label: string;
   name: string;
@@ -171,6 +182,7 @@ export interface ScoreModel {
 }
 
 export interface NightResponse {
+  session: ObservingWindow | null;
   window: NightWindowModel;
   score: ScoreModel;
 }
@@ -219,6 +231,7 @@ export interface GroupInfo {
 }
 
 export interface TargetsResponse {
+  session: ObservingWindow | null;
   date: string;
   location: LocationModel;
   scope: string;
@@ -461,21 +474,31 @@ export const api = {
       method: "DELETE",
     }),
 
-  night: (date: string, location: string) =>
-    get<NightResponse>(`/api/night${query({ date, location })}`),
+  /** `session` is a [startIso, endIso] pair; omit it for the server default
+   *  of astronomical dusk to 01:00 local. */
+  night: (date: string, location: string, session?: [string, string]) =>
+    get<NightResponse>(`/api/night${query({
+      date, location,
+      session_start: session?.[0], session_end: session?.[1],
+    })}`),
 
-  targets: (date: string, location: string, limit = 8, minAltitude = 25,
+  /** `minAltitude` defaults to 0 here, not to the engine's 25: the site's own
+   *  obstruction horizon is the floor, so a universal one would only ever
+   *  override what the observer measured. */
+  targets: (date: string, location: string, limit = 8, minAltitude = 0,
             groupBy: "type" | "constellation" = "constellation",
             sort: "score" | "brightness" = "brightness",
-            includeAll = false) =>
+            includeAll = false, session?: [string, string]) =>
     get<TargetsResponse>(
       `/api/targets${query({ date, location, limit, min_altitude: minAltitude,
                              group_by: groupBy, sort,
-                             include_all: includeAll ? "true" : undefined })}`,
+                             include_all: includeAll ? "true" : undefined,
+                             session_start: session?.[0],
+                             session_end: session?.[1] })}`,
     ),
 
   planets: (date: string, location: string, findNext = false,
-            minAltitude = 25) =>
+            minAltitude = 0) =>
     get<PlanetsResponse>(
       `/api/planets${query({ date, location, find_next: String(findNext),
                              min_altitude: minAltitude })}`,
@@ -485,7 +508,7 @@ export const api = {
     get<EventsResponse>(`/api/events${query({ from, location, days })}`),
 
   altitude: (date: string, location: string, bodies: string,
-             objects?: string, constellations?: string, minAltitude = 25) =>
+             objects?: string, constellations?: string, minAltitude = 0) =>
     get<AltitudeResponse>(
       `/api/altitude${query({ date, location, bodies, objects, constellations,
                               min_altitude: minAltitude })}`,

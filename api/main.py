@@ -37,6 +37,7 @@ from engine.horizon import build as build_horizon
 from engine.locations import Location, LocationError, atlas_sqm_for
 from engine.planets import ALL_PLANETS, report_all
 from engine.scoring import score_night, verdict
+from engine.session import dark_overlap_hours, resolve_session
 from engine.showpieces import showpiece_ids
 from engine.targets import (
     DEFAULT_GROUP_LIMIT,
@@ -72,6 +73,7 @@ from .schemas import (
     PlanetModel,
     PlanetsResponse,
     ScoreModel,
+    ObservingWindowModel,
     ShowerModel,
     SlotModel,
     TargetModel,
@@ -187,21 +189,68 @@ def _horizon_warning(location: Location, min_altitude: float) -> str | None:
 
 # --- night ------------------------------------------------------------------
 
+def _session_instant(raw: str | None, field: str) -> datetime | None:
+    """Parse one end of a session window from an ISO-8601 query parameter.
+
+    Timezone-required, like every other datetime crossing this boundary: a
+    bare local time would be read as UTC and shift the session by hours.
+    """
+    if not raw:
+        return None
+    try:
+        parsed = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+    except ValueError:
+        raise HTTPException(status_code=422,
+                            detail=f"{field}: {raw!r} is not an ISO-8601 datetime")
+    if parsed.tzinfo is None:
+        raise HTTPException(
+            status_code=422,
+            detail=f"{field} must carry a timezone; this API is UTC-only",
+        )
+    return parsed
+
+
+def _session_model(window, session, *, asked: bool) -> ObservingWindowModel | None:
+    """The session actually used, echoed back so the UI can show and edit it."""
+    if session is None:
+        return None
+    start, end = session
+    return ObservingWindowModel(
+        start=start, end=end,
+        hours=(end - start).total_seconds() / 3600.0,
+        dark_hours=dark_overlap_hours(window, session),
+        is_default=not asked,
+    )
+
+
 @app.get("/api/night", response_model=NightResponse, tags=["night"])
 def get_night(date_: str | None = Query(None, alias="date"),
-              location: str | None = None) -> NightResponse:
-    """Night window, moon, condition scores and hourly conditions."""
+              location: str | None = None,
+              session_start: str | None = Query(
+                  None, description="ISO-8601 UTC start of the observing "
+                                    "session. Defaults to astronomical dusk."),
+              session_end: str | None = Query(
+                  None, description="ISO-8601 UTC end. Defaults to 01:00 local."),
+              ) -> NightResponse:
+    """Night window, moon, condition scores and hourly conditions.
+
+    Scores cover the observing session, not the whole night. See
+    `engine/session.py` for why: averaging conditions over hours nobody will
+    be outside for describes the night rather than the plan.
+    """
     site = _resolve_location(location)
     night_date = _resolve_date(date_, site)
     window = night_window(night_date, site)
+    session = resolve_session(window,
+                              _session_instant(session_start, "session_start"),
+                              _session_instant(session_end, "session_end"))
 
-    spans = window.astronomical_night
     forecast = get_forecast(
         site,
-        start=spans[0][0] if spans else None,
-        end=spans[-1][1] if spans else None,
+        start=session[0] if session else None,
+        end=session[1] if session else None,
     )
-    score = score_night(window, forecast)
+    score = score_night(window, forecast, session=session)
 
     peak = max(score.slots, key=lambda s: s.deep_sky) if score.slots else None
     # Over the night, not at the peak. The peak slot is the least cloudy one
@@ -236,6 +285,8 @@ def get_night(date_: str | None = Query(None, alias="date"),
         ))
 
     return NightResponse(
+        session=_session_model(window, session,
+                               asked=bool(session_start or session_end)),
         window=NightWindowModel(
             date=window.date,
             location=_location_model(site),
@@ -304,8 +355,15 @@ def get_targets(date_: str | None = Query(None, alias="date"),
                                 "observable ones. Each is badged with its "
                                 "visibility tonight.",
                 ),
-                min_altitude: float = Query(DEFAULT_MIN_ALTITUDE_DEG,
-                                            ge=0.0, le=89.0)) -> TargetsResponse:
+                min_altitude: float = Query(
+                    DEFAULT_MIN_ALTITUDE_DEG, ge=0.0, le=89.0,
+                    description="Extra altitude floor on top of the site's "
+                                "horizon. Send 0 to let the horizon alone "
+                                "decide, which is what the web UI does.",
+                ),
+                session_start: str | None = Query(None),
+                session_end: str | None = Query(None),
+                ) -> TargetsResponse:
     """Ranked deep-sky targets, grouped by object type."""
     site = _resolve_location(location)
     night_date = _resolve_date(date_, site)
@@ -316,9 +374,13 @@ def get_targets(date_: str | None = Query(None, alias="date"),
         raise HTTPException(status_code=404, detail=str(exc.args[0]))
 
     window = night_window(night_date, site)
-    span = _observing_window(window)
+    session = resolve_session(window,
+                              _session_instant(session_start, "session_start"),
+                              _session_instant(session_end, "session_end"))
+    span = session or _observing_window(window)
     assessments = assess_targets(window, kit, selected_scope,
                                  min_altitude_deg=min_altitude,
+                                 session=session,
                                  logged=observations.logged_object_ids(),
                                  include_too_faint=True)
     if include_all:
@@ -377,6 +439,8 @@ def get_targets(date_: str | None = Query(None, alias="date"),
         )
 
     return TargetsResponse(
+        session=_session_model(window, session,
+                               asked=bool(session_start or session_end)),
         date=night_date,
         location=_location_model(site),
         scope=selected_scope.name,
@@ -455,7 +519,16 @@ def get_planets(date_: str | None = Query(None, alias="date"),
                     description="Search forward for the next visible date. "
                                 "Slow: set false for a fast response.",
                 )) -> PlanetsResponse:
-    """Planet apparitions: altitude, size, magnitude and apparition trend."""
+    """Planet apparitions: altitude, size, magnitude and apparition trend.
+
+    Deliberately *not* narrowed to the observing session. `observing_span`
+    assesses the inner planets from sunset, because Mercury and Venus almost
+    never clear an altitude floor with the Sun more than 18 deg down -- a
+    session that starts at astronomical dusk would report the brightest
+    planet in the sky as unobservable. This tab answers "what planets are
+    around tonight", which is a different question from "what can I point at
+    between nine and one".
+    """
     site = _resolve_location(location)
     night_date = _resolve_date(date_, site)
     window = night_window(night_date, site)

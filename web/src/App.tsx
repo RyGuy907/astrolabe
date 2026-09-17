@@ -51,28 +51,6 @@ interface ChartSeries {
 const PLANET_CHART_FLOOR_DEG = 8;
 
 /**
- * Altitude floors offered in the UI.
- *
- * 25 deg is the engine default and a sensible one -- below it, extinction and
- * seeing degrade fast. But it was hardcoded here, which had two consequences
- * worth fixing. Obstruction-horizon presets are compared against this floor
- * (`max(min_altitude, horizon)`), so with it pinned at 25 the shallower
- * presets could never change a result; and planets low in twilight, which is
- * where Mercury and Venus live, were filtered out with no way to see them.
- *
- * Each option names what it costs, because lowering the floor is a trade, not
- * an improvement.
- */
-const ALTITUDE_FLOORS: { deg: number; label: string; note: string }[] = [
-  { deg: 10, label: "10°", note: "includes low twilight objects; heavy extinction and poor seeing" },
-  { deg: 15, label: "15°", note: "generous; still hazy near the horizon" },
-  { deg: 20, label: "20°", note: "slightly below the default" },
-  { deg: 25, label: "25° (default)", note: "the engine's default; a good general floor" },
-  { deg: 30, label: "30°", note: "strict; only well-placed objects" },
-  { deg: 40, label: "40°", note: "very strict; near-zenith work only" },
-];
-
-/**
  * Naked-eye planets only. Uranus and Neptune are computed and listed in the
  * Planets tab, but they are telescope-only objects and charting them by
  * default just adds two curves nobody is planning around.
@@ -93,7 +71,12 @@ export default function App() {
 
   const [series, setSeries] = useState<ChartSeries[]>([]);
   const [eventDays, setEventDays] = useState(90);
-  const [minAltitude, setMinAltitude] = useState(25);
+  //: The hours the observer plans to be outside, as [startIso, endIso], or
+  //: null for the server's default of astronomical dusk to 01:00 local.
+  //: Everything downstream -- scores, temperature and cloud summaries, which
+  //: targets count as visible -- is computed over this, so it is state here
+  //: rather than inside the panel that edits it.
+  const [session, setSession] = useState<[string, string] | null>(null);
 
   // Persisted because the one thing worse than a bright screen at the eyepiece
   // is a bright screen at the eyepiece every time you reload. localStorage can
@@ -140,6 +123,9 @@ export default function App() {
   // Which (date, location) the chart was last auto-filled for. Without this the
   // auto-fill would fight the user every time they removed a series.
   const autoFilledFor = useRef<string>("");
+  // Which (date, site) is currently on screen, so a session change can be
+  // told apart from a move to a different night.
+  const loadedSubject = useRef<string>("");
   const skyPanelRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -184,9 +170,19 @@ export default function App() {
     // They used to sit there under the *new* site's name and date for as long
     // as the slowest call took, which reads as wrong data rather than as
     // loading -- the header would say "Sydney" above Lone Pine's sunset.
-    setNight(null);
-    setTargets(null);
-    setPlanets(null);
+    //
+    // Only when the site or the date actually moved, though. Changing the
+    // observing hours refetches the same night for the same place, and
+    // blanking it unmounted the panel the hours were changed in: the
+    // disclosure snapped shut on every Apply. Stale-for-a-second numbers from
+    // the same night are not the failure this guards against.
+    const subject = `${date}|${locationKey}`;
+    if (loadedSubject.current !== subject) {
+      loadedSubject.current = subject;
+      setNight(null);
+      setTargets(null);
+      setPlanets(null);
+    }
     setPending({ night: true, targets: true, planets: true });
 
     const fail = (e: unknown) => {
@@ -201,12 +197,12 @@ export default function App() {
       if (!cancelled) setPending((current) => ({ ...current, [key]: false }));
     };
 
-    api.night(date, locationKey)
+    api.night(date, locationKey, session ?? undefined)
       .then((data) => !cancelled && setNight(data))
       .catch(fail)
       .finally(() => settle("night"));
 
-    api.planets(date, locationKey, false, minAltitude)
+    api.planets(date, locationKey, false)
       .then((data) => !cancelled && setPlanets(data))
       .catch(fail)
       .finally(() => settle("planets"));
@@ -214,8 +210,8 @@ export default function App() {
     // Always the unfiltered superset: the "visible tonight" view is derived
     // from it in SkyPanel, so switching modes costs no round-trip. Two
     // separate fetches would double a ~5 s server computation.
-    api.targets(date, locationKey, 1000, minAltitude, "constellation",
-                "brightness", true)
+    api.targets(date, locationKey, 1000, 0, "constellation",
+                "brightness", true, session ?? undefined)
       .then((data) => !cancelled && setTargets(data))
       .catch(fail)
       .finally(() => settle("targets"));
@@ -223,7 +219,7 @@ export default function App() {
     return () => {
       cancelled = true;
     };
-  }, [date, locationKey, minAltitude]);
+  }, [date, locationKey, session]);
 
   // --- events, on their own horizon ---
   useEffect(() => {
@@ -277,14 +273,14 @@ export default function App() {
 
     api
       .altitude(date, locationKey, bodies.join(","), undefined,
-                constellations.join(",") || undefined, minAltitude)
+                constellations.join(",") || undefined, 0)
       .then((data) => !cancelled && setAltitude(data))
       .catch(() => !cancelled && setAltitude(null));
 
     return () => {
       cancelled = true;
     };
-  }, [series, date, locationKey, minAltitude]);
+  }, [series, date, locationKey]);
 
   /** Reload the site list after an add or a delete.
    *
@@ -530,50 +526,20 @@ export default function App() {
             }
           />
 
-          {minAltitude !== 25 && (
-            <p className="panel note">
-              Altitude floor set to <strong>{minAltitude}°</strong> instead of
-              the default 25°:{" "}
-              {ALTITUDE_FLOORS.find((f) => f.deg === minAltitude)?.note}.
-              {minAltitude < 25 && location.horizon_name !== "flat" && (
-                <>
-                  {" "}Your <strong>{location.horizon_name}</strong> horizon
-                  profile reaches {location.horizon_max_deg.toFixed(0)}°, so it
-                  {location.horizon_max_deg > minAltitude
-                    ? " is now the binding constraint in the directions it covers."
-                    : " still sits below this floor and is not affecting these results."}
-                </>
-              )}
-            </p>
-          )}
-
-          <ScorePanel score={night.score} window={night.window} />
+          <ScorePanel
+            score={night.score}
+            window={night.window}
+            session={night.session}
+            onSessionChange={setSession}
+          />
 
           <div className="dashboard-row">
             <section className="panel chart-panel">
               <div className="panel-head">
                 <h2>Altitude</h2>
-                <div className="panel-head-controls">
-                  <span className="muted small">
-                    {visibleCount} of {series.length} shown
-                  </span>
-                  {/* Lives here because this is the only place its effect is
-                      visible: the floor line on the chart moves with it. */}
-                  <label className="inline-field">
-                    <span>Floor</span>
-                    <select
-                      value={String(minAltitude)}
-                      onChange={(e) => setMinAltitude(Number(e.target.value))}
-                      title="Objects below this altitude are excluded"
-                    >
-                      {ALTITUDE_FLOORS.map((floor) => (
-                        <option key={floor.deg} value={String(floor.deg)}>
-                          {floor.label}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                </div>
+                <span className="muted small">
+                  {visibleCount} of {series.length} shown
+                </span>
               </div>
               {altitude ? (
                 <AltitudeChart

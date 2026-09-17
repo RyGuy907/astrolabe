@@ -96,6 +96,7 @@ engine/     pure Python; no web imports, no I/O beyond local caches
                  MPC through Skyfield's loader (networked; degrades to
                  "MPC unavailable"). No astronomy depends on it.
   horizon.py     obstruction horizon profiles
+  session.py     the hours you plan to be outside, and the default (dusk-01:00)
   showpieces.py  the curated "popular targets" list, and why each entry is on
                  it or not
   constellations.py  sky regions, plus marks_toward() for measuring a horizon
@@ -306,6 +307,45 @@ you to infer it from an unchanged list.
 **The presets are generic assumptions, not surveys of your site.** Every use of
 one is flagged generic in the CLI and the UI. An explicit az→alt map is treated
 as measured and is not flagged; it is the only form here that is not a guess.
+
+## Observing sessions
+
+Everything used to be computed across the whole astronomical night. That
+answers "what is this night like", which is not the question anyone asks —
+nobody observes dusk to dawn on a Tuesday. A night clear until midnight and
+overcast afterwards averaged out to "partly cloudy", and an object rising at
+04:00 was listed as tonight's target.
+
+A **session** is the hours you actually plan to be outside. The default is
+astronomical dusk to 01:00 local, and it is editable under **More info**. The
+condition scores, the temperature and cloud summaries, the target list and the
+visible/late split are all computed over it — "late" now means *after you pack
+up*, not after midnight.
+
+Both ends clip to sunset and sunrise, because the engine has nothing to say
+about a daylit sky. Polar summer returns no session at all rather than a
+fabricated interval.
+
+`/api/night` and `/api/targets` take `session_start` and `session_end` as
+ISO-8601 UTC instants and echo back the session they used, so a client never
+has to guess the default. The planets tab is deliberately **not** narrowed:
+`observing_span` assesses Mercury and Venus from sunset, because they almost
+never clear an altitude floor with the Sun more than 18° down, and a session
+beginning at astronomical dusk would report the brightest planet in the sky as
+unobservable.
+
+## The altitude floor is the site's horizon
+
+There is no universal 25° floor in the web UI, and no control to set one. Each
+site carries an obstruction angle — or a horizon measured by naming
+constellations — and that *is* its floor. A site under trees and a site on a
+playa are different places and now produce different lists.
+
+The engine still takes `min_altitude_deg`, because the effective floor is
+`max(min_altitude, horizon at the object's azimuth)` and the CLI wants a
+general-purpose default. The web UI sends 0, which leaves the horizon alone to
+decide. Low objects are not specially excluded: extinction is modelled, so
+something at 3° scores accordingly rather than being hidden.
 
 ## Two things the scoring gets deliberately right, and one it does not
 

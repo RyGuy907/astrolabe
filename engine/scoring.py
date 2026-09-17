@@ -39,6 +39,12 @@ WIND_FULL_KMH = 16.0        # ~10 mph
 WIND_CEILING_KMH = 40.0     # ~25 mph
 WIND_FLOOR = 0.4
 
+# Below this ratio of session mean to best-window score, the good part of a
+# session is a slice rather than the whole of it, and the verdict says how
+# long it is. 0.7 sits between an ordinary night's smooth variation (0.83 on
+# a clear four-hour session here) and one that genuinely clouds over (0.50).
+LOPSIDED_RATIO = 0.7
+
 GRADE_BANDS = [
     (90, "A"), (80, "B"), (70, "C"), (60, "D"), (0, "F"),
 ]
@@ -127,6 +133,11 @@ class NightScore:
     weather_note: str | None
     seeing_estimated: bool
     dew_warning: bool
+    #: Length of the interval actually scored. The astronomical night when no
+    #: session was given, the session when one was -- which is what "the good
+    #: part covers x of y" must be measured against, or a four-hour session
+    #: gets compared against a seven-hour night and always looks like a sliver.
+    scored_hours: float = 0.0
 
     @property
     def mean_factors_deep_sky(self) -> FactorBreakdown:
@@ -349,14 +360,22 @@ def _best_contiguous(slots: list[SlotScore], *, deep_sky: bool
 
 
 def score_night(window: NightWindow, forecast: Forecast | None = None,
-                *, slot: timedelta = SLOT) -> NightScore:
-    """Score the astronomical night in slots and aggregate.
+                *, slot: timedelta = SLOT,
+                session: Interval | None = None) -> NightScore:
+    """Score an observing session in slots and aggregate.
 
-    Scoring runs across astronomical night rather than the true dark window,
-    because the moon factor is what expresses moonlight — excluding moonlit
-    hours entirely would double-count the penalty and hide observable time.
+    Without a `session` this scores astronomical night, which is the old
+    behaviour: the true dark window is deliberately not used, because the moon
+    factor is what expresses moonlight and excluding moonlit hours entirely
+    would double-count the penalty and hide observable time.
+
+    With one, it scores exactly the hours the observer says they will be out.
+    That is the honest denominator for "what will conditions be like" -- see
+    `engine/session.py`. A night that is clear until midnight and overcast
+    afterwards is a good session and a poor night, and which of those the
+    observer needs depends on when they are going home.
     """
-    spans = window.astronomical_night
+    spans = [session] if session else window.astronomical_night
     if not spans:
         return NightScore(
             slots=[], deep_sky_peak=0.0, deep_sky_mean=0.0,
@@ -364,8 +383,8 @@ def score_night(window: NightWindow, forecast: Forecast | None = None,
             best_window=None, best_window_score=0.0,
             dark_hours=window.dark_hours,
             weather_available=bool(forecast and forecast.available),
-            weather_note="no astronomical night at this location on this date",
-            seeing_estimated=False, dew_warning=False,
+            weather_note="no observing hours at this location on this date",
+            seeing_estimated=False, dew_warning=False, scored_hours=0.0,
         )
 
     start, end = spans[0][0], spans[-1][1]
@@ -415,6 +434,7 @@ def score_night(window: NightWindow, forecast: Forecast | None = None,
                       if forecast and not forecast.available else None),
         seeing_estimated=seeing_estimated,
         dew_warning=any(s.dew_warning for s in slots),
+        scored_hours=(end - start).total_seconds() / 3600.0,
     )
 
 
@@ -460,15 +480,25 @@ def verdict(score: NightScore, window: NightWindow) -> str:
     # in the key facts a few pixels away -- restating them made the line long
     # enough to wrap without telling anyone anything new.
     #
-    # The one thing worth adding: how much of the night the good part covers.
-    # "Workable" describing a single clear hour inside six hours of cloud is
-    # true and useless, and it is the shape of night this scoring is most
-    # likely to be read wrongly on.
-    # `Interval` is a plain (start, end) tuple, not an object with `.hours`.
-    if score.best_window is not None and score.dark_hours > 0:
+    # The one thing worth adding: how much of the session the good part
+    # covers. "Workable" describing a single clear hour inside six of cloud
+    # is true and useless.
+    #
+    # The trigger is how *lopsided* the session is, not how long the best
+    # window happens to be. Conditions vary smoothly across any night -- an
+    # object culminates, the moon sets -- so the highest-mean run is almost
+    # always an hour or two, and keying off its length alone fired this on
+    # nearly every night, including perfectly even ones. Comparing the
+    # session mean to its best window asks the question that matters: is the
+    # rest much worse than the best part, or about the same?
+    #
+    # Measured against what was actually scored: the session, when given.
+    span_hours = score.scored_hours or score.dark_hours
+    if (score.best_window is not None and span_hours > 0
+            and score.best_window_score > 1.0
+            and score.deep_sky_mean < LOPSIDED_RATIO * score.best_window_score):
         start, end = score.best_window
         best_hours = (end - start).total_seconds() / 3600.0
-        if best_hours < 0.6 * score.dark_hours:
-            return (f"{lead} for {best_hours:.1f} h of "
-                    f"{score.dark_hours:.1f} - {detail}.")
+        return (f"{lead} for {best_hours:.1f} h of "
+                f"{span_hours:.1f} - {detail}.")
     return f"{lead} - {detail}."

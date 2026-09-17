@@ -159,9 +159,31 @@ class ScoreModel(BaseModel):
     slots: list[SlotModel]
 
 
+class ObservingWindowModel(BaseModel):
+    """The hours the observer plans to be outside.
+
+    Echoed on every response that was computed over it, so the UI can show
+    what it is and offer to change it without guessing the server's default.
+    """
+
+    start: datetime
+    end: datetime
+    hours: float
+    dark_hours: float = Field(
+        default=0.0,
+        description="How much of the session is true dark -- astronomical "
+                    "night with the Moon down. Reported, not enforced.",
+    )
+    is_default: bool = Field(
+        default=True,
+        description="False when the caller chose these hours explicitly.",
+    )
+
+
 class NightResponse(BaseModel):
     window: NightWindowModel
     score: ScoreModel
+    session: ObservingWindowModel | None = None
 
 
 class TargetModel(BaseModel):
@@ -238,6 +260,7 @@ class GroupInfo(BaseModel):
 
 
 class TargetsResponse(BaseModel):
+    session: ObservingWindowModel | None = None
     date: date
     location: LocationModel
     scope: str

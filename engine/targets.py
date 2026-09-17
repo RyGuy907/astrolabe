@@ -325,6 +325,7 @@ def assess_targets(
     *,
     catalog: list[DeepSkyObject] | None = None,
     min_altitude_deg: float = DEFAULT_MIN_ALTITUDE_DEG,
+    session: Interval | None = None,
     min_minutes_above_floor: int = DEFAULT_MIN_MINUTES_ABOVE_FLOOR,
     step: timedelta = DEFAULT_STEP,
     contrast_floor: float = DEFAULT_CONTRAST_FLOOR,
@@ -343,11 +344,17 @@ def assess_targets(
     threshold for this sky. They come back flagged `too_faint` and sorted
     to the end of their group, so the list can say "this is up, but the
     moon or the light pollution will beat you" instead of omitting it.
+
+    `session` is the interval the observer plans to be outside. Everything
+    here is computed over it: what is up, for how long, and therefore what
+    scores well. Without one the whole dark window is used, which is the old
+    behaviour and still what the CLI wants -- see `engine/session.py` for why
+    the web UI does not.
     """
     location = window.location
     scope = scope or equipment.scope()
 
-    span = _observing_window(window)
+    span = session or _observing_window(window)
     if span is None:
         return []
     start, end = span
@@ -355,8 +362,12 @@ def assess_targets(
     if len(times) < 2:
         return []
 
-    # The midnight that falls *during* this night, for the "late" flag.
-    midnight = local_midnight_utc(window.date + timedelta(days=1), location.tz)
+    # What counts as "late". With a session it is the hour the observer says
+    # they are packing up: something that only clears the horizon afterwards
+    # is a different night's target, whatever the clock says. Without one it
+    # falls back to local midnight.
+    late_after = end if session else local_midnight_utc(
+        window.date + timedelta(days=1), location.tz)
     window_hours = (end - start).total_seconds() / 3600.0
 
     candidates = _prefilter(catalog if catalog is not None else load_catalog(),
@@ -520,7 +531,7 @@ def assess_targets(
                 required_separation_deg=required,
                 limiting_mag_at_peak=limit,
                 contrast_margin=contrast,
-                visible_late=spans[0][0] >= midnight,
+                visible_late=spans[0][0] >= late_after,
                 too_faint=too_faint,
                 score=_score(peak_alt,
                              sum((e - s).total_seconds() for s, e in spans) / 3600.0,

@@ -149,14 +149,21 @@ def test_targets_still_rank_m31_first(client):
 
 @requires_ephemeris
 def test_a_city_sky_rejects_m31(client):
-    """The other half of that: from Bortle 8, M31 should not be recommended.
+    """The other half of that: from Bortle 8, M31 is not a recommendation.
 
-    This is the light-pollution model doing its job, and it is worth pinning
-    explicitly rather than leaving as an unexamined consequence.
+    Asserted on the badge rather than on absence from the list. The original
+    checked that M31 was not among the Galaxies group at all, which really
+    tested whether it fell inside `DEFAULT_GROUP_LIMIT` -- the group is
+    truncated to eight, so any change to the ranking could pass or fail this
+    without the light-pollution model moving at all. Narrowing the default
+    window to an observing session did exactly that.
     """
     body = client.get("/api/targets?date=2026-09-15&location=home").json()
     galaxies = body["groups"].get("Galaxies", [])
-    assert 31 not in [t["messier"] for t in galaxies]
+    m31 = next((t for t in galaxies if t["messier"] == 31), None)
+    # Listed or truncated away, either is fine; what must not happen is it
+    # being presented as observable from an inner-city sky.
+    assert m31 is None or m31["too_faint"] is True
 
 
 @requires_ephemeris
@@ -702,3 +709,88 @@ def test_m31_carries_the_core_note_rather_than_a_faint_badge(client):
     rows = [row for group in body["groups"].values() for row in group]
     m31 = next(row for row in rows if row["messier"] == 31)
     assert m31["too_faint"] is False
+
+
+# ---------------------------------------------------------------------------
+# The observing session, over HTTP
+# ---------------------------------------------------------------------------
+
+@requires_ephemeris
+def test_night_defaults_to_a_session_and_says_what_it_used(client):
+    """The UI has to be able to show and pre-fill the hours without knowing
+    the server's default, so the response carries them."""
+    body = client.get("/api/night?date=2026-09-15&location=home").json()
+    session = body["session"]
+    assert session is not None
+    assert session["is_default"] is True
+    assert session["hours"] > 0
+    assert 0 <= session["dark_hours"] <= session["hours"] + 1e-9
+    # Scored over the session, so fewer slots than the whole night.
+    assert len(body["score"]["slots"]) > 0
+
+
+@requires_ephemeris
+def test_a_chosen_session_changes_the_conditions_summary(client):
+    """The point of the whole feature: the numbers describe the hours you
+    will be outside, not the hours you will be asleep."""
+    default = client.get("/api/night?date=2026-09-15&location=home").json()
+    wide = client.get(
+        "/api/night?date=2026-09-15&location=home"
+        "&session_start=2026-09-16T03:00:00Z&session_end=2026-09-16T11:00:00Z"
+    ).json()
+
+    assert wide["session"]["is_default"] is False
+    assert wide["session"]["hours"] > default["session"]["hours"]
+    assert len(wide["score"]["slots"]) > len(default["score"]["slots"])
+
+
+@requires_ephemeris
+def test_a_chosen_session_changes_the_target_list(client):
+    """A four-hour session cannot offer everything an eight-hour one does."""
+    short = client.get(
+        "/api/targets?date=2026-09-15&location=home&min_altitude=0"
+        "&session_start=2026-09-16T04:00:00Z&session_end=2026-09-16T06:00:00Z"
+    ).json()
+    long = client.get(
+        "/api/targets?date=2026-09-15&location=home&min_altitude=0"
+        "&session_start=2026-09-16T03:00:00Z&session_end=2026-09-16T11:00:00Z"
+    ).json()
+    assert long["total_passing"] > short["total_passing"]
+    assert short["session"]["hours"] < long["session"]["hours"]
+
+
+def test_a_naive_session_boundary_is_refused(client):
+    """The UTC invariant at the boundary: a bare local time read as UTC would
+    silently shift the session by hours."""
+    response = client.get(
+        "/api/night?date=2026-09-15&location=home"
+        "&session_start=2026-09-16T04:00:00"
+    )
+    assert response.status_code == 422
+
+
+def test_an_unparseable_session_boundary_is_refused(client):
+    assert client.get(
+        "/api/night?date=2026-09-15&location=home&session_start=tuesday"
+    ).status_code == 422
+
+
+@requires_ephemeris
+def test_the_site_horizon_alone_can_be_the_floor(client):
+    """`min_altitude=0` is what the web UI sends: the site's own obstruction
+    angle decides, rather than a universal 25 deg overriding what the
+    observer measured."""
+    payload = {"key": "api_floor_site", "name": "Floor Site",
+               "lat": 34.0, "lon": -118.5, "bortle": 4, "horizon": "0"}
+    assert client.post("/api/locations", json=payload).status_code == 201
+    try:
+        open_sky = client.get(
+            "/api/targets?date=2026-09-15&location=api_floor_site"
+            "&min_altitude=0&limit=1000").json()
+        with_floor = client.get(
+            "/api/targets?date=2026-09-15&location=api_floor_site"
+            "&min_altitude=25&limit=1000").json()
+        # A clear horizon reaches lower than 25 deg, so it must admit more.
+        assert open_sky["total_passing"] > with_floor["total_passing"]
+    finally:
+        client.delete("/api/locations/api_floor_site")
