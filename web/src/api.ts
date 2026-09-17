@@ -160,7 +160,11 @@ export interface ScoreModel {
   seeing_estimated: boolean;
   dew_warning: boolean;
   verdict: string;
+  /** The six factors for the best single slot -- the best half hour, not the night. */
   peak_factors_deep_sky: FactorsModel | null;
+  /** Each factor averaged across the night. What conditions were actually like. */
+  mean_factors_deep_sky: FactorsModel | null;
+  mean_factors_planetary: FactorsModel | null;
   peak_factors_planetary: FactorsModel | null;
   limiting_factor: string | null;
   slots: SlotModel[];

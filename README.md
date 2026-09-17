@@ -307,6 +307,45 @@ you to infer it from an unchanged list.
 one is flagged generic in the CLI and the UI. An explicit az→alt map is treated
 as measured and is not flagged; it is the only form here that is not a guess.
 
+## Two things the scoring gets deliberately right, and one it does not
+
+**The grade is the peak, the description is the night.** A two-hour clear
+window is still worth driving out for, so the deep-sky and planetary grades
+come from the best slot. Every *description* of the night used to come from
+there too — and the best slot is by construction the least cloudy one. On a
+night that is clear for an hour and overcast for six, the factor breakdown
+reported a clear factor of 0.97 next to an hourly row reading 100%, and the
+verdict blamed whatever came second, because cloud could never be the weakest
+factor of the clearest slot. The verdict, the limiting factor and the left-hand
+factor column are now the night's averages; the right-hand column is still the
+best slot, labelled as such. When the best window covers less than 60% of the
+dark time the verdict says how long it is, because "Workable" describing a
+single clear hour is true and useless.
+
+**Large bright objects are judged on their cores.** The contrast test compares
+the sky to an object's *mean* surface brightness over its full catalogued
+ellipse. For a large object with a concentrated core that statistic describes
+the faint outer isophote and not what anyone sees — so from a Bortle 6 sky this
+engine called the Orion Nebula, the Andromeda Galaxy, the Lagoon, the Eagle and
+both Magellanic Clouds too faint, while passing M32, a compact companion nearly
+five magnitudes fainter that happens to be small.
+
+The catalogue carries no light-profile data, so the core brightness cannot be
+computed. Integrated magnitude is the one discriminator available and it is a
+sharp one: of the ~1,900 extended objects failing the contrast test at Bortle 6,
+exactly twelve are brighter than magnitude 8, and they are the objects the
+statistic is wrong about. Those get a 1.0 mag/arcsec² concentration bonus —
+half an exponential disc's light falls inside 1.68 scale lengths while the
+catalogued D25 diameter runs to 3.2–4, which is 0.65–1.13 magnitudes — and are
+then put through the *same* test. That last part matters: an earlier version
+simply exempted them, which made M31 immune to light pollution and scored it 77
+from an inner-city sky. It now passes to Bortle 6 and fails from 7 up.
+
+**What this still gets wrong.** M42 is rejected from Bortle 8, where it is
+plainly visible — the Trapezium is orders of magnitude brighter than the
+90-arcminute mean, and no single constant can express that. Separating M42 from
+M31 needs a concentration index the catalogue does not carry.
+
 ## Popular targets
 
 The catalogue holds 12,371 objects and perhaps 137 of them are what anyone

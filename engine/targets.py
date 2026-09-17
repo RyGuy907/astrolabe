@@ -50,6 +50,45 @@ DEFAULT_GROUP_LIMIT = 8
 # considered detectable in a 200 mm class scope, in mag/arcsec^2. Heuristic.
 DEFAULT_CONTRAST_FLOOR = -2.5
 
+# Concentrated-core correction for large, bright extended objects.
+#
+# **The problem.** The contrast test compares the sky to an object's *mean*
+# surface brightness over its full catalogued ellipse. For a large object with
+# a concentrated core that statistic describes the faint outer isophote, not
+# what anyone sees. From a Bortle 6 sky this engine declared the Orion Nebula,
+# the Andromeda Galaxy, the Lagoon, the Eagle and both Magellanic Clouds below
+# the detection threshold -- while passing M32, a compact companion nearly
+# five magnitudes fainter that happens to be small.
+#
+# **Which objects.** The catalogue carries no light-profile data, so the core
+# brightness cannot be computed. Integrated magnitude is the one independent
+# discriminator available, and it is a sharp one: of the 1,883 extended
+# objects that fail the contrast test at Bortle 6, exactly twelve are brighter
+# than magnitude 8 -- M42, M31, M33, M8, M16, M101, Centaurus A, the Helix,
+# both Magellanic Clouds, IC 1805 and NGC 7380. That is not a slice of the
+# faint tail; it is a list of the objects the statistic is wrong about. 8.0 is
+# the binocular threshold.
+#
+# **How much.** Half an exponential disc's light falls inside its half-light
+# radius, at 1.68 scale lengths, while the catalogued D25 diameter runs to
+# roughly 3.2-4 scale lengths. Half the light in 1/3.6 to 1/5.7 of the area is
+# 0.65 to 1.13 magnitudes per square arcsecond brighter than the full-extent
+# mean; 1.0 is the top of that range and the value used here.
+#
+# **Why a shift and not an exemption.** The first version of this simply
+# stopped calling bright objects too faint, which made M31 immune to light
+# pollution: it scored 77 from an inner-city sky, where it is a poor view at
+# best. Shifting the surface brightness and re-running the same test keeps the
+# sky in the argument. M31 now passes to Bortle 6 and fails from 7 up, which
+# is about right.
+#
+# **What this still gets wrong.** M42 is rejected from Bortle 8, where it is
+# plainly visible -- the Trapezium region is orders of magnitude brighter than
+# the 90-arcminute mean, and no single constant can express that. Separating
+# M42 from M31 needs a concentration index the catalogue does not carry.
+BRIGHT_CORE_MAG = 8.0
+BRIGHT_CORE_SB_BONUS = 1.0
+
 # Moon separation threshold, PLAN.md 3.3.1: 20 deg + 60 deg * illumination for
 # faint extended objects, relaxed for objects that survive moonlight better.
 MOON_SEPARATION_BASE_DEG = 20.0
@@ -419,9 +458,25 @@ def assess_targets(
         diffuse = obj.group in DIFFUSE_GROUPS
         if diffuse and obj.is_extended and obj.surface_brightness is not None:
             # PLAN.md 7: extended objects live or die by surface brightness.
-            contrast = sky_sb - obj.surface_brightness
+            # A large, bright object is judged on its core rather than on the
+            # mean over an extent dominated by faint outer nebulosity. The
+            # test itself is unchanged, so a bright enough sky still wins.
+            concentrated = (obj.magnitude is not None
+                            and obj.magnitude <= BRIGHT_CORE_MAG)
+            effective_sb = (obj.surface_brightness
+                            - (BRIGHT_CORE_SB_BONUS if concentrated else 0.0))
+            contrast = sky_sb - effective_sb
             too_faint = contrast < contrast_floor
-            if contrast < 0 and not too_faint:
+            # Only worth saying when the correction changed the answer. An
+            # object that clears the floor on its mean too needs no
+            # explanation of a distinction that did not arise.
+            mean_contrast = sky_sb - obj.surface_brightness
+            if concentrated and mean_contrast < contrast_floor:
+                notes.append(
+                    f"large and bright: outer extent {abs(mean_contrast):.1f} "
+                    f"mag/arcsec^2 below this sky, judged on its core"
+                )
+            if contrast < 0 and not too_faint and not concentrated:
                 notes.append(f"{abs(contrast):.1f} mag/arcsec^2 below sky")
         else:
             # Clusters, doubles and asterisms: integrated magnitude decides.

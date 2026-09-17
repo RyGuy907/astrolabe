@@ -16,6 +16,9 @@ from engine.catalog.loader import find_object, load_catalog
 from engine.ephem import night_window
 from engine.equipment import load_equipment
 from engine.targets import (
+    BRIGHT_CORE_MAG,
+    BRIGHT_CORE_SB_BONUS,
+    DEFAULT_CONTRAST_FLOOR,
     DEFAULT_GROUP_LIMIT,
     GROUP_ORDER,
     _contiguous_spans,
@@ -612,3 +615,113 @@ def test_a_bright_galaxy_sorts_below_a_dimmer_visible_cluster(home, kit, catalog
     m31 = find_object("M31", catalog).name
     cluster = find_object("NGC 7686", catalog).name
     assert names.index(cluster) < names.index(m31)
+
+
+# ---------------------------------------------------------------------------
+# Large bright objects, judged on their cores
+#
+# The contrast test compares the sky to an object's *mean* surface brightness
+# over its full catalogued ellipse. For a large object with a concentrated
+# core that describes the faint outer isophote and not what anyone sees, and
+# the engine was declaring the Orion Nebula and the Andromeda Galaxy below the
+# detection threshold from a suburban sky -- while passing M32, a compact
+# companion nearly five magnitudes fainter that happens to be small.
+#
+# The correction has to fix that *without* making those objects immune to
+# light pollution, which is what the first attempt did: M31 kept a score of 77
+# from an inner-city sky. Both halves are pinned below.
+# ---------------------------------------------------------------------------
+
+def _site(bortle: int):
+    from engine.horizon import preset
+    from engine.locations import Location
+    return Location(key="probe", name="Probe", lat=34.0, lon=-118.5,
+                    elevation_m=300.0, bortle=bortle,
+                    tz="America/Los_Angeles", horizon=preset("flat"))
+
+
+def _verdict_for(messier: int, bortle: int, kit, catalog, when=REFERENCE_DATE):
+    site = _site(bortle)
+    window = night_window(when, site)
+    for assessment in assess_targets(window, kit, catalog=catalog,
+                                     include_too_faint=True):
+        if assessment.obj.messier == messier:
+            return assessment
+    return None
+
+
+@requires_ephemeris
+def test_m31_beats_m32_from_a_suburban_sky(kit, catalog):
+    """The report that started this.
+
+    M31 is magnitude 3.4 and M32 is 8.1. Any ranking that puts the companion
+    above the galaxy -- or rejects the galaxy outright -- is one an observer
+    can disprove by walking outside.
+    """
+    m31 = _verdict_for(31, 6, kit, catalog)
+    m32 = _verdict_for(32, 6, kit, catalog)
+    assert m31 is not None and m32 is not None
+    assert not m31.too_faint
+    assert m31.score > m32.score
+
+
+@requires_ephemeris
+def test_the_correction_does_not_make_m31_immune_to_light_pollution(kit, catalog):
+    """The failure mode of the obvious fix.
+
+    Simply exempting bright objects from the contrast test scored M31 at 77
+    from Bortle 9, where it is a poor view at best. Shifting the surface
+    brightness and re-running the same test keeps the sky in the argument.
+    """
+    assert not _verdict_for(31, 6, kit, catalog).too_faint
+    assert _verdict_for(31, 8, kit, catalog).too_faint
+    assert _verdict_for(31, 9, kit, catalog).too_faint
+
+
+@requires_ephemeris
+def test_the_correction_reaches_the_orion_nebula(kit, catalog):
+    """M42 is the brightest deep-sky object in the sky and was being called
+    too faint from a rural site. January, so Orion is actually up."""
+    m42 = _verdict_for(42, 4, kit, catalog, when=date(2026, 1, 20))
+    assert m42 is not None
+    assert not m42.too_faint
+
+
+def test_the_correction_applies_to_a_dozen_objects_not_a_thousand(catalog):
+    """A constant that relaxed the floor for everything would be a rewrite of
+    `DEFAULT_CONTRAST_FLOOR` wearing a different name. Restricting it by
+    integrated magnitude is what keeps it surgical: at Bortle 6 it changes the
+    answer for around a dozen objects out of nearly two thousand failures."""
+    sky = 19.4                                        # Bortle 6
+    extended = [o for o in catalog
+                if o.group in ("Galaxies", "Nebulae")
+                and o.surface_brightness is not None
+                and o.magnitude is not None]
+    failing = [o for o in extended
+               if sky - o.surface_brightness < DEFAULT_CONTRAST_FLOOR]
+    rescued = [o for o in failing
+               if o.magnitude <= BRIGHT_CORE_MAG
+               and sky - (o.surface_brightness - BRIGHT_CORE_SB_BONUS)
+               >= DEFAULT_CONTRAST_FLOOR]
+
+    assert len(failing) > 1000
+    assert len(rescued) < 30, (
+        f"{len(rescued)} objects rescued -- this is meant to correct a "
+        "statistic for a handful of large bright objects, not to loosen the "
+        "contrast floor for the catalogue"
+    )
+
+
+def test_the_rescued_objects_are_the_famous_ones(catalog):
+    """Names, because a count cannot tell you whether the right things moved."""
+    sky = 19.4
+    rescued = {
+        o.messier for o in catalog
+        if o.group in ("Galaxies", "Nebulae")
+        and o.surface_brightness is not None
+        and o.magnitude is not None
+        and o.magnitude <= BRIGHT_CORE_MAG
+        and sky - o.surface_brightness < DEFAULT_CONTRAST_FLOOR
+    }
+    # Orion, Andromeda, Triangulum, the Lagoon, the Eagle.
+    assert {42, 31, 33, 8, 16} <= rescued

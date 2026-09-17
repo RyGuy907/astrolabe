@@ -139,9 +139,23 @@ class ScoreModel(BaseModel):
     seeing_estimated: bool
     dew_warning: bool
     verdict: str
-    peak_factors_deep_sky: FactorsModel | None
-    peak_factors_planetary: FactorsModel | None
-    limiting_factor: str | None
+    peak_factors_deep_sky: FactorsModel | None = Field(
+        default=None,
+        description="The six factors for the single best slot of the night. "
+                    "Says what the best half hour was like, not the night.",
+    )
+    peak_factors_planetary: FactorsModel | None = None
+    mean_factors_deep_sky: FactorsModel | None = Field(
+        default=None,
+        description="Each factor averaged across the night. The honest answer "
+                    "to 'what were conditions like?' -- the peak breakdown "
+                    "reports the least cloudy slot by construction.",
+    )
+    mean_factors_planetary: FactorsModel | None = None
+    limiting_factor: str | None = Field(
+        default=None,
+        description="The weakest factor averaged over the night.",
+    )
     slots: list[SlotModel]
 
 

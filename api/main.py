@@ -204,9 +204,13 @@ def get_night(date_: str | None = Query(None, alias="date"),
     score = score_night(window, forecast)
 
     peak = max(score.slots, key=lambda s: s.deep_sky) if score.slots else None
+    # Over the night, not at the peak. The peak slot is the least cloudy one
+    # by construction, so reading the limiting factor off it meant cloud could
+    # never be blamed on a night that clouds over halfway through -- which is
+    # the commonest way a night goes wrong.
     limiting = None
-    if peak:
-        name, value = peak.deep_sky_factors.weakest()
+    if score.slots:
+        name, value = score.mean_factors_deep_sky.weakest()
         limiting = name if value < 0.99 else None
 
     def _factors(breakdown) -> FactorsModel:
@@ -273,6 +277,10 @@ def get_night(date_: str | None = Query(None, alias="date"),
             peak_factors_deep_sky=_factors(peak.deep_sky_factors) if peak else None,
             peak_factors_planetary=(_factors(peak.planetary_factors)
                                     if peak else None),
+            mean_factors_deep_sky=(_factors(score.mean_factors_deep_sky)
+                                   if score.slots else None),
+            mean_factors_planetary=(_factors(score.mean_factors_planetary)
+                                    if score.slots else None),
             limiting_factor=limiting,
             slots=slots,
         ),

@@ -674,3 +674,31 @@ def test_an_impossible_obstruction_angle_is_refused(client):
     payload = {"key": "api_bad_angle", "name": "Bad Angle",
                "lat": 39.09, "lon": -110.9, "bortle": 3, "horizon": "120"}
     assert client.post("/api/locations", json=payload).status_code == 422
+
+
+@requires_ephemeris
+def test_the_night_average_factors_reach_the_wire(client):
+    """The UI shows these beside the peak-slot breakdown, because the peak
+    slot's clear factor describes the least cloudy half hour by construction
+    and was being read as a statement about the night."""
+    body = client.get("/api/night?date=2026-09-15&location=home").json()
+    score = body["score"]
+    assert score["mean_factors_deep_sky"] is not None
+    for key in ("clear", "transparency", "moon", "seeing", "wind", "dew"):
+        assert 0.0 <= score["mean_factors_deep_sky"][key] <= 1.0
+    # Never better than the best slot, by definition of a mean.
+    assert (score["mean_factors_deep_sky"]["clear"]
+            <= score["peak_factors_deep_sky"]["clear"] + 1e-9)
+
+
+@requires_ephemeris
+def test_m31_carries_the_core_note_rather_than_a_faint_badge(client):
+    """From the suburban test site M31 must be listed and must say why the
+    mean surface brightness is not the number to go by."""
+    body = client.get(
+        "/api/targets?date=2026-09-15&location=santa_monica_mtns"
+        "&include_all=true&limit=1000"
+    ).json()
+    rows = [row for group in body["groups"].values() for row in group]
+    m31 = next(row for row in rows if row["messier"] == 31)
+    assert m31["too_faint"] is False

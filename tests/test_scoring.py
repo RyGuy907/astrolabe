@@ -423,3 +423,117 @@ def test_southern_and_equatorial_sites_score_normally(name, lat, lon):
     assert score.slots
     assert score.is_gradeable is True
     assert 0.0 <= score.deep_sky_peak <= 100.0
+
+
+# ---------------------------------------------------------------------------
+# Describing the night, not its best half hour
+#
+# Everything that *described* a night used to be read off the single
+# highest-scoring slot: the verdict, the limiting factor, the factor bars. The
+# peak slot is by construction the least cloudy one, so on a night that is
+# clear for an hour and socked in for five, the breakdown reported a clear
+# factor near 1.00 next to an hourly row of 100% cloud, and the verdict blamed
+# whatever came second. Cloud could never be named on exactly the nights where
+# cloud was the whole story.
+#
+# The grade stays peak-based -- a short clear window is still worth going out
+# for -- so these pin the description, not the number.
+# ---------------------------------------------------------------------------
+
+def _half_clouded_forecast(location, start, hours=12):
+    """Clear for the first quarter of the night, overcast for the rest."""
+    def hour(index: int) -> HourlyConditions:
+        return HourlyConditions(
+            time_utc=start + timedelta(hours=index),
+            cloud_cover=0.0 if index < hours // 4 else 100.0,
+            cloud_high=0.0, humidity_pct=40.0, temperature_c=15.0,
+            dew_point_c=2.0, wind_gust_kmh=5.0,
+            seeing_quality=1.0, transparency_quality=1.0,
+        )
+    return Forecast(location=location, hours=[hour(i) for i in range(hours)],
+                    available=True, sources=("synthetic",))
+
+
+def test_mean_of_averages_each_factor_independently():
+    """Not the mean of the products. Averaging slot scores would smear a
+    dealbreaker across the night, which is what the multiplication exists to
+    prevent; this is for describing conditions, not for scoring them."""
+    a = FactorBreakdown(1.0, 1.0, 1.0, 1.0, 1.0, 1.0)
+    b = FactorBreakdown(0.0, 0.5, 1.0, 1.0, 1.0, 1.0)
+    mean = FactorBreakdown.mean_of([a, b])
+    assert mean.clear == pytest.approx(0.5)
+    assert mean.transparency == pytest.approx(0.75)
+    assert mean.moon == pytest.approx(1.0)
+
+
+def test_mean_of_nothing_is_neutral():
+    """A night with no slots must not divide by zero on the way to saying so."""
+    assert FactorBreakdown.mean_of([]).clear == pytest.approx(1.0)
+
+
+@requires_ephemeris
+def test_the_night_average_sees_cloud_the_peak_slot_cannot(home):
+    """The bug, stated directly.
+
+    Three quarters of this night is overcast. The best slot is in the clear
+    quarter, so its clear factor is 1.00 -- true of that slot and of nothing
+    else. The night average has to disagree.
+    """
+    window = night_window(REFERENCE_DATE, home)
+    start = window.astronomical_night[0][0]
+    score = score_night(window, _half_clouded_forecast(home, start))
+
+    peak = max(score.slots, key=lambda s: s.deep_sky)
+    assert peak.deep_sky_factors.clear == pytest.approx(1.0)
+    assert score.mean_factors_deep_sky.clear < 0.5
+
+
+@requires_ephemeris
+def test_the_verdict_blames_cloud_on_a_night_that_clouds_over(home):
+    """Previously impossible: the peak slot is never the cloudy one."""
+    window = night_window(REFERENCE_DATE, home)
+    start = window.astronomical_night[0][0]
+    score = score_night(window, _half_clouded_forecast(home, start))
+    assert "cloud" in verdict(score, window).lower()
+
+
+@requires_ephemeris
+def test_the_verdict_says_how_short_the_good_part_is(home):
+    """"Workable" describing one clear hour inside six of cloud is true and
+    useless. When the best window is a small slice of the dark time, the
+    length is the fact about the night."""
+    window = night_window(REFERENCE_DATE, home)
+    start = window.astronomical_night[0][0]
+    score = score_night(window, _half_clouded_forecast(home, start))
+    assert " h of " in verdict(score, window)
+
+
+@requires_ephemeris
+def test_a_uniformly_good_night_gets_no_window_qualifier(home):
+    """The qualifier has to stay out of the way when it says nothing. A clear
+    night's best window covers most of the dark time by definition."""
+    window = night_window(REFERENCE_DATE, home)
+    start = window.astronomical_night[0][0]
+    score = score_night(window, _clear_forecast(home, start))
+    assert " h of " not in verdict(score, window)
+
+
+@requires_ephemeris
+def test_an_even_night_reports_the_whole_night_as_the_best_window(home):
+    """Found by the test above.
+
+    A strict `>` kept the first window at the best mean, so a flawless
+    eight-hour night reported a one-hour best window -- implying the other
+    seven were worse, and dragging the verdict's "for 1.0 h of 7.8" qualifier
+    in with it. When conditions are even, the best window is the night.
+    """
+    window = night_window(REFERENCE_DATE, home)
+    start = window.astronomical_night[0][0]
+    score = score_night(window, _clear_forecast(home, start, hours=16))
+
+    assert score.best_window is not None
+    best_start, best_end = score.best_window
+    hours = (best_end - best_start).total_seconds() / 3600.0
+    # The moon rises and sets, so conditions are not perfectly flat; the point
+    # is that the window is a real span rather than the minimum two slots.
+    assert hours > 2.0

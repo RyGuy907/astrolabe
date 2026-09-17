@@ -60,6 +60,29 @@ class FactorBreakdown:
         return (self.clear * self.transparency * self.moon
                 * self.seeing * self.wind * self.dew)
 
+    @classmethod
+    def mean_of(cls, breakdowns: list["FactorBreakdown"]) -> "FactorBreakdown":
+        """The arithmetic mean of each factor across a night.
+
+        Not a score -- the slot score stays multiplicative, and averaging the
+        products would smear a dealbreaker across the whole night, which is
+        precisely what the multiplication exists to prevent. This is for
+        *describing* a night: "the cloud factor averaged 0.38" is a true
+        statement about the night, where the peak slot's 1.00 is a true
+        statement about thirty minutes of it.
+        """
+        if not breakdowns:
+            return cls(1.0, 1.0, 1.0, 1.0, 1.0, 1.0)
+        count = len(breakdowns)
+        return cls(
+            clear=sum(b.clear for b in breakdowns) / count,
+            transparency=sum(b.transparency for b in breakdowns) / count,
+            moon=sum(b.moon for b in breakdowns) / count,
+            seeing=sum(b.seeing for b in breakdowns) / count,
+            wind=sum(b.wind for b in breakdowns) / count,
+            dew=sum(b.dew for b in breakdowns) / count,
+        )
+
     def weakest(self) -> tuple[str, float]:
         """The factor doing the most damage — what to blame the score on."""
         factors = {
@@ -104,6 +127,25 @@ class NightScore:
     weather_note: str | None
     seeing_estimated: bool
     dew_warning: bool
+
+    @property
+    def mean_factors_deep_sky(self) -> FactorBreakdown:
+        """Each factor averaged over the night, for deep sky.
+
+        The grade stays peak-based on purpose -- a two-hour clear window is
+        still worth driving out for. But every *description* of the night was
+        also being taken from the peak slot, and the peak slot is by
+        construction the least cloudy one. On a night that is clear for an
+        hour and socked in for five, that meant the breakdown reported
+        `clear = 1.00` and the verdict blamed whatever came second. Cloud
+        could never be named as the limiting factor on exactly the nights
+        where cloud is the whole story.
+        """
+        return FactorBreakdown.mean_of([s.deep_sky_factors for s in self.slots])
+
+    @property
+    def mean_factors_planetary(self) -> FactorBreakdown:
+        return FactorBreakdown.mean_of([s.planetary_factors for s in self.slots])
 
     @property
     def is_gradeable(self) -> bool:
@@ -263,11 +305,17 @@ def score_slot(conditions: HourlyConditions | None, illumination: float,
 
 def _best_contiguous(slots: list[SlotScore], *, deep_sky: bool
                      ) -> tuple[Interval | None, float]:
-    """Highest-mean run of consecutive slots, minimum one hour.
+    """Longest run of consecutive slots at the highest mean, minimum one hour.
 
     Scans every window of two or more slots and keeps the best mean. The
     minimum stops a single freak 30-minute slot being reported as "the best
     window" when nothing around it is observable.
+
+    **Ties go to the longer window.** A strict `>` kept the first window found
+    at the best mean, which on a uniformly good night is the earliest pair of
+    slots -- so a flawless eight-hour night reported a one-hour best window
+    and implied the other seven were worse. On a night where conditions really
+    are even, the best window is the whole night.
     """
     if len(slots) < 2:
         if slots:
@@ -276,7 +324,7 @@ def _best_contiguous(slots: list[SlotScore], *, deep_sky: bool
         return None, 0.0
 
     values = [s.deep_sky if deep_sky else s.planetary for s in slots]
-    best_mean, best_range = -1.0, None
+    best_mean, best_length, best_range = -1.0, 0, None
     for start in range(len(slots)):
         running = 0.0
         for end in range(start, len(slots)):
@@ -285,8 +333,13 @@ def _best_contiguous(slots: list[SlotScore], *, deep_sky: bool
             if length < 2:
                 continue
             mean = running / length
-            if mean > best_mean:
-                best_mean = mean
+            # A tolerance rather than `==`: these means are sums of floats
+            # divided by a count, so two genuinely equal windows differ in the
+            # last bits often enough to matter.
+            better = mean > best_mean + 1e-9
+            same = abs(mean - best_mean) <= 1e-9
+            if better or (same and length > best_length):
+                best_mean, best_length = mean, length
                 best_range = (start, end)
 
     if best_range is None:
@@ -374,8 +427,9 @@ def verdict(score: NightScore, window: NightWindow) -> str:
         return (f"{score.dark_hours:.1f} h of true dark; "
                 f"weather unavailable ({score.weather_note}).")
 
-    peak = max(score.slots, key=lambda s: s.deep_sky)
-    name, value = peak.deep_sky_factors.weakest()
+    # Averaged over the night, not read off the best slot. See
+    # `NightScore.mean_factors_deep_sky` for why that distinction matters.
+    name, value = score.mean_factors_deep_sky.weakest()
 
     if score.deep_sky_peak >= 80 and value > 0.85:
         lead = "Good night out"
@@ -391,6 +445,7 @@ def verdict(score: NightScore, window: NightWindow) -> str:
                   f"for part of the night")
     elif name == "cloud":
         detail = f"cloud is the limit ({value:.2f} clear factor)"
+
     elif name == "dew":
         detail = "dew point is close - expect fogging"
     elif name == "wind":
@@ -404,4 +459,16 @@ def verdict(score: NightScore, window: NightWindow) -> str:
     # scores used to be repeated here, and they are already on the dials and
     # in the key facts a few pixels away -- restating them made the line long
     # enough to wrap without telling anyone anything new.
+    #
+    # The one thing worth adding: how much of the night the good part covers.
+    # "Workable" describing a single clear hour inside six hours of cloud is
+    # true and useless, and it is the shape of night this scoring is most
+    # likely to be read wrongly on.
+    # `Interval` is a plain (start, end) tuple, not an object with `.hours`.
+    if score.best_window is not None and score.dark_hours > 0:
+        start, end = score.best_window
+        best_hours = (end - start).total_seconds() / 3600.0
+        if best_hours < 0.6 * score.dark_hours:
+            return (f"{lead} for {best_hours:.1f} h of "
+                    f"{score.dark_hours:.1f} - {detail}.")
     return f"{lead} - {detail}."

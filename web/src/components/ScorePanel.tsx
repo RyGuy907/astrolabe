@@ -17,7 +17,12 @@
  */
 
 import { useMemo, useState } from "react";
-import type { FactorsModel, NightWindowModel, ScoreModel } from "../api";
+import type {
+  FactorsModel,
+  NightWindowModel,
+  ScoreModel,
+  SlotModel,
+} from "../api";
 import { ConditionsStrip } from "./ConditionsStrip";
 import {
   formatHours,
@@ -105,9 +110,9 @@ export function ScorePanel({ score, window: night }: {
   // will be like while you are standing outside, and the afternoon high has
   // nothing to do with that. Slots without a reading are skipped rather than
   // counted as zero.
-  const temps = useMemo(() => {
+  function spread(pick: (slot: SlotModel) => number | null) {
     const values = score.slots
-      .map((slot) => slot.temperature_c)
+      .map(pick)
       .filter((value): value is number => value !== null);
     if (values.length === 0) return null;
     return {
@@ -115,7 +120,16 @@ export function ScorePanel({ score, window: night }: {
       high: Math.max(...values),
       mean: values.reduce((total, value) => total + value, 0) / values.length,
     };
-  }, [score.slots]);
+  }
+
+  const temps = useMemo(() => spread((slot) => slot.temperature_c),
+                        [score.slots]);
+  // Cloud earns the same treatment for a specific reason: a night can average
+  // 48% cloud and still show a peak-slot clear factor of 1.00, because the
+  // peak slot is the least cloudy one. Seeing "0 - 100%, avg 48%" beside the
+  // grade is what makes that legible rather than contradictory.
+  const cloud = useMemo(() => spread((slot) => slot.cloud_cover),
+                        [score.slots]);
 
   return (
     <section className="panel score-panel" aria-labelledby="score-heading">
@@ -190,6 +204,15 @@ export function ScorePanel({ score, window: night }: {
                 <em>avg {formatTemp(temps.mean)}</em>
               </div>
             )}
+            {cloud && (
+              <div>
+                <span>Cloud cover</span>
+                <strong>
+                  {cloud.low.toFixed(0)} – {cloud.high.toFixed(0)}%
+                </strong>
+                <em>avg {cloud.mean.toFixed(0)}%</em>
+              </div>
+            )}
             <div>
               <span>Best window</span>
               <strong>
@@ -258,25 +281,32 @@ export function ScorePanel({ score, window: night }: {
             )}
           </div>
 
+          {/* Deep sky in both columns, averaged over the night beside the
+              best slot. Only the peak was shown before, and on a night that
+              clouds over halfway through it read `Cloud 1.00` next to an
+              hourly row of 100% -- true of thirty minutes and of nothing
+              else. The pair is the honest presentation: the grade comes from
+              the peak, the night looked like the average. */}
           {score.peak_factors_deep_sky && (
             <div className="factors-pair">
               <div>
-                <h4>Deep sky at peak</h4>
+                <h4>Deep sky — night average</h4>
+                {(Object.keys(FACTOR_LABELS) as (keyof FactorsModel)[]).map((key) => (
+                  <FactorBar
+                    key={key}
+                    name={FACTOR_LABELS[key]}
+                    value={(score.mean_factors_deep_sky ??
+                            score.peak_factors_deep_sky!)[key]}
+                  />
+                ))}
+              </div>
+              <div>
+                <h4>Deep sky — best slot</h4>
                 {(Object.keys(FACTOR_LABELS) as (keyof FactorsModel)[]).map((key) => (
                   <FactorBar
                     key={key}
                     name={FACTOR_LABELS[key]}
                     value={score.peak_factors_deep_sky![key]}
-                  />
-                ))}
-              </div>
-              <div>
-                <h4>Planetary at peak</h4>
-                {(Object.keys(FACTOR_LABELS) as (keyof FactorsModel)[]).map((key) => (
-                  <FactorBar
-                    key={key}
-                    name={FACTOR_LABELS[key]}
-                    value={score.peak_factors_planetary![key]}
                   />
                 ))}
               </div>
