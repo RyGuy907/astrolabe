@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, datetime, timezone
 
 import pytest
 
@@ -12,6 +12,7 @@ from engine.constellations import (
     CONSTELLATION_NAMES,
     centroid,
     constellation_name,
+    marks_toward,
 )
 from engine.ephem import night_window
 from engine.equipment import load_equipment
@@ -347,3 +348,84 @@ def test_has_gap_detects_a_discontinuous_window(home, catalog):
             continue
         envelope = (entry.end_utc - entry.start_utc).total_seconds() / 3600.0
         assert entry.has_gap == (envelope - entry.hours_up > 0.5)
+
+
+# ---------------------------------------------------------------------------
+# marks_toward: describing a horizon by naming what you can see
+#
+# The point of these is that the observer's answer ("the lowest thing I can
+# make out due north is Cassiopeia") has to become a trustworthy altitude. If
+# the list offered is in the wrong part of the sky, or not sorted lowest
+# first, the number recorded is wrong and the horizon it builds is worse than
+# the preset it replaced.
+# ---------------------------------------------------------------------------
+
+#: Mid-evening on the reference night, in UTC. Late enough that the sky has
+#: something in it, which is when anyone would actually be doing this.
+MARKS_WHEN = datetime(2026, 9, 16, 4, 0, tzinfo=timezone.utc)
+
+
+@requires_ephemeris
+def test_marks_are_sorted_lowest_first(home, catalog):
+    """The UI asks for the *lowest* one visible, so the first option offered
+    must be the lowest. Anything else invites picking the wrong row."""
+    marks = marks_toward(0.0, home, MARKS_WHEN, catalog)
+    assert marks, "nothing toward north to choose from"
+    altitudes = [m.altitude_deg for m in marks]
+    assert altitudes == sorted(altitudes)
+
+
+@requires_ephemeris
+@pytest.mark.parametrize("bearing", [0.0, 90.0, 180.0, 270.0])
+def test_marks_lie_within_the_spread_of_the_bearing(bearing, home, catalog):
+    """A constellation in the south tells you nothing about the northern
+    treeline. Offering one would silently record a bogus obstruction."""
+    marks = marks_toward(bearing, home, MARKS_WHEN, catalog, spread_deg=35.0)
+    for mark in marks:
+        offset = abs((mark.azimuth_deg - bearing + 180.0) % 360.0 - 180.0)
+        assert offset <= 35.0, f"{mark.name} is {offset:.0f} deg off {bearing}"
+
+
+@requires_ephemeris
+def test_north_does_not_split_at_the_compass_seam(home, catalog):
+    """Azimuth wraps at 360, and a naive difference would drop everything
+    just west of north. Both sides of the seam must be offered."""
+    marks = marks_toward(0.0, home, MARKS_WHEN, catalog)
+    assert any(m.azimuth_deg < 35.0 for m in marks)
+    assert any(m.azimuth_deg > 325.0 for m in marks)
+
+
+@requires_ephemeris
+def test_marks_exclude_the_overhead_sky(home, catalog):
+    """Something near the zenith cannot be cut off by terrain, so it is not a
+    usable marker -- and offering it would let someone record a 70 deg
+    horizon by mistake."""
+    marks = marks_toward(180.0, home, MARKS_WHEN, catalog, max_altitude_deg=60.0)
+    assert all(0.0 <= m.altitude_deg <= 60.0 for m in marks)
+
+
+@requires_ephemeris
+def test_marks_move_with_the_observer(catalog, home):
+    """The same bearing at the same instant shows a different sky from a
+    different latitude. If it did not, the result would be a lookup table
+    rather than a measurement."""
+    from engine.horizon import preset
+    from engine.locations import Location
+
+    far_south = Location(
+        key="far_south", name="Far South", lat=-34.0, lon=home.lon,
+        elevation_m=0.0, bortle=5, tz="UTC", horizon=preset("flat"),
+    )
+    north = {m.abbreviation for m in marks_toward(0.0, home, MARKS_WHEN, catalog)}
+    south = {m.abbreviation
+             for m in marks_toward(0.0, far_south, MARKS_WHEN, catalog)}
+    assert north != south
+
+
+@requires_ephemeris
+def test_marks_require_an_aware_time(home, catalog):
+    """PLAN.md's tz-aware-UTC invariant, enforced at the boundary rather than
+    left to produce an altitude that is silently hours out."""
+    naive = MARKS_WHEN.replace(tzinfo=None)
+    with pytest.raises(ValueError):
+        marks_toward(0.0, home, naive, catalog)

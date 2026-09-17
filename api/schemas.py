@@ -384,6 +384,31 @@ class SkyBrightnessReading(BaseModel):
     )
 
 
+class SkyMarkModel(BaseModel):
+    """A constellation visible toward one bearing, for measuring a horizon."""
+
+    abbreviation: str
+    name: str
+    altitude_deg: float
+    azimuth_deg: float
+
+
+class HorizonMarksResponse(BaseModel):
+    """What can be seen toward one bearing, lowest first.
+
+    The observer names the lowest constellation they can actually make out;
+    its altitude is how high the obstruction reaches there. That produces a
+    *measured* horizon rather than a preset chosen from a menu of generic
+    assumptions.
+    """
+
+    azimuth_deg: float
+    at: datetime = Field(description="Instant these altitudes were computed "
+                                     "for, UTC. Which constellations sit low "
+                                     "in a direction depends on the time.")
+    marks: list[SkyMarkModel]
+
+
 class GeocodeCandidate(BaseModel):
     label: str
     name: str

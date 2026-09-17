@@ -249,3 +249,77 @@ def classify_visibility(positions, location, start, end, midnight,
             positions, location, start, end, midnight,
             min_altitude_deg=min_altitude_deg, step=step).items()
     }
+
+
+@dataclass(frozen=True)
+class SkyMark:
+    """A constellation seen from one place at one moment.
+
+    Used to let an observer describe their horizon by naming what they can
+    see, rather than estimating an angle. Asking "how high is that ridge?"
+    gets a guess; asking "what is the lowest constellation you can make out
+    due north?" gets an answer, and the altitude follows from the sky.
+    """
+
+    abbreviation: str
+    name: str
+    altitude_deg: float
+    azimuth_deg: float
+
+
+def marks_toward(azimuth_deg: float,
+                 location,
+                 when: datetime,
+                 catalog,
+                 spread_deg: float = 35.0,
+                 min_altitude_deg: float = 0.0,
+                 max_altitude_deg: float = 60.0,
+                 ) -> list[SkyMark]:
+    """Constellations lying toward `azimuth_deg`, lowest first.
+
+    The observer picks the lowest one they can actually see in that
+    direction; whatever sits below it is blocked, so its altitude becomes the
+    obstruction height there. That turns a horizon profile into something
+    measured rather than a preset chosen from a menu of assumptions.
+
+    Only constellations within `spread_deg` of the bearing are offered, and
+    only those low enough to be plausibly cut off -- something near the zenith
+    tells you nothing about a treeline. Judged on the centroid, with the usual
+    caveat that a wide constellation is poorly summarised by its middle.
+    """
+    from skyfield.api import Star
+
+    from .ephem import _observer, load_ephemeris
+    from .timeutil import ensure_utc
+
+    when = ensure_utc(when, field="when")
+    positions = [p for p in
+                 (centroid(abbr, catalog) for abbr in CONSTELLATION_NAMES)
+                 if p is not None]
+    if not positions:
+        return []
+
+    eph = load_ephemeris()
+    observer = _observer(eph, location)
+    stars = Star(
+        ra_hours=[p.ra_deg / 15.0 for p in positions],
+        dec_degrees=[p.dec_deg for p in positions],
+    )
+    time = eph.timescale.from_datetime(when)
+    alt, az, _ = observer.at(time).observe(stars).apparent().altaz()
+
+    marks: list[SkyMark] = []
+    for position, altitude, azimuth in zip(positions, alt.degrees, az.degrees):
+        altitude = float(altitude)
+        azimuth = float(azimuth)
+        if not min_altitude_deg <= altitude <= max_altitude_deg:
+            continue
+        # Shortest way round the compass, so north does not split at 0/360.
+        offset = abs((azimuth - azimuth_deg + 180.0) % 360.0 - 180.0)
+        if offset > spread_deg:
+            continue
+        marks.append(SkyMark(position.abbreviation, position.name,
+                             altitude, azimuth))
+
+    marks.sort(key=lambda m: m.altitude_deg)
+    return marks

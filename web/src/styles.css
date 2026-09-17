@@ -969,6 +969,41 @@ table.targets tr.charted { background: rgba(244, 201, 93, 0.06); }
   font-size: 0.85rem;
 }
 
+/* Measuring a horizon by naming constellations. A <details> rather than an
+   always-open panel: it asks four questions that only make sense while you
+   are standing at the site, so it should not crowd the form for anyone
+   filling one in at a desk. */
+.horizon-measure-block {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px 12px;
+  margin-bottom: 10px;
+  background: var(--panel-alt, transparent);
+}
+.horizon-measure-block > summary {
+  cursor: pointer;
+  font-size: 0.85rem;
+  color: var(--muted-text);
+}
+.horizon-measure-block > summary:hover { color: var(--text); }
+
+.horizon-measure { padding-top: 6px; }
+.horizon-measure > p { margin: 4px 0 10px; }
+
+/* A fixed label column so the four bearings line up as a list rather than
+   reading as four unrelated fields. */
+.horizon-direction {
+  display: grid;
+  grid-template-columns: 70px minmax(0, 1fr);
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 6px;
+}
+.horizon-direction > span {
+  font-size: 0.8rem;
+  color: var(--muted-text);
+}
+
 footer { text-align: center; padding-top: 8px; }
 
 /* Mobile is a graceful fallback, not a separate design — the altitude chart

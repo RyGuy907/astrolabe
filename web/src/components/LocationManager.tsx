@@ -37,6 +37,7 @@ import {
   type SkyBrightnessReading,
 } from "../api";
 import { SitePicker } from "./SitePicker";
+import { HorizonMeasure } from "./HorizonMeasure";
 
 /** Long enough that ordinary typing issues no requests, short enough that a
  *  pause between words still feels instant. */
@@ -251,6 +252,11 @@ export function LocationManager({ locations, onClose, onCreated, onDeleted }: Pr
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [confirming, setConfirming] = useState<string | null>(null);
   const [showAdvanced, setShowAdvanced] = useState(false);
+  //: An azimuth->altitude map built by naming visible constellations. When
+  //: present it is sent instead of a preset, and the engine treats it as
+  //: measured rather than generic.
+  const [measuredHorizon, setMeasuredHorizon] =
+    useState<Record<number, number> | null>(null);
 
   const dialog = useRef<HTMLDivElement>(null);
   useModalBehaviour(dialog, onClose);
@@ -375,6 +381,7 @@ export function LocationManager({ locations, onClose, onCreated, onDeleted }: Pr
     setAtlas(null);
     setHorizon("flat");
     setFacing(0);
+    setMeasuredHorizon(null);
     setSearch("");
     setCandidates([]);
     setSearchState("idle");
@@ -401,10 +408,13 @@ export function LocationManager({ locations, onClose, onCreated, onDeleted }: Pr
         elevation_m: elevation.trim() === "" ? undefined : Number(elevation),
         // "unknown" is stored as a real null, not as 5. See the module note.
         bortle: bortle === "unknown" ? null : Number(bortle),
-        horizon,
-        // Only meaningful for the directional presets; sending it for a
-        // symmetric one would record a bearing the shape does not have.
-        horizon_facing: horizonPreset?.directional ? facing : null,
+        // A measured profile outranks a preset. `parse_horizon` reads a JSON
+        // object as an explicit azimuth->altitude map and does not flag it
+        // generic, which is the whole point of measuring one.
+        horizon: measuredHorizon ? JSON.stringify(measuredHorizon) : horizon,
+        horizon_facing:
+          measuredHorizon ? null
+            : horizonPreset?.directional ? facing : null,
       });
       resetForm();
       onCreated(created.key);
@@ -658,7 +668,12 @@ export function LocationManager({ locations, onClose, onCreated, onDeleted }: Pr
               </select>
             </label>
             <label className="wide">
-              <span>What blocks the view</span>
+              <span>
+                What blocks the view
+                {measuredHorizon && (
+                  <span className="field-note"> measured, overrides this</span>
+                )}
+              </span>
               <select value={horizon} onChange={(e) => setHorizon(e.target.value)}>
                 {HORIZON_PRESETS.map((option) => (
                   <option key={option.key} value={option.key}>
@@ -684,7 +699,22 @@ export function LocationManager({ locations, onClose, onCreated, onDeleted }: Pr
             )}
           </div>
 
-          {horizon !== "flat" && (
+          {/* Offered above the presets because it produces a better answer:
+              a named constellation is something you can actually see, and the
+              altitude comes from the ephemeris rather than from an estimate.
+              Only shown once there are coordinates to compute a sky for. */}
+          {latValid && lonValid && (
+            <details className="horizon-measure-block">
+              <summary>Measure the horizon instead (more accurate)</summary>
+              <HorizonMeasure
+                lat={latValue}
+                lon={lonValue}
+                onMeasured={setMeasuredHorizon}
+              />
+            </details>
+          )}
+
+          {horizon !== "flat" && !measuredHorizon && (
             <p className="note">
               This is a GENERIC assumption from a typical height and distance —
               see <code>engine/horizon.py</code> for the geometry behind each
@@ -695,7 +725,8 @@ export function LocationManager({ locations, onClose, onCreated, onDeleted }: Pr
             </p>
           )}
 
-          {horizonPreset && !horizonPreset.binds && horizon !== "flat" && (
+          {horizonPreset && !horizonPreset.binds && horizon !== "flat"
+            && !measuredHorizon && (
             <p className="warning">
               This profile tops out below the 25° altitude floor, so it will not
               change which targets are listed. That is the right answer —

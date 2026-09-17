@@ -48,6 +48,20 @@ export interface SkyBrightnessReading {
   in_coverage: boolean;
 }
 
+/** A constellation visible toward one bearing, for measuring a horizon. */
+export interface SkyMark {
+  abbreviation: string;
+  name: string;
+  altitude_deg: number;
+  azimuth_deg: number;
+}
+
+export interface HorizonMarks {
+  azimuth_deg: number;
+  at: string;
+  marks: SkyMark[];
+}
+
 export interface GeocodeCandidate {
   label: string;
   name: string;
@@ -418,6 +432,13 @@ export const api = {
 
   /** Used by the map picker to open where the atlas actually has data. */
   skyBrightness: () => get<SkyBrightnessCoverage>("/api/skybrightness"),
+
+  /** Constellations toward a bearing, lowest first, for measuring a horizon. */
+  horizonMarks: (lat: number, lon: number, azimuth: number,
+                 signal?: AbortSignal) =>
+    get<HorizonMarks>(
+      `/api/horizon/marks${query({ lat, lon, azimuth })}`, signal,
+    ),
 
   /** What the atlas says at one point, so the form can fill Bortle in. */
   skyBrightnessAt: (lat: number, lon: number, signal?: AbortSignal) =>

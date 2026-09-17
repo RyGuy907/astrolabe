@@ -64,6 +64,8 @@ from .schemas import (
     NewLocationRequest,
     SkyBrightnessCoverage,
     SkyBrightnessReading,
+    HorizonMarksResponse,
+    SkyMarkModel,
     NightResponse,
     NightWindowModel,
     PlanetModel,
@@ -762,6 +764,50 @@ def skybrightness_at(lat: float = Query(..., ge=-90.0, le=90.0),
         sqm=sqm,
         bortle=None if sqm is None else bortle_from_sqm(sqm),
         in_coverage=sqm is not None,
+    )
+
+
+@app.get("/api/horizon/marks", response_model=HorizonMarksResponse,
+         tags=["locations"])
+def horizon_marks(lat: float = Query(..., ge=-90.0, le=90.0),
+                  lon: float = Query(..., ge=-180.0, le=180.0),
+                  azimuth: float = Query(..., ge=0.0, lt=360.0),
+                  at: str | None = Query(
+                      None, description="ISO-8601 UTC instant; defaults to now."),
+                  ) -> HorizonMarksResponse:
+    """Constellations toward a bearing, lowest first, for measuring a horizon.
+
+    No astronomy happens here -- `engine.constellations.marks_toward` does the
+    work, as PLAN.md §4 requires.
+    """
+    from engine.constellations import marks_toward
+
+    if at:
+        try:
+            when = datetime.fromisoformat(at.replace("Z", "+00:00"))
+        except ValueError:
+            raise HTTPException(status_code=422,
+                                detail=f"{at!r} is not an ISO-8601 datetime")
+        if when.tzinfo is None:
+            raise HTTPException(
+                status_code=422,
+                detail="`at` must carry a timezone; this API is UTC-only",
+            )
+    else:
+        when = now_utc()
+
+    from engine.locations import _resolve_tz
+
+    site = Location(key="probe", name="probe", lat=lat, lon=lon,
+                    tz=_resolve_tz(lat, lon))
+    marks = marks_toward(azimuth, site, when, load_catalog())
+    return HorizonMarksResponse(
+        azimuth_deg=azimuth,
+        at=when,
+        marks=[SkyMarkModel(abbreviation=m.abbreviation, name=m.name,
+                            altitude_deg=m.altitude_deg,
+                            azimuth_deg=m.azimuth_deg)
+               for m in marks],
     )
 
 

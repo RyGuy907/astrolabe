@@ -551,3 +551,76 @@ def test_session_datetimes_are_utc(client, clean_log):
 
     observation = client.get(f"/api/sessions/{session_id}").json()["observations"][0]
     assert _is_utc_iso(observation["observed_at_utc"])
+
+
+# ---------------------------------------------------------------------------
+# /api/horizon/marks — the data behind "name the lowest thing you can see"
+# ---------------------------------------------------------------------------
+
+@requires_ephemeris
+def test_horizon_marks_returns_options_lowest_first(client):
+    """The form offers these in order and the observer picks the lowest one
+    they can see, so the order is load-bearing, not cosmetic."""
+    response = client.get(
+        "/api/horizon/marks?lat=39.09&lon=-110.9&azimuth=180"
+        "&at=2026-09-16T04:00:00Z"
+    )
+    assert response.status_code == 200
+    body = response.json()
+
+    assert body["azimuth_deg"] == 180
+    assert body["at"].startswith("2026-09-16T04:00:00")
+    altitudes = [m["altitude_deg"] for m in body["marks"]]
+    assert altitudes == sorted(altitudes)
+    assert all(m["abbreviation"] and m["name"] for m in body["marks"])
+
+
+@requires_ephemeris
+def test_horizon_marks_differ_by_bearing(client):
+    """Four identical lists would mean the bearing was being ignored, and
+    every direction would record the same obstruction height."""
+    def look(azimuth: int) -> set[str]:
+        body = client.get(
+            f"/api/horizon/marks?lat=39.09&lon=-110.9&azimuth={azimuth}"
+            "&at=2026-09-16T04:00:00Z"
+        ).json()
+        return {m["abbreviation"] for m in body["marks"]}
+
+    assert look(0) != look(180)
+    assert look(90) != look(270)
+
+
+def test_horizon_marks_rejects_a_naive_instant(client):
+    """PLAN.md's UTC invariant at the HTTP boundary: a bare local time would
+    be read as UTC and put the sky hours out."""
+    response = client.get(
+        "/api/horizon/marks?lat=39.09&lon=-110.9&azimuth=0"
+        "&at=2026-09-16T04:00:00"
+    )
+    assert response.status_code == 422
+
+
+def test_horizon_marks_rejects_an_azimuth_off_the_compass(client):
+    """Guarded by the query model rather than silently wrapping, so a UI bug
+    surfaces as an error instead of a horizon measured in the wrong place."""
+    assert client.get(
+        "/api/horizon/marks?lat=39.09&lon=-110.9&azimuth=360"
+    ).status_code == 422
+
+
+@requires_ephemeris
+def test_a_measured_horizon_is_not_flagged_generic(client):
+    """The whole reason for measuring one. A preset is an assumption and the
+    UI says so everywhere; an explicit azimuth->altitude map is not, and must
+    not inherit the warning."""
+    payload = {"key": "api_measured_site", "name": "Measured Site",
+               "lat": 39.09, "lon": -110.9, "bortle": 2,
+               "horizon": '{"0": 24.0, "90": 0.0, "180": 22.5, "270": 18.1}'}
+    response = client.post("/api/locations", json=payload)
+    assert response.status_code == 201
+    try:
+        body = response.json()
+        assert body["horizon_is_generic"] is False
+        assert body["horizon_max_deg"] == pytest.approx(24.0, abs=0.1)
+    finally:
+        client.delete("/api/locations/api_measured_site")
