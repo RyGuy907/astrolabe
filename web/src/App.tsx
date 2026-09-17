@@ -25,9 +25,9 @@ import {
   type TargetsResponse,
 } from "./api";
 import { AltitudeChart } from "./components/AltitudeChart";
-import { ConditionsStrip } from "./components/ConditionsStrip";
 import { EventAlert } from "./components/EventAlert";
 import { LocationManager } from "./components/LocationManager";
+import { LocationPicker } from "./components/LocationPicker";
 import { ObservationLog } from "./components/ObservationLog";
 import { ScorePanel } from "./components/ScorePanel";
 import { SkyPanel } from "./components/SkyPanel";
@@ -71,27 +71,6 @@ const ALTITUDE_FLOORS: { deg: number; label: string; note: string }[] = [
   { deg: 30, label: "30°", note: "strict; only well-placed objects" },
   { deg: 40, label: "40°", note: "very strict; near-zenith work only" },
 ];
-
-/**
- * How a site's sky brightness reads in the header and the site picker.
- *
- * Three cases, kept distinct because they are three different degrees of
- * knowing. An observer's own class is a measurement. An atlas value is a
- * lookup. "Assumed" means nothing is known and `engine/targets.py` falls back
- * to Bortle 5 — which sets the limiting magnitude and the contrast test, so it
- * changes which objects appear at all. That fallback is reasonable; letting it
- * happen invisibly is not.
- */
-function bortleLabel(location: LocationModel): string {
-  switch (location.sky_source) {
-    case "observer":
-      return `Bortle ${location.bortle}`;
-    case "atlas":
-      return `Bortle ${location.effective_bortle} (from atlas)`;
-    default:
-      return "Bortle 5 (assumed)";
-  }
-}
 
 /**
  * Naked-eye planets only. Uranus and Neptune are computed and listed in the
@@ -143,6 +122,8 @@ export default function App() {
   // "Visible tonight" lists only what passes the observability filters;
   // "All targets" drops the filtering entirely and badges each row instead.
   const [showAllTargets, setShowAllTargets] = useState(false);
+  // Narrows either view to engine/showpieces.py's curated list.
+  const [popularOnly, setPopularOnly] = useState(false);
   // Tracked per request, not as one flag. The three calls differ by an order
   // of magnitude -- /api/night answers in ~0.2 s, /api/planets in ~0.8 s warm,
   // /api/targets in ~5 s -- so a single flag meant the whole dashboard waited
@@ -152,6 +133,9 @@ export default function App() {
   });
   const [error, setError] = useState<string | null>(null);
   const [managingSites, setManagingSites] = useState(false);
+  //: The key being edited, or null when the form is adding a new site.
+  const [editingSite, setEditingSite] = useState<string | null>(null);
+  const [deletingSite, setDeletingSite] = useState(false);
 
   // Which (date, location) the chart was last auto-filled for. Without this the
   // auto-fill would fight the user every time they removed a series.
@@ -332,10 +316,26 @@ export default function App() {
     if (isTonight) setDate(resolveNightDate(target.timezone));
   }
 
-  function goToTonight() {
-    if (!location) return;
-    setDate(resolveNightDate(location.timezone));
-    setIsTonight(true);
+  /** Remove a site from the picker row, then re-point the dashboard. */
+  async function deleteLocation(key: string) {
+    setDeletingSite(true);
+    try {
+      await api.deleteLocation(key);
+      const list = await api.locations();
+      setLocations(list);
+      if (key === locationKey) {
+        const next = list[0];
+        setLocationKey(next ? next.key : "");
+        if (next) setDate(resolveNightDate(next.timezone));
+        else setPending({ night: false, targets: false, planets: false });
+      }
+    } catch (e) {
+      setError(e instanceof ApiError
+        ? `Could not delete that site: ${e.message}`
+        : "Could not reach the API. Is it running on port 8000?");
+    } finally {
+      setDeletingSite(false);
+    }
   }
 
   function changeDate(next: string) {
@@ -427,69 +427,44 @@ export default function App() {
           )}
         </div>
 
+        {/* Everything that steers the dashboard, in one group on the right.
+            Adding, editing and deleting a site all live on the picker's own
+            rows, so there is no second "Sites…" button and no separate
+            "Tonight" button -- the date stepper already goes there. */}
         <div className="controls">
-          {/* Before any site exists these controls have nothing to act on: an
-              empty picker, a date for nowhere, a floor filtering nothing. The
-              only useful control is the one that adds a site, so it is the
-              only one shown. */}
-          {hasSites && (
-          <label>
-            <span>Location</span>
-            <select
-              value={locationKey}
-              onChange={(e) => {
-                setLocationKey(e.target.value);
-                const next = locations.find((l) => l.key === e.target.value);
-                if (next && isTonight) setDate(resolveNightDate(next.timezone));
-              }}
-            >
-              {locations.map((l) => (
-                <option key={l.key} value={l.key}>
-                  {l.name} · {bortleLabel(l)}
-                </option>
-              ))}
-            </select>
-          </label>
-          )}
-
-          <button className="secondary" onClick={() => setManagingSites(true)}>
-            Sites…
-          </button>
+          <LocationPicker
+            locations={locations}
+            selected={locationKey}
+            busy={deletingSite}
+            onSelect={(key) => {
+              setLocationKey(key);
+              const next = locations.find((l) => l.key === key);
+              if (next && isTonight) setDate(resolveNightDate(next.timezone));
+            }}
+            onAdd={() => {
+              setEditingSite(null);
+              setManagingSites(true);
+            }}
+            onEdit={(key) => {
+              setEditingSite(key);
+              setManagingSites(true);
+            }}
+            onDelete={(key) => void deleteLocation(key)}
+          />
 
           {hasSites && (
-          <>
-          <label>
-            <span>Night of</span>
             <div className="date-row">
-              <button onClick={() => changeDate(shiftDate(date, -1))} aria-label="Previous night">
+              <button onClick={() => changeDate(shiftDate(date, -1))}
+                      aria-label="Previous night">
                 ‹
               </button>
-              <input type="date" value={date} onChange={(e) => changeDate(e.target.value)} />
-              <button onClick={() => changeDate(shiftDate(date, 1))} aria-label="Next night">
+              <input type="date" value={date}
+                     onChange={(e) => changeDate(e.target.value)} />
+              <button onClick={() => changeDate(shiftDate(date, 1))}
+                      aria-label="Next night">
                 ›
               </button>
             </div>
-          </label>
-
-          <label>
-            <span>Altitude floor</span>
-            <select
-              value={String(minAltitude)}
-              onChange={(e) => setMinAltitude(Number(e.target.value))}
-              title="Objects below this altitude are excluded"
-            >
-              {ALTITUDE_FLOORS.map((floor) => (
-                <option key={floor.deg} value={String(floor.deg)}>
-                  {floor.label}
-                </option>
-              ))}
-            </select>
-          </label>
-
-          <button className="secondary" onClick={goToTonight} disabled={isTonight}>
-            Tonight
-          </button>
-          </>
           )}
 
           <button
@@ -501,17 +476,22 @@ export default function App() {
             Night vision
           </button>
         </div>
+
       </header>
 
       {managingSites && (
         <LocationManager
           locations={locations}
-          onClose={() => setManagingSites(false)}
+          editingKey={editingSite}
+          onClose={() => {
+            setManagingSites(false);
+            setEditingSite(null);
+          }}
           onCreated={(key) => {
             void refreshLocations(key);
             setManagingSites(false);
+            setEditingSite(null);
           }}
-          onDeleted={() => void refreshLocations()}
         />
       )}
 
@@ -523,7 +503,13 @@ export default function App() {
       {!error && locations.length === 0 && !pending.night && (
         <section className="panel empty-state">
           <h2>Where are you observing?</h2>
-          <button className="secondary" onClick={() => setManagingSites(true)}>
+          <button
+            className="secondary"
+            onClick={() => {
+              setEditingSite(null);
+              setManagingSites(true);
+            }}
+          >
             Add an observing site
           </button>
         </section>
@@ -566,11 +552,28 @@ export default function App() {
           <div className="dashboard-row">
             <section className="panel chart-panel">
               <div className="panel-head">
-                <h2>Altitude through the night</h2>
-                <span className="muted small">
-                  {visibleCount} of {series.length} shown · click a name to
-                  hide it, × to remove it · add constellations from Targets
-                </span>
+                <h2>Altitude</h2>
+                <div className="panel-head-controls">
+                  <span className="muted small">
+                    {visibleCount} of {series.length} shown
+                  </span>
+                  {/* Lives here because this is the only place its effect is
+                      visible: the floor line on the chart moves with it. */}
+                  <label className="inline-field">
+                    <span>Floor</span>
+                    <select
+                      value={String(minAltitude)}
+                      onChange={(e) => setMinAltitude(Number(e.target.value))}
+                      title="Objects below this altitude are excluded"
+                    >
+                      {ALTITUDE_FLOORS.map((floor) => (
+                        <option key={floor.deg} value={String(floor.deg)}>
+                          {floor.label}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                </div>
               </div>
               {altitude ? (
                 <AltitudeChart
@@ -600,16 +603,12 @@ export default function App() {
                 onEventDaysChange={setEventDays}
                 showAll={showAllTargets}
                 onShowAllChange={setShowAllTargets}
+                popularOnly={popularOnly}
+                onPopularOnlyChange={setPopularOnly}
                 targetsPending={pending.targets}
               />
             </div>
           </div>
-
-          <ConditionsStrip
-            slots={night.score.slots}
-            timeZone={location.timezone}
-            weatherAvailable={night.score.weather_available}
-          />
 
           <ObservationLog
             date={date}

@@ -37,6 +37,7 @@ from engine.horizon import build as build_horizon
 from engine.locations import Location, LocationError, atlas_sqm_for
 from engine.planets import ALL_PLANETS, report_all
 from engine.scoring import score_night, verdict
+from engine.showpieces import showpiece_ids
 from engine.targets import (
     DEFAULT_GROUP_LIMIT,
     DEFAULT_MIN_ALTITUDE_DEG,
@@ -325,6 +326,11 @@ def get_targets(date_: str | None = Query(None, alias="date"),
         wanted = {g.strip().lower() for g in groups.split(",") if g.strip()}
         grouped = {k: v for k, v in grouped.items() if k.lower() in wanted}
 
+    # Resolved once per request against the same catalogue the rows come
+    # from, so a Messier number maps to whatever identifier this release
+    # uses. Cheap: a set membership test per row.
+    showpieces = showpiece_ids(load_catalog())
+
     def _target(item) -> TargetModel:
         """Accepts an assessment or a bare catalog object."""
         assessment = item if hasattr(item, "obj") else None
@@ -338,7 +344,8 @@ def get_targets(date_: str | None = Query(None, alias="date"),
                 ra_deg=obj.ra_deg, dec_deg=obj.dec_deg,
                 magnitude=obj.magnitude, size_arcmin=obj.size_arcmin,
                 surface_brightness=obj.surface_brightness,
-                visible_tonight=False, visible_late=False, notes=[],
+                visible_tonight=False, visible_late=False,
+                showpiece=obj.name in showpieces, notes=[],
             )
         return TargetModel(
             name=obj.name, display_name=obj.display_name, group=obj.group,
@@ -357,6 +364,7 @@ def get_targets(date_: str | None = Query(None, alias="date"),
             visible_tonight=True,
             visible_late=assessment.visible_late,
             too_faint=assessment.too_faint,
+            showpiece=obj.name in showpieces,
             notes=list(assessment.notes),
         )
 

@@ -96,6 +96,11 @@ engine/     pure Python; no web imports, no I/O beyond local caches
                  MPC through Skyfield's loader (networked; degrades to
                  "MPC unavailable"). No astronomy depends on it.
   horizon.py     obstruction horizon profiles
+  showpieces.py  the curated "popular targets" list, and why each entry is on
+                 it or not
+  constellations.py  sky regions, plus marks_toward() for measuring a horizon
+                 by naming what you can see
+  skybrightness.py   coordinate -> SQM from an optional local atlas
   catalog/       OpenNGC ingest (vendored CSV -> SQLite) and lookup
 cli/        Typer front end; the only layer that converts UTC to local
 config/     locations.yaml, equipment.yaml
@@ -248,16 +253,30 @@ run never quietly means the lookup went untested.
 
 ## Obstruction horizons
 
-Each location may carry an optional `horizon:` profile — a preset, a preset
-pointed at where the obstruction actually is, or an explicit azimuth→altitude
-map:
+Each location may carry an optional `horizon:` profile — a uniform angle, a
+preset, a preset pointed at where the obstruction actually is, or an explicit
+azimuth→altitude map:
 
 ```yaml
 home:
-  horizon: trees                              # a generic preset
+  horizon: 20                                 # a uniform 20° ring, generic
+  # horizon: trees                            # a named generic preset
   # horizon: {preset: ridge, facing: 250}     # pointed where the ridge is
   # horizon: {0: 18, 90: 5, 180: 5, 270: 22}  # or a measured profile
 ```
+
+The web form offers the uniform angle in five-degree steps, because "how high
+does the terrain reach?" is a question you can answer about your own site
+without matching it to a description written for somebody else's. It is still
+flagged generic: one angle in every direction is an assumption about a place,
+not a survey of it.
+
+**Measuring a real horizon without instruments.** The site form can ask what
+the lowest constellation you can still make out is in each of four directions,
+and take the altitude from the ephemeris. Anything below the thing you can see
+is blocked, so that altitude is the obstruction height. The result is stored as
+an az→alt map and is *not* flagged generic — it is the only way to produce a
+measured horizon without editing YAML by hand.
 
 The effective altitude floor becomes `max(min_altitude, horizon at the
 object's azimuth)` — a horizon can raise the floor, never lower it.
@@ -287,6 +306,33 @@ you to infer it from an unchanged list.
 **The presets are generic assumptions, not surveys of your site.** Every use of
 one is flagged generic in the CLI and the UI. An explicit az→alt map is treated
 as measured and is not flagged; it is the only form here that is not a guess.
+
+## Popular targets
+
+The catalogue holds 12,371 objects and perhaps 137 of them are what anyone
+means by "things worth looking at". **Popular targets only** in the Targets
+panel narrows either view — tonight's list or the whole catalogue — to a
+curated list of showpieces.
+
+The list and, more importantly, the reasoning behind it are in
+`engine/showpieces.py`. In short: the Messier catalogue, minus the entries
+that are not deep-sky objects (M40 is a double star, M73 four unrelated
+stars), the one of disputed identity (M102), the dozen featureless Virgo and
+Coma ellipticals, and the two that are genuinely hard (M74, M76); plus the
+famous non-Messier objects, which are mostly the southern sky Messier never
+saw — Omega Centauri, 47 Tucanae, the Magellanic Clouds, Eta Carinae — and
+the northern ones that acquired names anyway: the Double Cluster, the Veil,
+the Helix, the Coathanger.
+
+Deliberately absent: the famous *photographic* targets. The Horsehead needs an
+H-beta filter and a genuinely dark sky. It is a household name because of
+pictures, and listing it under "popular targets" would send a beginner hunting
+for something they will not see. It stays in the full catalogue, where the
+scoring can say what it thinks of it.
+
+`tests/test_showpieces.py` checks that every hardcoded identifier still
+resolves against the catalogue, so a catalogue update cannot quietly shorten
+the list.
 
 ## Timezone rule
 

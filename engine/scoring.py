@@ -400,6 +400,8 @@ def verdict(score: NightScore, window: NightWindow) -> str:
     else:
         detail = "transparency is poor"
 
-    return (f"{lead} - {detail}. {score.dark_hours:.1f} h of true dark, "
-            f"deep-sky peak {score.deep_sky_peak:.0f} ({score.deep_sky_grade}), "
-            f"planetary peak {score.planetary_peak:.0f} ({score.planetary_grade}).")
+    # Just the verdict and what limits it. The dark hours and both peak
+    # scores used to be repeated here, and they are already on the dials and
+    # in the key facts a few pixels away -- restating them made the line long
+    # enough to wrap without telling anyone anything new.
+    return f"{lead} - {detail}."

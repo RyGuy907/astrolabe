@@ -46,7 +46,10 @@ body {
    share because curves need horizontal room; the panel is a reading column. */
 .dashboard-row {
   display: grid;
-  grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr);
+  /* The target list is the wider half now. It carries five columns of table
+     and the chart carries one drawing, and at 1.25fr the chart was winning
+     enough width to wrap every row's notes into six lines. */
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.15fr);
   gap: 14px;
   align-items: start;
 }
@@ -121,7 +124,7 @@ h4 { font-size: 0.9rem; margin: 0 0 8px; color: var(--muted-text); font-weight: 
 }
 .brand p { margin: 5px 0 0; font-size: 0.9rem; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 
-.controls { display: flex; gap: 14px; align-items: flex-end; }
+.controls { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; justify-content: flex-end; }
 .controls label { display: flex; flex-direction: column; gap: 5px; font-size: 0.8rem; }
 .controls label > span { color: var(--muted-text); text-transform: uppercase; letter-spacing: 0.05em; font-size: 0.7rem; }
 
@@ -300,6 +303,9 @@ button.secondary:not(:disabled):hover { border-color: var(--accent); }
    not look wrong while it catches up. */
 .tab-body.stale { opacity: 0.55; transition: opacity 0.1s ease; }
 .table-scroll { overflow-x: auto; }
+/* Names wrap; the short numeric columns do not. Without this a single long
+   designation sets the table's minimum width and the whole box scrolls. */
+.targets td:nth-child(2) { overflow-wrap: anywhere; }
 .nowrap { white-space: nowrap; }
 
 /* --- score panel --- */
@@ -325,6 +331,8 @@ button.secondary:not(:disabled):hover { border-color: var(--accent); }
 .key-facts em { font-style: normal; font-size: 0.8rem; color: var(--muted-text); }
 
 .score-more { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr); gap: 28px; margin-top: 14px; }
+/* The hourly matrix wants the whole width, not one column of the pair. */
+.score-more-wide { grid-column: 1 / -1; min-width: 0; }
 .factors-pair { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; }
 .dial { text-align: center; }
 .dial svg { width: 116px; height: 116px; }
@@ -441,25 +449,46 @@ button.secondary:not(:disabled):hover { border-color: var(--accent); }
 .chart-readout i { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 6px; vertical-align: middle; }
 
 /* --- conditions strip --- */
-.strip { display: flex; gap: 3px; overflow-x: auto; padding-bottom: 4px; }
-.strip-cell {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 3px;
-  min-width: 52px;
-  flex: 1;
-  padding: 6px 2px;
-  background: var(--panel-2);
-  border-radius: 6px;
+/* Hour by hour, as a matrix rather than a row of bar charts. The bars cost
+   54px of height each to encode one number that the cell tint now carries. */
+.hourly { margin-top: 16px; }
+.hourly h4 { margin: 0 0 8px; }
+.hourly-scroll { overflow-x: auto; }
+.hourly-grid {
+  border-collapse: collapse;
+  font-variant-numeric: tabular-nums;
+  font-size: 0.78rem;
+  width: 100%;
 }
-.strip-time { font-size: 0.72rem; color: var(--muted-text); font-variant-numeric: tabular-nums; }
-.strip-bar { width: 16px; height: 54px; background: #10141d; border-radius: 3px; display: flex; align-items: flex-end; overflow: hidden; }
-.strip-bar > span { width: 100%; border-radius: 3px; }
-.strip-value { font-size: 0.82rem; font-weight: 600; font-variant-numeric: tabular-nums; }
-.strip-sub { font-size: 0.72rem; color: var(--muted-text); font-variant-numeric: tabular-nums; }
-.strip-sub.moon-up { color: var(--accent); font-weight: 600; }
-.strip-key { margin-top: 8px; font-size: 0.78rem; }
+.hourly-grid th, .hourly-grid td {
+  padding: 3px 6px;
+  text-align: center;
+  white-space: nowrap;
+}
+.hourly-grid thead th {
+  color: var(--muted-text);
+  font-weight: 500;
+  border-bottom: 1px solid var(--line);
+}
+.hourly-grid tbody th {
+  text-align: left;
+  color: var(--muted-text);
+  font-weight: 500;
+  padding-right: 10px;
+  position: sticky;
+  left: 0;
+  background: var(--panel);
+}
+.hourly-corner { position: sticky; left: 0; background: var(--panel); }
+/* Tinted cells sit edge to edge and read as one band; a border in the panel
+   colour separates them without adding height. */
+.hourly-score {
+  font-weight: 700;
+  border-radius: 3px;
+  border: 2px solid var(--panel);
+  background-clip: padding-box;
+}
+.hourly-grid td.moon-up { color: var(--accent); font-weight: 600; }
 
 /* --- target groups --- */
 .group { border-top: 1px solid var(--line); }
@@ -1003,6 +1032,153 @@ table.targets tr.charted { background: rgba(244, 201, 93, 0.06); }
   font-size: 0.8rem;
   color: var(--muted-text);
 }
+
+/* --- the site picker -------------------------------------------------------
+   A popover rather than a <select>, because a <select> cannot hold the edit
+   and delete buttons that used to need a whole modal of their own. */
+.location-picker { position: relative; }
+.location-trigger {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  color: var(--text);
+  border-radius: 8px;
+  padding: 8px 12px;
+  height: 34px;
+  font: inherit;
+  font-size: 0.9rem;
+  cursor: pointer;
+  max-width: 260px;
+}
+.location-trigger:hover { border-color: var(--accent); }
+.location-trigger-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.location-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 40;
+  min-width: 300px;
+  max-height: 60vh;
+  overflow-y: auto;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.45);
+  padding: 4px;
+}
+.location-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  border-radius: 8px;
+}
+.location-row:hover { background: var(--panel-2); }
+.location-row.on { background: var(--panel-2); }
+.location-choose {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  background: none;
+  border: none;
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  padding: 8px 10px;
+  cursor: pointer;
+  border-radius: 8px;
+}
+.location-row-name { font-weight: 600; font-size: 0.9rem; }
+.location-row-actions { display: flex; gap: 2px; padding-right: 6px; }
+
+.icon-button {
+  background: none;
+  border: 1px solid transparent;
+  color: var(--muted-text);
+  border-radius: 6px;
+  width: 26px;
+  height: 26px;
+  font-size: 0.85rem;
+  line-height: 1;
+  cursor: pointer;
+}
+.icon-button:hover:not(:disabled) {
+  color: var(--text);
+  border-color: var(--line);
+  background: var(--panel);
+}
+.icon-button:disabled { opacity: 0.3; cursor: not-allowed; }
+
+.location-confirm { display: flex; gap: 4px; padding-right: 6px; }
+.location-confirm button {
+  border-radius: 6px;
+  padding: 4px 9px;
+  font: inherit;
+  font-size: 0.78rem;
+  cursor: pointer;
+  border: 1px solid var(--line);
+  background: var(--panel-2);
+  color: var(--text);
+}
+.location-confirm button.danger {
+  border-color: var(--bad);
+  color: var(--bad);
+  font-weight: 600;
+}
+.location-confirm button.danger:hover { background: var(--bad); color: #0b0e14; }
+
+.location-add {
+  display: block;
+  width: 100%;
+  text-align: left;
+  background: none;
+  border: none;
+  border-top: 1px solid var(--line);
+  margin-top: 4px;
+  color: var(--accent);
+  font: inherit;
+  font-size: 0.85rem;
+  padding: 10px;
+  cursor: pointer;
+  border-radius: 0 0 8px 8px;
+}
+.location-add:hover { background: var(--panel-2); }
+
+/* A label and control side by side, for controls that sit in a panel header
+   rather than in the toolbar. */
+.panel-head-controls { display: flex; align-items: center; gap: 12px; }
+.inline-field {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.75rem;
+}
+.inline-field > span {
+  color: var(--muted-text);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+.inline-field select { padding: 3px 6px; font-size: 0.8rem; }
+
+.checkbox-field {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.8rem;
+  color: var(--muted-text);
+  cursor: pointer;
+  white-space: nowrap;
+}
+.checkbox-field input { accent-color: var(--accent); }
 
 footer { text-align: center; padding-top: 8px; }
 

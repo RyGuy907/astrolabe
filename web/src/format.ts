@@ -101,6 +101,27 @@ export function formatDegrees(value: number | null, digits = 0): string {
   return value === null ? "—" : `${value.toFixed(digits)}°`;
 }
 
+/** Celsius to Fahrenheit. The engine and the forecast APIs are metric
+ *  throughout; this is the one place that converts, for the same reason
+ *  `formatTime` is the one place that leaves UTC. */
+export function toFahrenheit(celsius: number): number {
+  return celsius * 9 / 5 + 32;
+}
+
+/** A temperature for display, in Fahrenheit, rounded to the degree. */
+export function formatTemp(celsius: number | null): string {
+  return celsius === null ? "—" : `${Math.round(toFahrenheit(celsius))}°F`;
+}
+
+/** A temperature *difference* in Fahrenheit degrees.
+ *
+ *  Not the same conversion: a 2 °C spread is 3.6 F degrees, not 35.6 °F.
+ *  Running a spread through `formatTemp` is the classic way to turn a dew
+ *  warning into nonsense. */
+export function formatTempSpread(celsiusDegrees: number): string {
+  return `${(celsiusDegrees * 9 / 5).toFixed(1)} F°`;
+}
+
 export function formatMagnitude(value: number | null): string {
   return value === null ? "—" : (value >= 0 ? "+" : "") + value.toFixed(2);
 }

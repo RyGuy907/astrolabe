@@ -38,6 +38,8 @@ interface Props {
   onEventDaysChange: (days: number) => void;
   showAll: boolean;
   onShowAllChange: (all: boolean) => void;
+  popularOnly: boolean;
+  onPopularOnlyChange: (only: boolean) => void;
   /** True while /api/targets is in flight. It is much slower than the other
    *  calls, so the tab needs to say so rather than looking empty. */
   targetsPending: boolean;
@@ -89,7 +91,6 @@ function TargetRow({ target, timeZone, showAll }: {
   // Per row, and closed by default. The image is only requested once a row is
   // opened, so browsing a 270-row list costs nothing.
   const [open, setOpen] = useState(false);
-  const designation = target.messier ? `M${target.messier}` : target.name;
   return (
     <>
     <tr className={target.visible_tonight && !target.too_faint ? undefined : "dim"}>
@@ -154,11 +155,10 @@ function TargetRow({ target, timeZone, showAll }: {
               target.best_window.end, timeZone)}`
           : "—"}
       </td>
-      <td className="muted">{designation}</td>
     </tr>
     {open && (
       <tr className="target-detail">
-        <td colSpan={6}>
+        <td colSpan={5}>
           <TargetImage
             name={target.display_name}
             raDeg={target.ra_deg}
@@ -174,7 +174,8 @@ function TargetRow({ target, timeZone, showAll }: {
 
 export function SkyPanel({
   targets, planets, events, timeZone, charted, onToggleChart,
-  eventDays, onEventDaysChange, showAll, onShowAllChange, targetsPending,
+  eventDays, onEventDaysChange, showAll, onShowAllChange,
+  popularOnly, onPopularOnlyChange, targetsPending,
 }: Props) {
   const [tab, setTab] = useState<Tab>("targets");
   const [openGroups, setOpenGroups] = useState<Record<string, boolean>>({});
@@ -224,9 +225,12 @@ export function SkyPanel({
     const totals: Record<string, number> = {};
     if (targets) {
       for (const [key, allRows] of Object.entries(targets.groups)) {
+        const popular = popularOnly
+          ? allRows.filter((t) => t.showpiece)
+          : allRows;
         const scoped = showAll
-          ? allRows
-          : [...allRows]
+          ? popular
+          : [...popular]
               .filter((t) => t.visible_tonight)
               .sort((a, b) => {
                 if (a.too_faint !== b.too_faint) return a.too_faint ? 1 : -1;
@@ -243,26 +247,22 @@ export function SkyPanel({
       }
     }
     return { filteredGroups: groups, matchTotals: totals };
-  }, [targets, showAll, query, haystacks]);
-
-  const visibleCount = targets
-    ? Object.values(targets.groups)
-        .flat()
-        .filter((t) => t.visible_tonight && !t.too_faint).length
-    : 0;
+  }, [targets, showAll, popularOnly, query, haystacks]);
 
   const allMatchingGroups = Object.keys(filteredGroups);
   const groupNames = query
     ? allMatchingGroups.slice(0, SEARCH_GROUPS)
     : allMatchingGroups;
   const hiddenGroupCount = allMatchingGroups.length - groupNames.length;
-  const matchCount = Object.values(matchTotals)
-    .reduce((total, count) => total + count, 0);
 
-  // While searching, open every group that matched — otherwise a hit inside a
-  // collapsed constellation is invisible and the search looks broken.
+  // A search opens every matching group, because a hit inside a collapsed
+  // constellation is invisible and the search looks broken. But it opens
+  // them -- it does not nail them open: an explicit click still wins, so a
+  // 40-constellation match can be collapsed down to the one you wanted.
+  // `openGroups` is keyed per group and only holds groups actually clicked,
+  // so the default returns as soon as the query changes.
   const isGroupOpen = (name: string, index: number) =>
-    query ? true : (openGroups[name] ?? index === 0);
+    openGroups[name] ?? (query ? true : index === 0);
 
   const eventCount = events
     ? events.showers.length + events.lunar_eclipses.length + events.conjunctions.length
@@ -323,10 +323,7 @@ export function SkyPanel({
 
       <div className={`tab-body ${isStale ? "stale" : ""}`}>
         {tab === "targets" && !targets && targetsPending && (
-          <p className="muted" role="status">
-            Computing tonight's targets… this one takes a few seconds — every
-            catalogued object is sampled across the night.
-          </p>
+          <p className="muted" role="status">Computing tonight's targets…</p>
         )}
 
         {tab === "targets" && !targets && !targetsPending && (
@@ -336,10 +333,6 @@ export function SkyPanel({
         {tab === "targets" && targets && (
           <>
             <div className="event-controls">
-              <span className="muted small">
-                by constellation · floor {targets.min_altitude_deg}° ·{" "}
-                {targets.using_true_dark ? "true dark" : "moon up part of night"}
-              </span>
               <div className="segmented">
                 <button
                   className={!showAll ? "on" : ""}
@@ -356,16 +349,19 @@ export function SkyPanel({
                   All targets
                 </button>
               </div>
+              {/* Composes with the toggle beside it rather than replacing it:
+                  checked in "All targets" it is the whole showpiece list
+                  whether or not tonight cooperates, and in "Visible tonight"
+                  it is the part of that list you can actually point at. */}
+              <label className="checkbox-field">
+                <input
+                  type="checkbox"
+                  checked={popularOnly}
+                  onChange={(e) => onPopularOnlyChange(e.target.checked)}
+                />
+                <span>Popular targets only</span>
+              </label>
             </div>
-            <p className="muted small tab-note">
-              + charts the whole region. Brightest first
-              {showAll
-                ? ", every catalogued object including ones not up tonight."
-                : `. ${visibleCount} recommended, ` +
-                  `${targets.total_too_faint} up but too faint for this sky.`}
-              {query && ` ${matchCount} match${matchCount === 1 ? "" : "es"}.`}
-            </p>
-
             {/* The API returns this and the CLI prints it on every run; the
                 web UI dropped it on the floor. It is the honesty note saying a
                 horizon profile is a generic assumption, or that it is below
@@ -374,20 +370,6 @@ export function SkyPanel({
             {targets.horizon_warning && (
               <p className="note">{targets.horizon_warning}</p>
             )}
-
-            {/* A visible key, so the badges can be decoded without a mouse.
-                Repeating each explanation on all 200-odd rows would bury the
-                table; saying it once will not. */}
-            <p className="muted small badge-key">
-              <span className="badge badge-late">visible late</span> only clears
-              the floor after midnight ·{" "}
-              <span className="badge badge-faint">too faint</span> up, but below
-              what this sky will show ·{" "}
-              <span className="muted small">wide</span> spans enough sky that one
-              curve is a rough summary ·{" "}
-              <span className="muted small">gap</span> dips below the floor and
-              returns, so the window is not continuous
-            </p>
 
             {query && groupNames.length === 0 && !isStale && (
               <p className="muted">Nothing matches “{search.trim()}”.</p>
@@ -516,8 +498,7 @@ export function SkyPanel({
                             <th>Object</th>
                             <th>Mag</th>
                             <th>Peak</th>
-                            <th>Best window</th>
-                            <th>ID</th>
+                            <th>Window</th>
                           </tr>
                         </thead>
                         <tbody>
@@ -685,11 +666,6 @@ export function SkyPanel({
                     </table>
                   </div>
                 )}
-                <p className="muted small">
-                  Estimated rate accounts for radiant altitude, sky brightness and
-                  moonlight, so it sits well below the quoted ZHR.
-                </p>
-
                 <h4>Lunar eclipses</h4>
                 {events.lunar_eclipses.length === 0 ? (
                   <p className="muted">None in this window.</p>

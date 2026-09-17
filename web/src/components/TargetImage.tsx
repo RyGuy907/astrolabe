@@ -166,14 +166,11 @@ export function TargetImage({ name, raDeg, decDeg, sizeArcmin }: Props) {
       )}
 
       <figcaption className="muted small">
-        <strong>DSS2 survey image, {fov.toFixed(2)}° across.</strong> This is a
-        long-exposure photograph, <em>not</em> what the eyepiece shows — visually
-        most of these are grey, and faint detail here will not be visible at all.
-        Source: hips2fits, a service provided by{" "}
+        DSS2, {fov.toFixed(2)}° across · hips2fits /{" "}
         <a href="https://cds.unistra.fr/" target="_blank" rel="noreferrer">
           CDS
         </a>
-        .{fromCache && " Served from this browser's cache."}
+        {fromCache && " · cached"}
       </figcaption>
     </figure>
   );

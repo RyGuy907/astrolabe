@@ -121,30 +121,19 @@ export function HorizonMeasure({ lat, lon, onMeasured }: Props) {
 
   if (failed) {
     return (
-      <p className="warning">
-        Could not work out what is up right now — the coordinates may be
-        incomplete, or the API unreachable. The horizon presets below still
-        work.
-      </p>
+      <p className="warning">Could not work out what is up right now.</p>
     );
   }
 
   return (
     <div className="horizon-measure">
-      <p className="muted small">
-        Standing at the site, pick the lowest constellation you can still make
-        out in each direction. Anything below it is blocked.
-      </p>
-
       {computedAt && (
         <p className="muted small">
-          Positions are for{" "}
+          Positions set for{" "}
           <strong>
             {formatTime(computedAt,
                         Intl.DateTimeFormat().resolvedOptions().timeZone)}
-          </strong>{" "}
-          — your clock, right now. Reopen this if you have been standing here a
-          while; the sky will have moved.
+          </strong>
         </p>
       )}
 
@@ -172,10 +161,7 @@ export function HorizonMeasure({ lat, lon, onMeasured }: Props) {
       })}
 
       {!loading && DIRECTIONS.every((d) => (marks[d.azimuth] ?? []).length === 0) && (
-        <p className="muted small">
-          Nothing low enough to use as a marker right now. Try again after
-          dark, or use a preset below.
-        </p>
+        <p className="muted small">Nothing low enough to use as a marker right now.</p>
       )}
     </div>
   );

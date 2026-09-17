@@ -481,3 +481,68 @@ def test_surviving_targets_still_clear_the_configured_floor(home, kit, catalog):
     results = assess_targets(night_window(REFERENCE_DATE, site), kit,
                              catalog=catalog, min_altitude_deg=25.0)
     assert all(a.peak_altitude_deg >= 25.0 for a in results)
+
+
+# ---------------------------------------------------------------------------
+# A uniform obstruction angle
+#
+# The web form offers "how high does the terrain reach?" in five-degree steps
+# instead of asking someone to match their site to a description written for
+# somebody else's. The risk in that is the label: a ring is an assumption, and
+# if it ever round-tripped as `is_generic=False` it would outrank a real
+# measurement in every warning the app prints.
+# ---------------------------------------------------------------------------
+
+def test_a_uniform_angle_applies_to_every_bearing():
+    profile = parse_horizon(20)
+    for azimuth in range(0, 360, 30):
+        assert profile.min_altitude_at(azimuth) == pytest.approx(20.0)
+
+
+def test_a_uniform_angle_is_flagged_generic():
+    """One angle in every direction is an assumption about a place, not a
+    survey of it. Real terrain is not a ring."""
+    assert parse_horizon(20).is_generic is True
+    assert parse_horizon("35").is_generic is True
+
+
+def test_a_measured_map_still_outranks_it():
+    """The distinction the flag exists to carry."""
+    assert parse_horizon({0: 24.0, 90: 0.0}).is_generic is False
+
+
+def test_zero_degrees_is_flat_not_a_generic_ring():
+    """Nothing in the way leaves no assumption to warn about, and returning
+    FLAT keeps the round trip exact."""
+    profile = parse_horizon(0)
+    assert profile.name == "flat"
+    assert profile.is_generic is False
+    assert profile == parse_horizon(None)
+
+
+@pytest.mark.parametrize("spec", [5, 20, 45, "10", "37.5"])
+def test_a_uniform_angle_survives_the_round_trip(spec):
+    """Through the single TEXT column `db/store` keeps locations in.
+
+    Serialising a one-point ring as a JSON map would reload it as a *measured*
+    profile -- a fabricated value wearing the honest label, which is the exact
+    bug `serialise` was written to fix for measured profiles."""
+    profile = parse_horizon(spec)
+    restored = parse_horizon(serialise(profile))
+    assert restored == profile
+    assert restored.is_generic is True
+
+
+@pytest.mark.parametrize("degrees", [-1, 90, 130])
+def test_an_impossible_angle_is_rejected(degrees):
+    """Terrain does not reach past the zenith. Better a 422 than a profile
+    that silently excludes the entire sky."""
+    with pytest.raises(ValueError):
+        parse_horizon(degrees)
+
+
+def test_a_boolean_is_not_an_angle():
+    """`bool` is an `int` subclass, so `horizon: true` would otherwise parse
+    as a one-degree ring instead of being rejected as the typo it is."""
+    with pytest.raises((ValueError, TypeError)):
+        parse_horizon(True)

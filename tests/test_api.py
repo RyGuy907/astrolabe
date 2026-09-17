@@ -624,3 +624,53 @@ def test_a_measured_horizon_is_not_flagged_generic(client):
         assert body["horizon_max_deg"] == pytest.approx(24.0, abs=0.1)
     finally:
         client.delete("/api/locations/api_measured_site")
+
+
+@requires_ephemeris
+def test_targets_carry_the_showpiece_flag(client):
+    """The checkbox in the UI filters on this and nothing else, so the flag
+    has to reach the wire rather than being computed in the browser."""
+    body = client.get(
+        "/api/targets?location=home&date=2026-09-15&include_all=true&limit=1000"
+    ).json()
+    rows = [row for group in body["groups"].values() for row in group]
+    showpieces = [row for row in rows if row["showpiece"]]
+
+    assert len(rows) > 5000, "expected the unfiltered catalogue"
+    assert 100 <= len(showpieces) <= 250
+
+    by_messier = {row["messier"]: row for row in rows if row["messier"]}
+    assert by_messier[13]["showpiece"] is True          # the Hercules cluster
+    assert by_messier[57]["showpiece"] is True          # the Ring Nebula
+    assert by_messier[40]["showpiece"] is False         # a double star
+
+
+@requires_ephemeris
+def test_a_uniform_obstruction_angle_survives_the_api(client):
+    """The form now sends a bare angle rather than a preset name. It has to
+    arrive as a generic ring -- if it came back `is_generic=False` it would
+    outrank a measured horizon in every warning the UI prints."""
+    payload = {"key": "api_angle_site", "name": "Angle Site",
+               "lat": 39.09, "lon": -110.9, "bortle": 3, "horizon": "30"}
+    response = client.post("/api/locations", json=payload)
+    assert response.status_code == 201
+    try:
+        body = response.json()
+        assert body["horizon_is_generic"] is True
+        assert body["horizon_max_deg"] == pytest.approx(30.0)
+        # 30 deg clears the 25 deg altitude floor, so it actually constrains.
+        assert body["horizon_binds"] is True
+
+        reloaded = next(site for site in client.get("/api/locations").json()
+                        if site["key"] == "api_angle_site")
+        assert reloaded["horizon_max_deg"] == pytest.approx(30.0)
+        assert reloaded["horizon_is_generic"] is True
+    finally:
+        client.delete("/api/locations/api_angle_site")
+
+
+def test_an_impossible_obstruction_angle_is_refused(client):
+    """A 422 rather than a site whose horizon excludes the whole sky."""
+    payload = {"key": "api_bad_angle", "name": "Bad Angle",
+               "lat": 39.09, "lon": -110.9, "bortle": 3, "horizon": "120"}
+    assert client.post("/api/locations", json=payload).status_code == 422

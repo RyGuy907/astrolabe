@@ -188,12 +188,39 @@ def preset(name: str, facing: float | None = None) -> HorizonProfile:
     return profile if facing is None else profile.rotated(facing)
 
 
+def uniform(degrees: float) -> HorizonProfile:
+    """The same obstruction angle in every direction.
+
+    The web form offers this in five-degree steps, because "how high does the
+    terrain reach?" is a question someone can answer about their own site
+    without matching it to a description written for somebody else's.
+
+    Flagged **generic**, and that is not a technicality. One angle applied to
+    every bearing is an assumption about a place, not a survey of it -- real
+    terrain is not a ring. Recording it as measured would put it on equal
+    footing with a constellation measurement, which is the one thing here that
+    is not a guess.
+    """
+    if not 0.0 <= degrees < 90.0:
+        raise ValueError(
+            f"an obstruction angle must be between 0 and 90 degrees, got {degrees}"
+        )
+    # Zero obstruction is FLAT itself, not a generic ring of height zero.
+    # There is no assumption left to warn about once nothing is in the way,
+    # and returning the same object keeps the round trip exact.
+    if degrees == 0:
+        return FLAT
+    return HorizonProfile(points=((0, float(degrees)),), name=f"{degrees:g} deg",
+                          is_generic=True)
+
+
 def parse_horizon(spec) -> HorizonProfile:
     """Build a profile from a config, database or request value.
 
     Accepts, in order of how they turn up:
 
     - `None` -> flat.
+    - a number, or a string holding one: a uniform obstruction angle, generic.
     - a preset name, optionally with a bearing: `hilly`, `ridge@250`.
     - a JSON object as a string, which is how a measured profile survives the
       round trip through the `horizon` TEXT column in SQLite.
@@ -205,12 +232,20 @@ def parse_horizon(spec) -> HorizonProfile:
     if spec is None:
         return FLAT
 
+    # bool is an int subclass; `horizon: true` is a mistake, not an angle.
+    if isinstance(spec, (int, float)) and not isinstance(spec, bool):
+        return uniform(float(spec))
+
     if isinstance(spec, str):
         text = spec.strip()
         if not text:
             return FLAT
         if text.startswith("{"):
             return parse_horizon(json.loads(text))
+        try:
+            return uniform(float(text))
+        except ValueError:
+            pass                      # not a number; fall through to presets
         if "@" in text:
             name, _, bearing = text.partition("@")
             try:
@@ -247,6 +282,11 @@ def serialise(profile: HorizonProfile) -> str | None:
     if profile.name in PRESETS:
         return (f"{profile.name}@{profile.facing}"
                 if profile.facing is not None else profile.name)
+    # A uniform ring: one point, generic. Written as the bare angle so it
+    # reloads as a generic ring rather than as a one-point measured map,
+    # which is the same mistake this function was written to fix.
+    if profile.is_generic and len(profile.points) == 1:
+        return f"{profile.points[0][1]:g}"
     return json.dumps({str(az): alt for az, alt in profile.points})
 
 

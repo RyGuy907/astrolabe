@@ -184,6 +184,12 @@ class TargetModel(BaseModel):
                     "this sky - light pollution, moonlight, or both. Listed "
                     "rather than filtered, and sorted last.",
     )
+    showpiece: bool = Field(
+        default=False,
+        description="On the curated list of well-known objects worth "
+                    "pointing a telescope at - see engine/showpieces.py for "
+                    "how that list is drawn and what it deliberately omits.",
+    )
     notes: list[str] = Field(default_factory=list)
 
 

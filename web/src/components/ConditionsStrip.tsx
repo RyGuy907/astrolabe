@@ -1,7 +1,16 @@
-/** Hourly conditions across the night: score, cloud, wind, moon altitude. */
+/**
+ * The night hour by hour: score, cloud, wind, temperature, moon altitude.
+ *
+ * This was a row of tall bars with four numbers stacked under each, and it
+ * took a full-width panel and most of a screen to present about sixty
+ * numbers. It is now a small matrix -- hours across, quantities down -- with
+ * the score carried by the cell's tint rather than by a 60px column of empty
+ * space above it. Same numbers, a fifth of the height, which is what lets it
+ * live inside the score panel's disclosure instead of owning a panel.
+ */
 
 import type { SlotModel } from "../api";
-import { formatTime, scoreColor } from "../format";
+import { formatTemp, formatTime, scoreColor } from "../format";
 
 interface Props {
   slots: SlotModel[];
@@ -10,66 +19,104 @@ interface Props {
 }
 
 export function ConditionsStrip({ slots, timeZone, weatherAvailable }: Props) {
-  // Slots are half-hourly; show every other one so the strip stays readable.
+  // Slots are half-hourly; show every other one so the row stays readable.
   const hourly = slots.filter((_, index) => index % 2 === 0);
 
-  // Returning null here used to make the whole panel disappear, which reads as
-  // a broken page rather than as an answer. There are no slots whenever the
-  // night cannot be scored -- most starkly at a polar site in summer, where
-  // the engine correctly reports "No astronomical night" -- so say that.
+  // No slots is a real answer, not a broken panel -- most starkly at a polar
+  // site in summer, where the engine correctly reports no astronomical night.
   if (hourly.length === 0) {
     return (
-      <section className="panel">
-        <h2>Hourly conditions</h2>
-        <p className="muted">
-          No hours to score for this night. Either there is no astronomical
-          night at this latitude on this date, or the forecast does not reach
-          it.
-        </p>
-      </section>
+      <p className="muted small">
+        No hours to score for this night — either there is no astronomical
+        night at this latitude on this date, or the forecast does not reach it.
+      </p>
     );
   }
 
+  const hasTemperature = hourly.some((slot) => slot.temperature_c !== null);
+
   return (
-    <section className="panel">
-      <h2>Hourly conditions</h2>
-      <div className="strip">
-        {hourly.map((slot) => (
-          <div key={slot.time} className="strip-cell">
-            <span className="strip-time">{formatTime(slot.time, timeZone)}</span>
-
-            <span
-              className="strip-bar"
-              title={`Deep-sky ${slot.deep_sky.toFixed(0)}`}
-              aria-label={`Deep sky score ${slot.deep_sky.toFixed(0)}`}
-            >
-              <span
-                style={{
-                  height: `${Math.max(2, slot.deep_sky)}%`,
-                  background: weatherAvailable ? scoreColor(slot.deep_sky) : "var(--muted)",
-                }}
-              />
-            </span>
-
-            <span className="strip-value">
-              {weatherAvailable ? slot.deep_sky.toFixed(0) : "—"}
-            </span>
-            <span className="strip-sub">
-              {slot.cloud_cover === null ? "—" : `${slot.cloud_cover.toFixed(0)}%`}
-            </span>
-            <span className="strip-sub">
-              {slot.wind_gust_kmh === null ? "—" : `${slot.wind_gust_kmh.toFixed(0)}`}
-            </span>
-            <span className={`strip-sub ${slot.moon_altitude_deg > 0 ? "moon-up" : ""}`}>
-              {slot.moon_altitude_deg.toFixed(0)}°
-            </span>
-          </div>
-        ))}
+    <div className="hourly">
+      <h4>Hour by hour</h4>
+      <div className="hourly-scroll">
+        <table className="hourly-grid">
+          <thead>
+            <tr>
+              <th scope="col" className="hourly-corner">
+                <span className="visually-hidden">Quantity</span>
+              </th>
+              {hourly.map((slot) => (
+                <th key={slot.time} scope="col">
+                  {formatTime(slot.time, timeZone)}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <th scope="row">Score</th>
+              {hourly.map((slot) => (
+                <td
+                  key={slot.time}
+                  className="hourly-score"
+                  style={
+                    weatherAvailable
+                      ? {
+                          // Tint rather than a bar: the colour carries the
+                          // reading and the cell costs one line of height.
+                          background: scoreColor(slot.deep_sky),
+                          color: "#0b0e14",
+                        }
+                      : undefined
+                  }
+                >
+                  {weatherAvailable ? slot.deep_sky.toFixed(0) : "—"}
+                </td>
+              ))}
+            </tr>
+            <tr>
+              <th scope="row">Cloud</th>
+              {hourly.map((slot) => (
+                <td key={slot.time}>
+                  {slot.cloud_cover === null
+                    ? "—"
+                    : `${slot.cloud_cover.toFixed(0)}%`}
+                </td>
+              ))}
+            </tr>
+            <tr>
+              <th scope="row">Gust</th>
+              {hourly.map((slot) => (
+                <td key={slot.time}>
+                  {slot.wind_gust_kmh === null
+                    ? "—"
+                    : slot.wind_gust_kmh.toFixed(0)}
+                </td>
+              ))}
+            </tr>
+            {hasTemperature && (
+              <tr>
+                <th scope="row">Temp</th>
+                {hourly.map((slot) => (
+                  <td key={slot.time}>{formatTemp(slot.temperature_c)}</td>
+                ))}
+              </tr>
+            )}
+            <tr>
+              <th scope="row">Moon</th>
+              {hourly.map((slot) => (
+                <td
+                  key={slot.time}
+                  className={slot.moon_altitude_deg > 0 ? "moon-up" : undefined}
+                >
+                  {slot.moon_altitude_deg.toFixed(0)}°
+                </td>
+              ))}
+            </tr>
+          </tbody>
+        </table>
       </div>
-      <div className="strip-key muted">
-        rows: deep-sky score · cloud % · wind gust km/h · moon altitude
-        (highlighted when up)
-      </div>
-    </section>
+      <p className="muted small">Gust in km/h · moon altitude highlighted when up.</p>
+    </div>
   );
 }

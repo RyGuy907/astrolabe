@@ -288,8 +288,11 @@ export function AltitudeChart({
         </div>
       )}
 
-      <figcaption>
-        {hoverTime ? (
+      {/* Only rendered while hovering. The caption used to explain the bands
+          and the hover affordance in a permanent line of text; the readout it
+          describes appears the moment anyone tries. */}
+      {hoverTime && (
+        <figcaption>
           <div className="chart-readout">
             <strong>{formatTime(hoverTime.toISOString(), timeZone)}</strong>
             {readouts.map((r) => (
@@ -299,13 +302,8 @@ export function AltitudeChart({
               </span>
             ))}
           </div>
-        ) : (
-          <span className="muted">
-            Sunset to sunrise. Darker bands are astronomical night and true dark
-            (moon down). Hover for altitude and azimuth.
-          </span>
-        )}
-      </figcaption>
+        </figcaption>
+      )}
     </figure>
   );
 }

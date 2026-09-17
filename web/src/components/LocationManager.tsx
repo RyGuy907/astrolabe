@@ -62,57 +62,33 @@ const BORTLE_CLASSES: [number, string][] = [
 ];
 
 /**
- * Mirrors `engine/horizon.py:PRESETS`. Everything but "flat" is flagged
- * generic there, and the UI repeats that warning rather than hiding it.
+ * Obstruction angle: how high the terrain reaches, in degrees above the
+ * horizon.
  *
- * Each label names the obstruction the user can actually look at and judge,
- * and the degrees the preset assumes, so the choice is checkable rather than
- * a vibe. `directional` marks the ones where "which way is it blocked?" is a
- * meaningful question — the one thing about a horizon you can answer without
- * instruments.
+ * This used to be a list of described situations -- "trees or buildings close
+ * on every side (~30°)" -- which asked the observer to match their site to a
+ * picture in someone else's head. The angle is the thing the engine uses, and
+ * it is now what the control offers: five-degree steps, no interpretation.
+ * Anyone who wants an answer rather than an estimate uses the constellation
+ * measurement above it.
+ *
+ * `engine/horizon.py` still flags a uniform ring `is_generic`, which is
+ * correct -- an angle applied to every bearing is an assumption about a site,
+ * not a survey of one.
  */
-interface HorizonPreset {
-  key: string;
-  label: string;
-  /** Whether it rises above the 25° altitude floor and so changes anything. */
-  binds: boolean;
-  directional: boolean;
-}
-
-const HORIZON_PRESETS: HorizonPreset[] = [
-  { key: "flat", label: "Nothing in the way — sea horizon, playa, open plain",
-    binds: false, directional: false },
-  { key: "hilly", label: "Distant rolling hills (~12°)",
-    binds: false, directional: false },
-  { key: "trees", label: "Trees or buildings close on every side (~30°)",
-    binds: true, directional: false },
-  { key: "ridge", label: "One side blocked close in — hillside, canyon (~35°)",
-    binds: true, directional: true },
-  { key: "valley", label: "Two opposing sides blocked — valley floor (~35°)",
-    binds: true, directional: true },
-];
-
-/** Compass points for the bearing control. Nobody knows the azimuth of their
- *  treeline in degrees, but everybody knows which way the sun sets. */
-const BEARINGS: [number, string][] = [
-  [0, "N — north"],
-  [45, "NE — north-east"],
-  [90, "E — east (sunrise)"],
-  [135, "SE — south-east"],
-  [180, "S — south"],
-  [225, "SW — south-west"],
-  [270, "W — west (sunset)"],
-  [315, "NW — north-west"],
+const OBSTRUCTION_ANGLES: number[] = [
+  0, 5, 10, 15, 20, 25, 30, 35, 40, 45,
 ];
 
 type SearchState = "idle" | "waiting" | "searching" | "done" | "failed";
 
 interface Props {
   locations: LocationModel[];
+  /** The site being edited, or null when adding a new one. */
+  editingKey: string | null;
   onClose: () => void;
-  /** Called with the new key so the dashboard can select it. */
+  /** Called with the saved key so the dashboard can select it. */
   onCreated: (key: string) => void;
-  onDeleted: (key: string) => void;
 }
 
 /** Selector for things a keyboard can reach. `:not([disabled])` matters — a
@@ -202,12 +178,6 @@ function useModalBehaviour(
   }, []);
 }
 
-/** Nearest compass point to a bearing, for display. */
-function compassPoint(bearing: number): string {
-  const names = ["N", "NE", "E", "SE", "S", "SW", "W", "NW"];
-  return names[Math.round((bearing % 360) / 45) % 8];
-}
-
 /** Mirrors the key normalisation in `api/main.py:create_location`, so the key
  *  shown in the form is the key that gets saved. */
 function normaliseKey(raw: string): string {
@@ -218,7 +188,7 @@ function normaliseKey(raw: string): string {
   return cleaned.replace(/_+/g, "_").replace(/^_|_$/g, "");
 }
 
-export function LocationManager({ locations, onClose, onCreated, onDeleted }: Props) {
+export function LocationManager({ locations, editingKey, onClose, onCreated }: Props) {
   // "map" leads: it is the only mode that can reach a site with no name,
   // which is most dark-sky sites.
   const [entry, setEntry] = useState<"map" | "search" | "manual">("map");
@@ -236,8 +206,8 @@ export function LocationManager({ locations, onClose, onCreated, onDeleted }: Pr
   const [lon, setLon] = useState("");
   const [elevation, setElevation] = useState("");
   const [bortle, setBortle] = useState<string>("");
-  const [horizon, setHorizon] = useState("flat");
-  const [facing, setFacing] = useState(0);
+  //: Uniform obstruction angle in degrees, applied to every bearing.
+  const [horizon, setHorizon] = useState(0);
   //: What the atlas says for the coordinates currently in the form. Null
   //: until asked; `in_coverage: false` means it has nothing here.
   const [atlas, setAtlas] = useState<SkyBrightnessReading | null>(null);
@@ -249,8 +219,6 @@ export function LocationManager({ locations, onClose, onCreated, onDeleted }: Pr
 
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [deleteError, setDeleteError] = useState<string | null>(null);
-  const [confirming, setConfirming] = useState<string | null>(null);
   const [showAdvanced, setShowAdvanced] = useState(false);
   //: An azimuth->altitude map built by naming visible constellations. When
   //: present it is sent instead of a preset, and the engine treats it as
@@ -261,6 +229,39 @@ export function LocationManager({ locations, onClose, onCreated, onDeleted }: Pr
   const dialog = useRef<HTMLDivElement>(null);
   useModalBehaviour(dialog, onClose);
 
+  const editing = editingKey
+    ? locations.find((l) => l.key === editingKey) ?? null
+    : null;
+
+  // Load the site being edited into the form, once. `POST /api/locations`
+  // is an upsert -- `db/store.save_location` is INSERT OR REPLACE -- so
+  // saving under the same key edits in place, and there is no second
+  // endpoint to keep in step with this one.
+  //
+  // The horizon is deliberately not prefilled from a measured profile: the
+  // API reports its name and peak, not its points, so reconstructing one
+  // here would mean inventing the bearings in between. Editing a site with a
+  // measured horizon and not touching the control leaves the angle at the
+  // profile's peak, which is a ring -- honest, and flagged generic -- rather
+  // than a fabricated survey.
+  useEffect(() => {
+    if (!editing) return;
+    setEntry("manual");
+    setName(editing.name);
+    setKey(editing.key);
+    setKeyEdited(true);
+    setLat(editing.lat.toFixed(4));
+    setLon(editing.lon.toFixed(4));
+    setElevation(editing.elevation_m.toFixed(0));
+    if (editing.sky_source === "observer" && editing.bortle !== null) {
+      setBortle(String(editing.bortle));
+      setBortleEdited(true);
+    }
+    setHorizon(Math.round(editing.horizon_max_deg / 5) * 5);
+    setShowAdvanced(true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editingKey]);
+
   const latValue = Number(lat);
   const lonValue = Number(lon);
   const latValid = lat.trim() !== "" && Number.isFinite(latValue) &&
@@ -269,7 +270,10 @@ export function LocationManager({ locations, onClose, onCreated, onDeleted }: Pr
     lonValue >= -180 && lonValue <= 180;
   const elevationValid = elevation.trim() === "" || Number.isFinite(Number(elevation));
   const keyValid = normaliseKey(key) !== "";
-  const keyTaken = locations.some((l) => l.key === normaliseKey(key));
+  // Editing a site keeps its own key, so that key is not "taken" by anyone
+  // else -- without this exception the form refuses to save what it loaded.
+  const keyTaken = locations.some(
+    (l) => l.key === normaliseKey(key) && l.key !== editingKey);
   const bortleChosen = bortle !== "";
 
   // --- debounced, cancellable geocode ---------------------------------------
@@ -379,8 +383,7 @@ export function LocationManager({ locations, onClose, onCreated, onDeleted }: Pr
     setBortle("");
     setBortleEdited(false);
     setAtlas(null);
-    setHorizon("flat");
-    setFacing(0);
+    setHorizon(0);
     setMeasuredHorizon(null);
     setSearch("");
     setCandidates([]);
@@ -408,13 +411,14 @@ export function LocationManager({ locations, onClose, onCreated, onDeleted }: Pr
         elevation_m: elevation.trim() === "" ? undefined : Number(elevation),
         // "unknown" is stored as a real null, not as 5. See the module note.
         bortle: bortle === "unknown" ? null : Number(bortle),
-        // A measured profile outranks a preset. `parse_horizon` reads a JSON
-        // object as an explicit azimuth->altitude map and does not flag it
-        // generic, which is the whole point of measuring one.
-        horizon: measuredHorizon ? JSON.stringify(measuredHorizon) : horizon,
-        horizon_facing:
-          measuredHorizon ? null
-            : horizonPreset?.directional ? facing : null,
+        // A measured profile outranks the angle control. `parse_horizon`
+        // reads a JSON object as an explicit azimuth->altitude map and does
+        // not flag it generic, which is the whole point of measuring one; a
+        // bare number is a uniform ring and stays flagged.
+        horizon: measuredHorizon
+          ? JSON.stringify(measuredHorizon)
+          : String(horizon),
+        horizon_facing: null,
       });
       resetForm();
       onCreated(created.key);
@@ -425,25 +429,7 @@ export function LocationManager({ locations, onClose, onCreated, onDeleted }: Pr
     }
   }
 
-  async function remove(target: string) {
-    setBusy(true);
-    setDeleteError(null);
-    try {
-      await api.deleteLocation(target);
-      setConfirming(null);
-      onDeleted(target);
-    } catch (e) {
-      // Includes the 409 for config-owned sites. The button below is disabled
-      // for those, but the server's message is shown verbatim if the rule and
-      // the UI ever disagree — the server is the authority, not this file.
-      setDeleteError(e instanceof ApiError ? e.message : String(e));
-    } finally {
-      setBusy(false);
-    }
-  }
-
   const emptyResult = searchState === "done" && candidates.length === 0;
-  const horizonPreset = HORIZON_PRESETS.find((h) => h.key === horizon);
 
   return (
     <div className="modal-backdrop" onClick={onClose}>
@@ -459,14 +445,15 @@ export function LocationManager({ locations, onClose, onCreated, onDeleted }: Pr
         onClick={(e) => e.stopPropagation()}
       >
         <div className="modal-head">
-          <h2 id="sites-dialog-title">Observing sites</h2>
+          <h2 id="sites-dialog-title">
+            {editing ? `Edit ${editing.name}` : "Add a site"}
+          </h2>
           <button className="modal-close" onClick={onClose} aria-label="Close">
             ×
           </button>
         </div>
 
         <div className="modal-body">
-          <h4>Add a site</h4>
 
           <div className="segmented">
             <button
@@ -596,7 +583,9 @@ export function LocationManager({ locations, onClose, onCreated, onDeleted }: Pr
             Advanced settings
           </button>
 
-          <div className="site-form" hidden={!showAdvanced}>
+          {showAdvanced && (
+          <>
+          <div className="site-form">
             <label>
               <span>Key</span>
               <input
@@ -669,43 +658,30 @@ export function LocationManager({ locations, onClose, onCreated, onDeleted }: Pr
             </label>
             <label className="wide">
               <span>
-                What blocks the view
+                Obstruction angle
                 {measuredHorizon && (
                   <span className="field-note"> measured, overrides this</span>
                 )}
               </span>
-              <select value={horizon} onChange={(e) => setHorizon(e.target.value)}>
-                {HORIZON_PRESETS.map((option) => (
-                  <option key={option.key} value={option.key}>
-                    {option.label}
-                  </option>
+              <select
+                value={String(horizon)}
+                onChange={(e) => setHorizon(Number(e.target.value))}
+                disabled={measuredHorizon !== null}
+              >
+                {OBSTRUCTION_ANGLES.map((deg) => (
+                  <option key={deg} value={String(deg)}>{deg}°</option>
                 ))}
               </select>
             </label>
-            {horizonPreset?.directional && (
-              <label>
-                <span>Blocked toward</span>
-                <select
-                  value={String(facing)}
-                  onChange={(e) => setFacing(Number(e.target.value))}
-                >
-                  {BEARINGS.map(([value, label]) => (
-                    <option key={value} value={String(value)}>
-                      {label}
-                    </option>
-                  ))}
-                </select>
-              </label>
-            )}
           </div>
 
-          {/* Offered above the presets because it produces a better answer:
-              a named constellation is something you can actually see, and the
+          {/* Above the angle control because it produces a better answer: a
+              named constellation is something you can actually see, and its
               altitude comes from the ephemeris rather than from an estimate.
-              Only shown once there are coordinates to compute a sky for. */}
+              Only offered once there are coordinates to compute a sky for. */}
           {latValid && lonValid && (
             <details className="horizon-measure-block">
-              <summary>Measure the horizon instead (more accurate)</summary>
+              <summary>Measure the horizon by constellation</summary>
               <HorizonMeasure
                 lat={latValue}
                 lon={lonValue}
@@ -713,27 +689,7 @@ export function LocationManager({ locations, onClose, onCreated, onDeleted }: Pr
               />
             </details>
           )}
-
-          {horizon !== "flat" && !measuredHorizon && (
-            <p className="note">
-              This is a GENERIC assumption from a typical height and distance —
-              see <code>engine/horizon.py</code> for the geometry behind each
-              one — not a survey of this site. It will be labelled “generic”
-              wherever it appears. A measured azimuth→altitude map in{" "}
-              <code>config/locations.yaml</code> is the only form that is not a
-              guess.
-            </p>
-          )}
-
-          {horizonPreset && !horizonPreset.binds && horizon !== "flat"
-            && !measuredHorizon && (
-            <p className="warning">
-              This profile tops out below the 25° altitude floor, so it will not
-              change which targets are listed. That is the right answer —
-              distant terrain does not matter if you are not observing that low
-              — but do not expect the target list to differ from “nothing in the
-              way”.
-            </p>
+          </>
           )}
 
           {keyTaken && (
@@ -745,7 +701,7 @@ export function LocationManager({ locations, onClose, onCreated, onDeleted }: Pr
 
           <div className="site-actions">
             <button className="secondary" onClick={save} disabled={!canSave}>
-              {busy ? "Saving…" : "Save site"}
+              {busy ? "Saving…" : editing ? "Save changes" : "Save site"}
             </button>
             {/* Only worth saying where the atlas cannot answer -- inside its
                 coverage the field fills itself and there is nothing to
@@ -757,102 +713,6 @@ export function LocationManager({ locations, onClose, onCreated, onDeleted }: Pr
             )}
           </div>
 
-          <h4>Existing sites</h4>
-          {deleteError && <p className="warning">{deleteError}</p>}
-          <table className="targets">
-            <thead>
-              <tr>
-                <th>Site</th>
-                <th>Coordinates</th>
-                <th>Sky</th>
-                <th>Horizon</th>
-                <th>Source</th>
-                <th />
-              </tr>
-            </thead>
-            <tbody>
-              {locations.map((site) => {
-                const fromConfig = site.source === "config";
-                return (
-                  <tr key={site.key}>
-                    <td>
-                      <strong>{site.name}</strong>
-                      <div className="target-notes">{site.key}</div>
-                    </td>
-                    <td className="nowrap">
-                      {site.lat.toFixed(4)}, {site.lon.toFixed(4)}
-                      <div className="target-notes">
-                        {site.elevation_m.toFixed(0)} m · {site.timezone}
-                      </div>
-                    </td>
-                    <td className="nowrap">
-                      {site.sky_source === "assumed" ? (
-                        <span className="tag tag-warn" title="No Bortle class set">
-                          Bortle 5 assumed
-                        </span>
-                      ) : (
-                        <>
-                          Bortle {site.effective_bortle}
-                          <div className="target-notes">
-                            SQM {site.sqm?.toFixed(1)} ·{" "}
-                            {site.sky_source === "atlas" ? "from atlas" : "you set this"}
-                          </div>
-                        </>
-                      )}
-                    </td>
-                    <td className="nowrap">
-                      {site.horizon_name}
-                      {site.horizon_facing !== null &&
-                        ` → ${compassPoint(site.horizon_facing)}`}
-                      <div className="target-notes">
-                        {site.horizon_is_generic ? "generic preset" : "measured"}
-                        {site.horizon_name !== "flat" && !site.horizon_binds &&
-                          " · below the 25° floor, no effect"}
-                      </div>
-                    </td>
-                    <td className="muted nowrap">{site.source}</td>
-                    <td className="nowrap">
-                      {fromConfig ? (
-                        <span className="muted small">
-                          <button className="chip" disabled title="Config-owned">
-                            Delete
-                          </button>
-                          <div className="target-notes">
-                            defined in config/locations.yaml — edit that file to
-                            remove it
-                          </div>
-                        </span>
-                      ) : confirming === site.key ? (
-                        <>
-                          <button
-                            className="chip chip-on"
-                            disabled={busy}
-                            onClick={() => remove(site.key)}
-                          >
-                            Confirm
-                          </button>{" "}
-                          <button className="chip" onClick={() => setConfirming(null)}>
-                            Cancel
-                          </button>
-                        </>
-                      ) : (
-                        <button
-                          className="chip"
-                          disabled={busy}
-                          onClick={() => {
-                            setDeleteError(null);
-                            setConfirming(site.key);
-                          }}
-                        >
-                          Delete
-                        </button>
-                      )}
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
         </div>
       </div>
     </div>

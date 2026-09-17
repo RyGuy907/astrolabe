@@ -16,10 +16,13 @@
  * would be a confident verdict on a night we know nothing about.
  */
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import type { FactorsModel, NightWindowModel, ScoreModel } from "../api";
+import { ConditionsStrip } from "./ConditionsStrip";
 import {
   formatHours,
+  formatTemp,
+  formatTempSpread,
   formatTime,
   moonPhaseName,
   scoreColor,
@@ -98,6 +101,22 @@ export function ScorePanel({ score, window: night }: {
   const [open, setOpen] = useState(false);
   const tz = night.location.timezone;
 
+  // Across the scored slots, not the calendar day: the question is what it
+  // will be like while you are standing outside, and the afternoon high has
+  // nothing to do with that. Slots without a reading are skipped rather than
+  // counted as zero.
+  const temps = useMemo(() => {
+    const values = score.slots
+      .map((slot) => slot.temperature_c)
+      .filter((value): value is number => value !== null);
+    if (values.length === 0) return null;
+    return {
+      low: Math.min(...values),
+      high: Math.max(...values),
+      mean: values.reduce((total, value) => total + value, 0) / values.length,
+    };
+  }, [score.slots]);
+
   return (
     <section className="panel score-panel" aria-labelledby="score-heading">
       {/* Visually redundant next to the dials, but it gives the panel a name
@@ -162,6 +181,15 @@ export function ScorePanel({ score, window: night }: {
               </strong>
               <em>{night.moon_up_at_dusk ? "up at dusk" : "down at dusk"}</em>
             </div>
+            {temps && (
+              <div>
+                <span>Temperature</span>
+                <strong>
+                  {formatTemp(temps.low)} – {formatTemp(temps.high)}
+                </strong>
+                <em>avg {formatTemp(temps.mean)}</em>
+              </div>
+            )}
             <div>
               <span>Best window</span>
               <strong>
@@ -193,15 +221,8 @@ export function ScorePanel({ score, window: night }: {
           past 7Timer's 72-hour horizon, so a humidity and wind proxy was used.
         </p>
       )}
-      {score.dew_warning && (
-        <p className="warning">
-          <strong>Dew warning:</strong> the dew point spread drops below 2 °C.
-        </p>
-      )}
-
       <button className="link-button" onClick={() => setOpen(!open)}>
-        {open ? "Less" : "More"} — twilight times
-        {score.peak_factors_deep_sky ? " and factor breakdown" : ""}
+        {open ? "Less info" : "More info"}
       </button>
 
       {open && (
@@ -229,10 +250,12 @@ export function ScorePanel({ score, window: night }: {
                 <dd>{formatHours(night.astronomical_night_hours)}</dd>
               </div>
             </dl>
-            <p className="muted small">
-              Moon rise and set are calendar-day events, as published almanacs
-              report them. The true dark window is computed independently.
-            </p>
+            {score.dew_warning && (
+              <p className="warning">
+                <strong>Dew:</strong> the spread drops below{" "}
+                {formatTempSpread(2)} — expect fogging.
+              </p>
+            )}
           </div>
 
           {score.peak_factors_deep_sky && (
@@ -259,6 +282,17 @@ export function ScorePanel({ score, window: night }: {
               </div>
             </div>
           )}
+
+          {/* Folded in rather than a panel of its own: it is the same night
+              described hour by hour, and as a separate box it took a full
+              screen width to say what the dials say in a glance. */}
+          <div className="score-more-wide">
+            <ConditionsStrip
+              slots={score.slots}
+              timeZone={tz}
+              weatherAvailable={score.weather_available}
+            />
+          </div>
         </div>
       )}
     </section>

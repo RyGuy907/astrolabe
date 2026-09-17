@@ -193,6 +193,8 @@ export interface TargetModel {
   visible_tonight: boolean;
   visible_late: boolean;
   too_faint: boolean;
+  /** On engine/showpieces.py's curated list of well-known objects. */
+  showpiece: boolean;
   notes: string[];
 }
 
