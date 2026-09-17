@@ -162,7 +162,7 @@ def assess_constellations(positions: list[ConstellationPosition],
                           location,
                           start: datetime,
                           end: datetime,
-                          midnight: datetime,
+                          late_after: datetime,
                           min_altitude_deg: float = 25.0,
                           step: timedelta = timedelta(minutes=10),
                           ) -> dict[str, ConstellationVisibility]:
@@ -226,7 +226,7 @@ def assess_constellations(positions: list[ConstellationPosition],
         # End is the last sample plus one step, clipped to the window: the
         # constellation stays up until roughly the next sample would have been.
         window_end = min(last + step, end)
-        status = VISIBLE_TONIGHT if first < midnight else VISIBLE_LATE
+        status = VISIBLE_TONIGHT if first < late_after else VISIBLE_LATE
 
         out[position.abbreviation] = ConstellationVisibility(
             abbreviation=position.abbreviation,
@@ -239,14 +239,14 @@ def assess_constellations(positions: list[ConstellationPosition],
     return out
 
 
-def classify_visibility(positions, location, start, end, midnight,
+def classify_visibility(positions, location, start, end, late_after,
                         min_altitude_deg: float = 25.0,
                         step: timedelta = timedelta(minutes=20)) -> dict[str, str]:
     """Status only, for callers that do not need the window."""
     return {
         key: value.status
         for key, value in assess_constellations(
-            positions, location, start, end, midnight,
+            positions, location, start, end, late_after,
             min_altitude_deg=min_altitude_deg, step=step).items()
     }
 

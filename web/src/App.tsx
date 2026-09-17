@@ -548,6 +548,9 @@ export default function App() {
                   hidden={hiddenLabels}
                   onToggle={toggleVisibleByLabel}
                   onRemove={removeByLabel}
+                  session={night.session}
+                  obstructionDeg={location.horizon_max_deg}
+                  obstructionVaries={!location.horizon_is_generic}
                 />
               ) : (
                 <p className="muted">

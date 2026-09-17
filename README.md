@@ -318,9 +318,29 @@ overcast afterwards averaged out to "partly cloudy", and an object rising at
 
 A **session** is the hours you actually plan to be outside. The default is
 astronomical dusk to 01:00 local, and it is editable under **More info**. The
-condition scores, the temperature and cloud summaries, the target list and the
-visible/late split are all computed over it — "late" now means *after you pack
-up*, not after midnight.
+condition scores, the temperature and cloud summaries, the target ranking and
+the visible/late split are all computed over it — "late" means *after you pack
+up*, not after midnight. The altitude chart marks the end of the session with a
+dashed line, so a curve that only climbs to the right of it is visibly a
+different night's target.
+
+**The session is a plan, not a filter.** Target *windows* are the object's own
+rise and set, not clipped to the hour you said you were going home, and the
+list reaches past the session so that things rising later can be flagged late
+rather than silently omitted. The same goes for the constellation group
+headers: Orion in September reads `01:12–07:11 · visible late`, not a window
+that stops dead at one in the morning.
+
+What the session changes is the ranking: `usable_hours` (the part of the window
+you can use) and whether the object transits while you are there both feed the
+score, so something up for four of your four hours outranks something that
+clears the horizon as you pack up.
+
+Two things are deliberately scoped to the session rather than the night:
+whether the **Moon is up** — it rises or sets during nearly every night, so
+asking "at any point tonight?" made every sky moonlit — and the **peak
+altitude** shown, which is the best you will actually see rather than the best
+the object reaches at 4 a.m.
 
 Both ends clip to sunset and sunrise, because the engine has nothing to say
 about a daylit sky. Polar summer returns no session at all rather than a

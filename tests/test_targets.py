@@ -732,16 +732,217 @@ def test_the_rescued_objects_are_the_famous_ones(catalog):
 # ---------------------------------------------------------------------------
 
 @requires_ephemeris
-def test_a_session_narrows_the_target_list(kit, catalog, home):
-    """Fewer hours, fewer things that clear the horizon for long enough."""
+def test_a_session_changes_what_ranks_not_what_exists(kit, catalog, home):
+    """Membership is the night; the session is the plan.
+
+    An earlier version narrowed the list itself, which had the side effect of
+    making "visible late" unsatisfiable -- if nothing outside the session is
+    listed, nothing can be flagged as rising after it. The session now moves
+    scores and badges instead.
+    """
     from engine.session import default_session
 
     window = night_window(REFERENCE_DATE, home)
-    whole = assess_targets(window, kit, catalog=catalog)
-    session = assess_targets(window, kit, catalog=catalog,
-                             session=default_session(window))
-    assert len(session) <= len(whole)
-    assert len(session) > 0
+    session = default_session(window)
+    scoped = assess_targets(window, kit, catalog=catalog, session=session)
+    assert scoped, "a session must not empty the list"
+    assert any(a.visible_late for a in scoped), (
+        "nothing flagged late: the list is not reaching past the session"
+    )
+
+
+@requires_ephemeris
+def test_windows_are_the_objects_own_not_the_sessions(kit, catalog, home):
+    """The report that prompted this: every window ended exactly at the hour
+    the observer said they were going home, which is a fact about the plan
+    rather than about the sky."""
+    from engine.session import default_session
+
+    window = night_window(REFERENCE_DATE, home)
+    session = default_session(window)
+    scoped = assess_targets(window, kit, catalog=catalog, session=session)
+
+    assert any(a.best_window[1] > session[1] for a in scoped), (
+        "no window runs past the session end -- they are still being clipped"
+    )
+    # And none may run past the night itself.
+    assert all(a.best_window[1] <= window.sunrise_utc + timedelta(minutes=30)
+               for a in scoped)
+
+
+@requires_ephemeris
+def test_usable_hours_are_the_session_part_of_the_window(kit, catalog, home):
+    """Two different numbers, both true. `hours_above_floor` is how long the
+    object is up; `usable_hours` is how much of that you can use."""
+    from engine.session import default_session
+
+    window = night_window(REFERENCE_DATE, home)
+    session = default_session(window)
+    session_length = (session[1] - session[0]).total_seconds() / 3600.0
+
+    for a in assess_targets(window, kit, catalog=catalog, session=session):
+        assert a.usable_hours <= a.hours_above_floor + 1e-6
+        assert a.usable_hours <= session_length + 1e-6
+        if a.visible_late:
+            assert a.usable_hours == pytest.approx(0.0, abs=0.3)
+
+
+@requires_ephemeris
+def test_the_moon_is_judged_over_the_session_not_the_whole_night(kit, catalog):
+    """Widening the sampling to the whole night made "is the Moon up?" almost
+    always true -- it rises or sets during nearly every night -- which
+    degraded the sky brightness for every object and pushed M31 back below the
+    contrast floor. The question is what the sky is like while the observer is
+    actually out.
+
+    On the reference night the Moon sets about an hour into the evening, so
+    two sessions on the same date disagree about it, and must.
+    """
+    from engine.horizon import parse_horizon
+    from engine.locations import Location
+
+    site = Location(key="p", name="P", lat=34.0, lon=-118.5, elevation_m=300.0,
+                    bortle=6, tz="America/Los_Angeles", horizon=parse_horizon(0))
+    window = night_window(REFERENCE_DATE, site)
+    moonset = window.moonset_utc
+    assert moonset is not None
+
+    def m31_for(session):
+        results = assess_targets(window, kit, catalog=catalog, session=session,
+                                 min_altitude_deg=0.0, include_too_faint=True)
+        return next(a for a in results if a.obj.messier == 31)
+
+    before = m31_for((moonset - timedelta(hours=1), moonset))
+    after = m31_for((moonset + timedelta(minutes=30),
+                     moonset + timedelta(hours=3)))
+
+    # Same night, same object, same site: only the hours differ.
+    assert after.contrast_margin > before.contrast_margin, (
+        "the sky brightness is not responding to when the session falls"
+    )
+    assert not after.too_faint
+
+
+@requires_ephemeris
+def test_the_correction_does_not_make_m31_immune_to_light_pollution(kit, catalog):
+    """The failure mode of the obvious fix.
+
+    Simply exempting bright objects from the contrast test scored M31 at 77
+    from Bortle 9, where it is a poor view at best. Shifting the surface
+    brightness and re-running the same test keeps the sky in the argument.
+    """
+    assert not _verdict_for(31, 6, kit, catalog).too_faint
+    assert _verdict_for(31, 8, kit, catalog).too_faint
+    assert _verdict_for(31, 9, kit, catalog).too_faint
+
+
+@requires_ephemeris
+def test_the_correction_reaches_the_orion_nebula(kit, catalog):
+    """M42 is the brightest deep-sky object in the sky and was being called
+    too faint from a rural site. January, so Orion is actually up."""
+    m42 = _verdict_for(42, 4, kit, catalog, when=date(2026, 1, 20))
+    assert m42 is not None
+    assert not m42.too_faint
+
+
+def test_the_correction_applies_to_a_dozen_objects_not_a_thousand(catalog):
+    """A constant that relaxed the floor for everything would be a rewrite of
+    `DEFAULT_CONTRAST_FLOOR` wearing a different name. Restricting it by
+    integrated magnitude is what keeps it surgical: at Bortle 6 it changes the
+    answer for around a dozen objects out of nearly two thousand failures."""
+    sky = 19.4                                        # Bortle 6
+    extended = [o for o in catalog
+                if o.group in ("Galaxies", "Nebulae")
+                and o.surface_brightness is not None
+                and o.magnitude is not None]
+    failing = [o for o in extended
+               if sky - o.surface_brightness < DEFAULT_CONTRAST_FLOOR]
+    rescued = [o for o in failing
+               if o.magnitude <= BRIGHT_CORE_MAG
+               and sky - (o.surface_brightness - BRIGHT_CORE_SB_BONUS)
+               >= DEFAULT_CONTRAST_FLOOR]
+
+    assert len(failing) > 1000
+    assert len(rescued) < 30, (
+        f"{len(rescued)} objects rescued -- this is meant to correct a "
+        "statistic for a handful of large bright objects, not to loosen the "
+        "contrast floor for the catalogue"
+    )
+
+
+def test_the_rescued_objects_are_the_famous_ones(catalog):
+    """Names, because a count cannot tell you whether the right things moved."""
+    sky = 19.4
+    rescued = {
+        o.messier for o in catalog
+        if o.group in ("Galaxies", "Nebulae")
+        and o.surface_brightness is not None
+        and o.magnitude is not None
+        and o.magnitude <= BRIGHT_CORE_MAG
+        and sky - o.surface_brightness < DEFAULT_CONTRAST_FLOOR
+    }
+    # Orion, Andromeda, Triangulum, the Lagoon, the Eagle.
+    assert {42, 31, 33, 8, 16} <= rescued
+
+
+# ---------------------------------------------------------------------------
+# Targets over a session
+# ---------------------------------------------------------------------------
+
+@requires_ephemeris
+def test_a_session_changes_what_ranks_not_what_exists(kit, catalog, home):
+    """Membership is the night; the session is the plan.
+
+    An earlier version narrowed the list itself, which had the side effect of
+    making "visible late" unsatisfiable -- if nothing outside the session is
+    listed, nothing can be flagged as rising after it. The session now moves
+    scores and badges instead.
+    """
+    from engine.session import default_session
+
+    window = night_window(REFERENCE_DATE, home)
+    session = default_session(window)
+    scoped = assess_targets(window, kit, catalog=catalog, session=session)
+    assert scoped, "a session must not empty the list"
+    assert any(a.visible_late for a in scoped), (
+        "nothing flagged late: the list is not reaching past the session"
+    )
+
+
+@requires_ephemeris
+def test_windows_are_the_objects_own_not_the_sessions(kit, catalog, home):
+    """The report that prompted this: every window ended exactly at the hour
+    the observer said they were going home, which is a fact about the plan
+    rather than about the sky."""
+    from engine.session import default_session
+
+    window = night_window(REFERENCE_DATE, home)
+    session = default_session(window)
+    scoped = assess_targets(window, kit, catalog=catalog, session=session)
+
+    assert any(a.best_window[1] > session[1] for a in scoped), (
+        "no window runs past the session end -- they are still being clipped"
+    )
+    # And none may run past the night itself.
+    assert all(a.best_window[1] <= window.sunrise_utc + timedelta(minutes=30)
+               for a in scoped)
+
+
+@requires_ephemeris
+def test_usable_hours_are_the_session_part_of_the_window(kit, catalog, home):
+    """Two different numbers, both true. `hours_above_floor` is how long the
+    object is up; `usable_hours` is how much of that you can use."""
+    from engine.session import default_session
+
+    window = night_window(REFERENCE_DATE, home)
+    session = default_session(window)
+    session_length = (session[1] - session[0]).total_seconds() / 3600.0
+
+    for a in assess_targets(window, kit, catalog=catalog, session=session):
+        assert a.usable_hours <= a.hours_above_floor + 1e-6
+        assert a.usable_hours <= session_length + 1e-6
+        if a.visible_late:
+            assert a.usable_hours == pytest.approx(0.0, abs=0.3)
 
 
 @requires_ephemeris

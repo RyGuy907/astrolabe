@@ -78,9 +78,9 @@ function Badge({ kind, meaning, children }: {
 }
 
 const CONSTELLATION_MEANING: Record<string, string> = {
-  tonight: "Clears the altitude floor before midnight",
-  late: "Only clears the altitude floor after midnight",
-  none: "Never clears the altitude floor tonight",
+  tonight: "Comes up during your observing hours",
+  late: "Only comes up after your observing hours end",
+  none: "Never clears the horizon tonight",
 };
 
 function TargetRow({ target, timeZone, showAll }: {
@@ -120,7 +120,7 @@ function TargetRow({ target, timeZone, showAll }: {
         {target.visible_late && (
           <Badge
             kind="late"
-            meaning="Only clears the altitude floor after local midnight"
+            meaning="Only comes up after your observing hours end"
           >
             visible late
           </Badge>

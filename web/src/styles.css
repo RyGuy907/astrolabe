@@ -1216,6 +1216,21 @@ table.targets tr.charted { background: rgba(244, 201, 93, 0.06); }
    than a field left at its default. */
 .site-form select.invalid { border-color: var(--bad); }
 
+/* Where the observing session ends. Dashed and in the accent colour: it is a
+   decision the observer made, not a fact about the sky like the horizon or
+   the twilight bands. */
+.chart-session-line {
+  stroke: var(--accent);
+  stroke-width: 1.5;
+  stroke-dasharray: 5 4;
+  opacity: 0.75;
+}
+.chart-session-label {
+  fill: var(--accent);
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+}
+
 footer { text-align: center; padding-top: 8px; }
 
 /* Mobile is a graceful fallback, not a separate design — the altitude chart

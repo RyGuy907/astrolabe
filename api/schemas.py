@@ -212,7 +212,8 @@ class TargetModel(BaseModel):
     visible_tonight: bool = False
     visible_late: bool = Field(
         default=False,
-        description="Only clears the altitude floor after local midnight.",
+        description="Only clears the altitude floor after the observing "
+                    "session ends -- local midnight when no session was given.",
     )
     too_faint: bool = Field(
         default=False,

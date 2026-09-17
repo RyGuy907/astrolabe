@@ -453,7 +453,8 @@ def get_targets(date_: str | None = Query(None, alias="date"),
         group_by=group_by,
         sort=sort,
         include_all=include_all,
-        group_info=_group_info(grouped, group_by, site, window, min_altitude),
+        group_info=_group_info(grouped, group_by, site, window, min_altitude,
+                               session),
         groups={k: [_target(a) for a in v] for k, v in grouped.items()},
     )
 
@@ -463,9 +464,16 @@ def _entry_key(entry) -> str:
 
 
 def _group_info(grouped: dict, group_by: str, site=None, window=None,
-                min_altitude: float = DEFAULT_MIN_ALTITUDE_DEG
-                ) -> dict[str, GroupInfo]:
-    """Header metadata per bucket: centroid and tonight's visibility."""
+                min_altitude: float = DEFAULT_MIN_ALTITUDE_DEG,
+                session=None) -> dict[str, GroupInfo]:
+    """Header metadata per bucket: centroid and tonight's visibility.
+
+    Sampled over the same span as the targets inside it, for the same reason:
+    a constellation's window is a fact about the sky, and clipping it to the
+    session made every group appear to set exactly when the observer went to
+    bed -- and made "visible late" unreachable, since nothing could start
+    after a boundary the sampling stopped at.
+    """
     if group_by != "constellation":
         return {key: GroupInfo(key=key, label=key) for key in grouped}
 
@@ -474,16 +482,21 @@ def _group_info(grouped: dict, group_by: str, site=None, window=None,
 
     visibility: dict[str, str] = {}
     if site is not None and window is not None:
-        span = _observing_window(window)
+        span = session or _observing_window(window)
         if span is not None:
             from datetime import timedelta
 
+            from engine.targets import sampling_bounds
             from engine.timeutil import local_midnight_utc
 
-            midnight = local_midnight_utc(window.date + timedelta(days=1), site.tz)
+            outer = sampling_bounds(window, span) if session else span
+            # The boundary past which a group counts as late: the hour the
+            # observer packs up, or local midnight when they gave no hours.
+            late_after = span[1] if session else local_midnight_utc(
+                window.date + timedelta(days=1), site.tz)
             visibility = assess_constellations(
                 [p for p in positions.values() if p], site,
-                span[0], span[1], midnight, min_altitude_deg=min_altitude,
+                outer[0], outer[1], late_after, min_altitude_deg=min_altitude,
             )
 
     return {

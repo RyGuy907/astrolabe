@@ -132,9 +132,10 @@ class TargetAssessment:
     limiting_mag_at_peak: float
     contrast_margin: float | None        # sky SB - object SB, mag/arcsec^2
 
-    # True when the object only clears the altitude floor after local midnight.
-    # Worth flagging: "observable tonight" and "observable at 3 a.m." are very
-    # different propositions when deciding whether to set an alarm.
+    # True when the object only clears the altitude floor after the observing
+    # session ends -- local midnight when there is no session. Worth flagging:
+    # "observable tonight" and "observable at 3 a.m." are very different
+    # propositions when deciding whether to set an alarm.
     visible_late: bool
 
     # True when the object is well placed but probably below the detection
@@ -147,6 +148,10 @@ class TargetAssessment:
     score: float
     notes: tuple[str, ...]
     previously_logged: bool = False   # False also means "no log context"
+    #: The part of `hours_above_floor` falling inside the observing session.
+    #: What the score's duration term uses: how much of *your* night the
+    #: object fills, which is not the same as how long it is up.
+    usable_hours: float = 0.0
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "peak_time_utc",
@@ -181,6 +186,27 @@ def _observing_window(window: NightWindow) -> Interval | None:
     if window.dark_intervals:
         return (window.dark_intervals[0][0], window.dark_intervals[-1][1])
     return None
+
+
+def sampling_bounds(window: NightWindow, span: Interval) -> Interval:
+    """How much of the night to compute altitudes over, given a session.
+
+    Public because the constellation group headers have to sample the same
+    span as the targets inside them, and `api/` must be able to ask for that
+    answer rather than work it out -- PLAN.md 4: the adapter computes no
+    astronomy of its own.
+
+    The whole night, so a target's reported window is its real window rather
+    than one that stops dead at the hour the observer said they were going
+    home. Widened to include the requested span too, since a session may
+    legitimately start in twilight before the sun is fully down.
+    """
+    outer = _observing_window(window)
+    if window.sunset_utc and window.sunrise_utc:
+        outer = (window.sunset_utc, window.sunrise_utc)
+    if outer is None:
+        return span
+    return (min(outer[0], span[0]), max(outer[1], span[1]))
 
 
 def uses_true_dark(window: NightWindow) -> bool:
@@ -357,18 +383,39 @@ def assess_targets(
     span = session or _observing_window(window)
     if span is None:
         return []
-    start, end = span
-    times = _sample_times(start, end, step)
+
+    # Sampled across the whole night, not just the session.
+    #
+    # An object's rise and set are facts about the sky; the session is a plan.
+    # Sampling only the session made the two indistinguishable: every window
+    # ended exactly at the hour the observer said they were going home, and
+    # nothing could ever start after it -- which quietly killed the "visible
+    # late" badge, since `first span >= session end` had become unsatisfiable
+    # by construction.
+    #
+    # So the spans reported are real, and the session decides what they mean:
+    # how much of it you can use the object for, whether it transits while you
+    # are there, and whether it only comes up after you have packed up.
+    #
+    # Only widened when there is a session to distinguish from. Without one
+    # the observing window *is* the plan, which is what the CLI means and what
+    # its tests encode: "M42 is not a September target" is true of an evening's
+    # observing and false of the whole night, since Orion does clear the
+    # horizon before dawn.
+    outer = sampling_bounds(window, span) if session else span
+    times = _sample_times(outer[0], outer[1], step)
     if len(times) < 2:
         return []
 
-    # What counts as "late". With a session it is the hour the observer says
-    # they are packing up: something that only clears the horizon afterwards
-    # is a different night's target, whatever the clock says. Without one it
-    # falls back to local midnight.
+    start, end = span
+    # What counts as "late": the hour the observer says they are packing up.
+    # Without a session it falls back to local midnight, the old rule.
     late_after = end if session else local_midnight_utc(
         window.date + timedelta(days=1), location.tz)
     window_hours = (end - start).total_seconds() / 3600.0
+    # Which samples fall inside the session, for the terms that describe the
+    # observer's night rather than the sky's.
+    in_session = np.array([start <= t <= end for t in times])
 
     candidates = _prefilter(catalog if catalog is not None else load_catalog(),
                             location, min_altitude_deg)
@@ -406,7 +453,14 @@ def assess_targets(
 
     min_samples = max(1, math.ceil(min_minutes_above_floor
                                    / (step.total_seconds() / 60.0)))
-    any_moon_up = bool(moon_up.any())
+    # Whether the Moon is up *while you are out*, not at any point in the
+    # night. Widening the sampling to the whole night made the second reading
+    # almost always true -- the Moon rises or sets during nearly every night
+    # -- which degraded the sky brightness for every object and pushed M31
+    # back below the contrast floor from a suburban sky. The question the sky
+    # brightness depends on is what the sky is like during the session.
+    moon_up_in_session = moon_up & in_session
+    any_moon_up = bool(moon_up_in_session.any())
     sky_sb = _sky_surface_brightness(location, window.moon_illumination, any_moon_up)
     # Limiting magnitude must use the *moonlit* sky, not the site's dark-sky
     # SQM. Using the moonless value let mag-12 galaxies pass under a 97% moon:
@@ -440,17 +494,36 @@ def assess_targets(
         if above.sum() < min_samples:
             continue
 
-        spans = _contiguous_spans(times, above, step, end)
+        spans = _contiguous_spans(times, above, step, outer[1])
         longest = max(spans, key=lambda s: s[1] - s[0])
         if (longest[1] - longest[0]) < timedelta(minutes=min_minutes_above_floor):
             continue
 
-        peak_index = int(np.argmax(column))
+        # Two different questions, two different answers.
+        #
+        # `spans` is when the object is up, full stop -- a property of the
+        # sky, and what the window column shows. `usable` is the part of that
+        # falling inside the session, which is what the observer can actually
+        # do with it and what the duration and transit terms score on.
+        usable = above & in_session
+        usable_hours = float(usable.sum()) * step.total_seconds() / 3600.0
+
+        # The peak the observer will actually see: during the session when
+        # the object is up then, otherwise its best for the night, which for
+        # a target that only rises later is the only meaningful number.
+        if usable.any():
+            peak_index = int(np.argmax(np.where(usable, column, -np.inf)))
+        else:
+            peak_index = int(np.argmax(column))
         peak_alt = float(column[peak_index])
 
-        # Moon separation only constrains when the moon is actually up.
+        # Moon separation only constrains when the moon is actually up, and
+        # only over the hours that matter: the session, or -- for a target
+        # that does not rise until afterwards -- its own time above the floor.
         if any_moon_up:
-            separation = float(separations[moon_up, j].min())
+            separation = float(separations[moon_up_in_session, j].min())
+        elif (moon_up & above).any():
+            separation = float(separations[moon_up & above, j].min())
         else:
             separation = 180.0
         required = _required_separation(obj, window.moon_illumination)
@@ -510,7 +583,11 @@ def assess_targets(
         if unlogged:
             notes.append("not yet logged")
 
-        transit_in_window = bool(0 < peak_index < len(times) - 1)
+        # Culminating while you are out is worth points; culminating at four
+        # in the morning is not, however high it gets.
+        transit_in_window = bool(usable.any()
+                                 and 0 < peak_index < len(times) - 1
+                                 and bool(in_session[peak_index]))
         if not transit_in_window:
             notes.append("transits outside the window")
         # Only when it is close-but-workable; the swamped case above already
@@ -526,6 +603,10 @@ def assess_targets(
                 above_floor=spans,
                 hours_above_floor=sum(
                     (e - s).total_seconds() for s, e in spans) / 3600.0,
+                # Hours you can *use* it for. The score's duration term is
+                # about how much of your session it fills, which is a
+                # different number from how long it is up.
+                usable_hours=usable_hours,
                 best_window=longest,
                 moon_separation_deg=separation,
                 required_separation_deg=required,
@@ -533,8 +614,7 @@ def assess_targets(
                 contrast_margin=contrast,
                 visible_late=spans[0][0] >= late_after,
                 too_faint=too_faint,
-                score=_score(peak_alt,
-                             sum((e - s).total_seconds() for s, e in spans) / 3600.0,
+                score=_score(peak_alt, usable_hours,
                              window_hours, obj.magnitude, limit, contrast,
                              separation, required, transit_in_window,
                              unlogged),

@@ -9,7 +9,7 @@
  */
 
 import { useMemo, useRef, useState } from "react";
-import type { AltitudeResponse } from "../api";
+import type { AltitudeResponse, ObservingWindow } from "../api";
 import { formatTime } from "../format";
 
 const WIDTH = 1000;
@@ -40,10 +40,18 @@ interface Props {
   onToggle?: (label: string) => void;
   /** Drop a curve from the chart entirely. */
   onRemove?: (label: string) => void;
+  /** The observing session, drawn as the boundary of the planned night. */
+  session?: ObservingWindow | null;
+  /** The site's obstruction angle, which is the altitude floor now. Its peak
+   *  for a measured profile, since one line cannot draw a varying horizon. */
+  obstructionDeg?: number;
+  /** True when that angle is the peak of a profile rather than a flat ring. */
+  obstructionVaries?: boolean;
 }
 
 export function AltitudeChart({
-  data, timeZone, hidden = [], onToggle, onRemove,
+  data, timeZone, hidden = [], onToggle, onRemove, session = null,
+  obstructionDeg = 0, obstructionVaries = false,
 }: Props) {
   const svgRef = useRef<SVGSVGElement>(null);
   const [hoverX, setHoverX] = useState<number | null>(null);
@@ -212,17 +220,43 @@ export function AltitudeChart({
             </g>
           ))}
 
-          {/* The configured altitude floor — below this we do not recommend. */}
-          <line
-            x1={0}
-            x2={PLOT_WIDTH}
-            y1={yOf(data.min_altitude_deg)}
-            y2={yOf(data.min_altitude_deg)}
-            className="chart-floor"
-          />
-          <text x={4} y={yOf(data.min_altitude_deg) - 5} className="chart-floor-label">
-            {data.min_altitude_deg}° floor
-          </text>
+          {/* Where the session ends. A curve that only climbs to the right of
+              this line belongs to a night the observer has said they will not
+              be awake for, which is the difference between "visible" and
+              "visible late" everywhere else in the app. Drawn after the bands
+              so it sits over them, before the curves so it sits under those. */}
+          {session && (() => {
+            const x = xOf(session.end);
+            if (x < 0 || x > PLOT_WIDTH) return null;
+            return (
+              <g className="chart-session-end">
+                <line x1={x} x2={x} y1={0} y2={PLOT_HEIGHT}
+                      className="chart-session-line" />
+                <text x={x - 5} y={12} textAnchor="end"
+                      className="chart-session-label">
+                  {formatTime(session.end, timeZone)}
+                </text>
+              </g>
+            );
+          })()}
+
+          {/* The site's own obstruction, which is the altitude floor now that
+              there is no universal one. Nothing is drawn for an unobstructed
+              site: a line along the horizon would only restate the axis. */}
+          {obstructionDeg > 0 && (
+            <>
+              <line
+                x1={0}
+                x2={PLOT_WIDTH}
+                y1={yOf(obstructionDeg)}
+                y2={yOf(obstructionDeg)}
+                className="chart-floor"
+              />
+              <text x={4} y={yOf(obstructionDeg) - 5} className="chart-floor-label">
+                {obstructionDeg.toFixed(0)}°{obstructionVaries ? " max" : ""}
+              </text>
+            </>
+          )}
 
           {hourTicks.map((tick) => (
             <g key={tick.ms}>

@@ -794,3 +794,33 @@ def test_the_site_horizon_alone_can_be_the_floor(client):
         assert open_sky["total_passing"] > with_floor["total_passing"]
     finally:
         client.delete("/api/locations/api_floor_site")
+
+
+@requires_ephemeris
+def test_constellation_headers_reach_past_the_session_too(client):
+    """The group headers had the same bug as the rows inside them.
+
+    Sampling only the session made every constellation appear to set exactly
+    when the observer went to bed, and made "visible late" unreachable for a
+    group, since nothing could start after a boundary the sampling stopped
+    at. In September from a northern site Orion is the canonical late group.
+    """
+    body = client.get(
+        "/api/targets?date=2026-09-15&location=home&min_altitude=0"
+        "&group_by=constellation&include_all=true&limit=1000"
+    ).json()
+    info = body.get("group_info") or {}
+    constellations = {k: v for k, v in info.items() if v.get("is_constellation")}
+    assert constellations, "no constellation headers to check"
+
+    late = [v for v in constellations.values() if v["visibility"] == "late"]
+    assert late, "nothing flagged late: headers are still clipped to the session"
+
+    session_end = body["session"]["end"]
+    assert any(v["window_end"] > session_end
+               for v in constellations.values() if v.get("window_end")), (
+        "no constellation window runs past the session end"
+    )
+    # And a late group must genuinely start after it.
+    for group in late:
+        assert group["window_start"] >= session_end
