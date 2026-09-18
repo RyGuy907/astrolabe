@@ -8,9 +8,20 @@
  */
 
 import { useDeferredValue, useMemo, useState } from "react";
+import { PlanetImage } from "./PlanetImage";
 import { TargetImage } from "./TargetImage";
+import {
+  Fact,
+  FactSheet,
+  formatAngularSize,
+  formatLightMinutes,
+  formatLightYears,
+  formatRotation,
+  formatYear,
+} from "./FactSheet";
 import type {
   EventsResponse,
+  PlanetModel,
   PlanetsResponse,
   TargetModel,
   TargetsResponse,
@@ -164,10 +175,191 @@ function TargetRow({ target, timeZone, showAll }: {
             raDeg={target.ra_deg}
             decDeg={target.dec_deg}
             sizeArcmin={target.size_arcmin}
-          />
+          >
+            {/* The column beside the cutout held one line of attribution and
+                300px of nothing. Every row here is optional: reference data is
+                curated for the objects anyone opens, and a blank
+                "Discovered —" would read as a failure rather than as the edge
+                of what is known. */}
+            <FactSheet>
+              <Fact label="Type">{target.object_type}</Fact>
+              {target.constellation && (
+                <Fact label="In">{target.constellation}</Fact>
+              )}
+              {target.distance_ly !== null && (
+                <Fact label="Distance">
+                  {formatLightYears(target.distance_ly)}
+                </Fact>
+              )}
+              {target.size_arcmin !== null && (
+                <Fact label="Apparent size">
+                  {formatAngularSize(target.size_arcmin)}
+                </Fact>
+              )}
+              {target.magnitude !== null && (
+                <Fact label="Magnitude">{target.magnitude.toFixed(1)}</Fact>
+              )}
+              {target.surface_brightness !== null && (
+                <Fact label="Surface brightness">
+                  {target.surface_brightness.toFixed(1)} mag/arcsec²
+                </Fact>
+              )}
+              {target.discovered_by && (
+                <Fact label="Discovered by">
+                  {target.discovered_by}
+                  {target.discovered_year !== null &&
+                    `, ${formatYear(target.discovered_year)}`}
+                </Fact>
+              )}
+              {target.about && (
+                <div className="fact-about">{target.about}</div>
+              )}
+            </FactSheet>
+          </TargetImage>
         </td>
       </tr>
     )}
+    </>
+  );
+}
+
+/**
+ * One planet, expandable to a drawing of tonight's disc and its facts.
+ *
+ * Same shape as `TargetRow`: closed by default, and the detail row spans the
+ * table. Unlike a target there is nothing to fetch — the disc is drawn from
+ * numbers already in the response, so opening one costs nothing.
+ */
+function PlanetRow({ planet, charted, onToggleChart, minAltitude }: {
+  planet: PlanetModel;
+  charted: string[];
+  onToggleChart: (id: string, label: string,
+                  kind: "body" | "constellation") => void;
+  minAltitude: number;
+}) {
+  const [open, setOpen] = useState(false);
+  const onChart = charted.includes(planet.name);
+  const facts = planet.facts;
+
+  return (
+    <>
+      <tr className={planet.observable ? undefined : "dim"}>
+        <td>
+          <button
+            className={`chip ${onChart ? "chip-on" : ""}`}
+            onClick={() => onToggleChart(planet.name, planet.name, "body")}
+            title="Toggle on the altitude chart"
+            aria-label={
+              onChart
+                ? `Remove ${titleCase(planet.name)} from the chart`
+                : `Chart ${titleCase(planet.name)}`
+            }
+            aria-pressed={onChart}
+          >
+            {onChart ? "✓" : "+"}
+          </button>
+        </td>
+        <td>
+          <button
+            className="target-name"
+            onClick={() => setOpen(!open)}
+            aria-expanded={open}
+            title={open ? "Hide the details" : "Show the details"}
+          >
+            <span className="caret">{open ? "▾" : "▸"}</span>
+            <strong>{titleCase(planet.name)}</strong>
+          </button>
+          {planet.ring_tilt_deg !== null && (
+            <div className="target-notes">
+              rings {planet.ring_tilt_deg.toFixed(1)}°
+            </div>
+          )}
+        </td>
+        <td>{formatMagnitude(planet.magnitude)}</td>
+        <td>
+          {planet.apparent_diameter_arcsec === null
+            ? "—"
+            : `${planet.apparent_diameter_arcsec.toFixed(1)}″`}
+        </td>
+        <td>{formatDegrees(planet.peak_altitude_deg)}</td>
+        <td>
+          {planet.trend}
+          {planet.event_name && (
+            <div className="target-notes">
+              {planet.event_name} {formatDate(planet.event_date)}
+            </div>
+          )}
+          {!planet.observable && planet.next_visible_date && (
+            <div className="target-notes">
+              next above {minAltitude}° on{" "}
+              {formatDate(planet.next_visible_date)}
+            </div>
+          )}
+          {!planet.observable && planet.best_altitude_deg !== null && (
+            <div className="target-notes">
+              never clears {minAltitude}° within a year; best{" "}
+              {planet.best_altitude_deg.toFixed(0)}°
+            </div>
+          )}
+        </td>
+      </tr>
+
+      {open && (
+        <tr className="target-detail">
+          <td colSpan={6}>
+            <div className="detail-split">
+              <PlanetImage name={planet.name} />
+
+              <FactSheet>
+                {planet.distance_au !== null && (
+                  <Fact label="Distance">
+                    {planet.distance_au.toFixed(2)} AU ·{" "}
+                    {formatLightMinutes(planet.distance_au)}
+                  </Fact>
+                )}
+                {facts && (
+                  <Fact label="Diameter">
+                    {facts.equatorial_diameter_km.toLocaleString("en-GB")} km
+                  </Fact>
+                )}
+                {planet.apparent_diameter_arcsec !== null && (
+                  <Fact label="Apparent size">
+                    {planet.apparent_diameter_arcsec.toFixed(1)}″
+                  </Fact>
+                )}
+                {planet.illuminated_fraction !== null && (
+                  <Fact label="Illuminated">
+                    {(planet.illuminated_fraction * 100).toFixed(0)}%
+                  </Fact>
+                )}
+                {facts && (
+                  <Fact label="Day">{formatRotation(facts.rotation_hours)}</Fact>
+                )}
+                {facts && (
+                  <Fact label="Year">
+                    {facts.year_earth_years < 1
+                      ? `${(facts.year_earth_years * 365.25).toFixed(0)} days`
+                      : `${facts.year_earth_years} Earth years`}
+                  </Fact>
+                )}
+                {facts && <Fact label="Moons">{facts.moons}</Fact>}
+                {facts?.discovered_by ? (
+                  <Fact label="Discovered by">
+                    {facts.discovered_by}
+                    {facts.discovered_year !== null &&
+                      `, ${formatYear(facts.discovered_year)}`}
+                  </Fact>
+                ) : facts ? (
+                  <Fact label="Discovered">
+                    Naked-eye; known to every ancient culture
+                  </Fact>
+                ) : null}
+                {facts && <div className="fact-about">{facts.about}</div>}
+              </FactSheet>
+            </div>
+          </td>
+        </tr>
+      )}
     </>
   );
 }
@@ -545,63 +737,13 @@ export function SkyPanel({
                     !query || planet.name.toLowerCase().includes(query) ||
                     planet.trend.toLowerCase().includes(query))
                   .map((planet) => (
-                  <tr
-                    key={planet.name}
-                    className={planet.observable ? undefined : "dim"}
-                  >
-                    <td>
-                      <button
-                        className={`chip ${charted.includes(planet.name) ? "chip-on" : ""}`}
-                        onClick={() =>
-                          onToggleChart(planet.name, planet.name, "body")
-                        }
-                        title="Toggle on the altitude chart"
-                        aria-label={
-                          charted.includes(planet.name)
-                            ? `Remove ${titleCase(planet.name)} from the chart`
-                            : `Chart ${titleCase(planet.name)}`
-                        }
-                        aria-pressed={charted.includes(planet.name)}
-                      >
-                        {charted.includes(planet.name) ? "✓" : "+"}
-                      </button>
-                    </td>
-                    <td>
-                      <strong>{titleCase(planet.name)}</strong>
-                      {planet.ring_tilt_deg !== null && (
-                        <div className="target-notes">
-                          rings {planet.ring_tilt_deg.toFixed(1)}°
-                        </div>
-                      )}
-                    </td>
-                    <td>{formatMagnitude(planet.magnitude)}</td>
-                    <td>
-                      {planet.apparent_diameter_arcsec === null
-                        ? "—"
-                        : `${planet.apparent_diameter_arcsec.toFixed(1)}″`}
-                    </td>
-                    <td>{formatDegrees(planet.peak_altitude_deg)}</td>
-                    <td>
-                      {planet.trend}
-                      {planet.event_name && (
-                        <div className="target-notes">
-                          {planet.event_name} {formatDate(planet.event_date)}
-                        </div>
-                      )}
-                      {!planet.observable && planet.next_visible_date && (
-                        <div className="target-notes">
-                          next above {planets.min_altitude_deg}° on{" "}
-                          {formatDate(planet.next_visible_date)}
-                        </div>
-                      )}
-                      {!planet.observable && planet.best_altitude_deg !== null && (
-                        <div className="target-notes">
-                          never clears {planets.min_altitude_deg}° within a year;
-                          best {planet.best_altitude_deg.toFixed(0)}°
-                        </div>
-                      )}
-                    </td>
-                  </tr>
+                    <PlanetRow
+                      key={planet.name}
+                      planet={planet}
+                      charted={charted}
+                      onToggleChart={onToggleChart}
+                      minAltitude={planets.min_altitude_deg}
+                    />
                 ))}
               </tbody>
             </table>

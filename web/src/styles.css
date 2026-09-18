@@ -919,6 +919,16 @@ table.targets tr.charted { background: rgba(244, 201, 93, 0.06); }
   display: block;
   flex: none;
 }
+/* The column beside the cutout: facts first, attribution at the bottom. */
+.target-image-side {
+  flex: 1;
+  min-width: 220px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  align-self: stretch;
+}
+.target-image-side figcaption { margin-top: auto; }
 .target-image figcaption { max-width: 42ch; line-height: 1.5; }
 .target-image figcaption strong { color: var(--text); display: block; margin-bottom: 4px; }
 .target-image-failed {
@@ -1229,6 +1239,62 @@ table.targets tr.charted { background: rgba(244, 201, 93, 0.06); }
   fill: var(--accent);
   font-size: 10px;
   font-variant-numeric: tabular-nums;
+}
+
+/* --- the detail row: picture on the left, facts on the right --------------
+   The space beside the survey cutout was empty, which is what prompted this. */
+.detail-split {
+  display: flex;
+  gap: 20px;
+  align-items: flex-start;
+  flex-wrap: wrap;
+  padding: 6px 0 4px;
+}
+.detail-split > .target-image { padding: 0; }
+
+.fact-sheet {
+  flex: 1;
+  min-width: 220px;
+  margin: 0;
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: 3px 14px;
+  font-size: 0.82rem;
+  align-content: start;
+}
+/* Each Fact is its own grid item pair, so the wrapper has to disappear. */
+.fact { display: contents; }
+.fact dt {
+  color: var(--muted-text);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  font-size: 0.68rem;
+  padding-top: 2px;
+  white-space: nowrap;
+}
+.fact dd { margin: 0; font-variant-numeric: tabular-nums; }
+.fact-about {
+  grid-column: 1 / -1;
+  margin-top: 8px;
+  color: var(--muted-text);
+  line-height: 1.5;
+  max-width: 48ch;
+}
+
+/* A planet photograph, framed like the survey cutouts beside the targets. */
+.planet-figure { margin: 0; display: flex; flex-direction: column; gap: 6px; flex: none; }
+.planet-figure figcaption { max-width: 26ch; line-height: 1.4; }
+.planet-photo {
+  width: 240px;
+  height: 240px;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  background: #05070b;
+  display: block;
+}
+
+@media (max-width: 860px) {
+  .detail-split { flex-direction: column; }
 }
 
 footer { text-align: center; padding-top: 8px; }

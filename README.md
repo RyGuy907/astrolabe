@@ -99,6 +99,8 @@ engine/     pure Python; no web imports, no I/O beyond local caches
   session.py     the hours you plan to be outside, and the default (dusk-01:00)
   showpieces.py  the curated "popular targets" list, and why each entry is on
                  it or not
+  reference.py   distances, discovery credits and planet constants: the facts
+                 no ephemeris can derive
   constellations.py  sky regions, plus marks_toward() for measuring a horizon
                  by naming what you can see
   skybrightness.py   coordinate -> SQM from an optional local atlas
@@ -405,6 +407,48 @@ from an inner-city sky. It now passes to Bortle 6 and fails from 7 up.
 plainly visible — the Trapezium is orders of magnitude brighter than the
 90-arcminute mean, and no single constant can express that. Separating M42 from
 M31 needs a concentration index the catalogue does not carry.
+
+## What a target's detail panel knows
+
+Expanding a row shows a survey cutout and, in the column that used to hold
+nothing but the attribution line, the object's facts: type, constellation,
+distance, apparent size, magnitude, surface brightness, and who first recorded
+it. Planets expand the same way.
+
+**Distance is curated, not derived, and that is deliberate.** OpenNGC carries
+`Pax` and `Redshift` columns and both are traps. Parallax is right for a
+planetary nebula whose central star Gaia has measured — M27 comes out at 376 pc
+against an accepted 380 — and nonsense for a galaxy: M31's row says 6.0 mas,
+which is 167 parsecs, and M31 is 780,000 parsecs away. Redshift works for
+distant galaxies and fails nearby, where peculiar motion swamps the expansion;
+M31's is *negative*, so Hubble's law returns a negative distance. A number
+wrong by a factor of 4,600 beside a photograph is worse than no number, so
+`engine/reference.py` holds quoted values and anything without one shows no
+distance.
+
+That file covers the showpieces — the objects anyone actually opens — plus the
+planets. The other twelve thousand entries get what the catalogue genuinely
+knows, and every row the UI has no value for is omitted rather than printed
+blank. `tests/test_reference.py` checks that every identifier still resolves,
+that no showpiece has been left without an entry, and that the distances and
+years are in plausible ranges; it cannot check that Halley really found M13 in
+1714, which is what the sources named in the module docstring are for.
+
+**Planet photographs are bundled, not hotlinked.** Seven NASA images,
+208 KB the lot, in `web/public/planets/`. They are static and they never
+change, so a runtime dependency on somebody else's CDN buys nothing and breaks
+quietly later. All are public domain; credits appear under each image, in
+`THIRD_PARTY_NOTICES.md`, and in the component.
+
+Two obvious candidates were rejected as misleading beside an observing list:
+Magellan's radar map of Venus's surface, which no telescope has ever shown, and
+the JWST portrait of Uranus blazing with rings. The picked ones are Mariner
+10's cloud-top Venus and Voyager 2's plain blue-green Uranus. Even so, a
+spacecraft close-up is not the eyepiece — Jupiter's Great Red Spot is a faint
+notch, and Uranus and Neptune are featureless dots — which is the same caveat
+the survey cutouts carry for deep-sky objects. Tonight's *actual* numbers
+(apparent size, phase, ring tilt) sit in the fact sheet beside the photograph,
+and those do change nightly.
 
 ## Popular targets
 

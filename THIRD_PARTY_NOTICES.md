@@ -37,6 +37,35 @@ use or large-scale redistribution.
 - **Modifications:** transcribed into JSON; radiant coordinates, ZHR, velocity
   and activity dates are reproduced as published.
 
+### NASA planetary imagery
+
+- **Files:** `web/public/planets/*.jpg` — seven images, 208 KB in total.
+- **Source:** NASA, via science.nasa.gov. Retrieved 2026-09-17.
+- **Licence:** NASA imagery is not subject to copyright in the United States
+  and may be reused freely. Credit is still owed and is shown in the app under
+  each image, as well as here.
+- **Credits:**
+  | File | Credit |
+  |---|---|
+  | `mercury.jpg` | NASA / Johns Hopkins APL / Carnegie Institution — MESSENGER (PIA15162) |
+  | `venus.jpg` | NASA / JPL-Caltech — Mariner 10 |
+  | `mars.jpg` | NASA / JPL-Caltech / MSSS — Mars Global Surveyor (PIA04304) |
+  | `jupiter.jpg` | NASA / JPL-Caltech / SwRI / MSSS — Juno (PIA22946) |
+  | `saturn.jpg` | NASA / JPL-Caltech — Voyager |
+  | `uranus.jpg` | NASA / JPL-Caltech — Voyager 2 (PIA18182) |
+  | `neptune.jpg` | NASA / JPL-Caltech — Voyager 2 (PIA01492) |
+- **Modifications:** each was cropped square around the planet and resized to
+  480 x 480. No colour or content was altered. The crop script is in the
+  commit that added them.
+- **Why these ones.** Two obvious candidates were deliberately rejected as
+  misleading next to an observing list: Magellan's radar map of Venus's
+  surface, which no telescope has ever shown, and the JWST portrait of Uranus
+  blazing with rings. Mariner 10's cloud-top Venus and Voyager 2's plain
+  blue-green Uranus are at least the same object the observer will see.
+- **Bundled rather than hotlinked** because they are static, small, and a
+  runtime dependency on a third-party CDN for unchanging bytes is a thing that
+  breaks quietly later.
+
 ---
 
 ## Fetched at runtime, not bundled

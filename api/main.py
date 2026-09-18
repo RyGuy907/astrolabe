@@ -38,6 +38,7 @@ from engine.locations import Location, LocationError, atlas_sqm_for
 from engine.planets import ALL_PLANETS, report_all
 from engine.scoring import score_night, verdict
 from engine.session import dark_overlap_hours, resolve_session
+from engine.reference import deep_sky_facts, planet_facts
 from engine.showpieces import showpiece_ids
 from engine.targets import (
     DEFAULT_GROUP_LIMIT,
@@ -70,6 +71,7 @@ from .schemas import (
     SkyMarkModel,
     NightResponse,
     NightWindowModel,
+    PlanetFactsModel,
     PlanetModel,
     PlanetsResponse,
     ScoreModel,
@@ -406,6 +408,8 @@ def get_targets(date_: str | None = Query(None, alias="date"),
         assessment = item if hasattr(item, "obj") else None
         obj = assessment.obj if assessment else item
 
+        facts = deep_sky_facts(obj.name, obj.messier)
+
         if assessment is None:
             return TargetModel(
                 name=obj.name, display_name=obj.display_name, group=obj.group,
@@ -415,7 +419,12 @@ def get_targets(date_: str | None = Query(None, alias="date"),
                 magnitude=obj.magnitude, size_arcmin=obj.size_arcmin,
                 surface_brightness=obj.surface_brightness,
                 visible_tonight=False, visible_late=False,
-                showpiece=obj.name in showpieces, notes=[],
+                showpiece=obj.name in showpieces,
+                distance_ly=facts.distance_ly if facts else None,
+                discovered_by=facts.discovered_by if facts else None,
+                discovered_year=facts.discovered_year if facts else None,
+                about=facts.note if facts else None,
+                notes=[],
             )
         return TargetModel(
             name=obj.name, display_name=obj.display_name, group=obj.group,
@@ -435,6 +444,10 @@ def get_targets(date_: str | None = Query(None, alias="date"),
             visible_late=assessment.visible_late,
             too_faint=assessment.too_faint,
             showpiece=obj.name in showpieces,
+            distance_ly=facts.distance_ly if facts else None,
+            discovered_by=facts.discovered_by if facts else None,
+            discovered_year=facts.discovered_year if facts else None,
+            about=facts.note if facts else None,
             notes=list(assessment.notes),
         )
 
@@ -569,6 +582,7 @@ def get_planets(date_: str | None = Query(None, alias="date"),
                 best_altitude_deg=(r.visibility.best_altitude_deg
                                    if r.visibility and r.visibility.floor_unreachable
                                    else None),
+                facts=_planet_facts_model(r.name),
                 notes=list(r.notes),
             )
             for r in reports
@@ -619,6 +633,22 @@ def get_events(from_: str | None = Query(None, alias="from"),
 
 
 # --- altitude chart ---------------------------------------------------------
+
+def _planet_facts_model(name: str) -> PlanetFactsModel | None:
+    """Constants for a planet, straight from `engine/reference.py`."""
+    facts = planet_facts(name)
+    if facts is None:
+        return None
+    return PlanetFactsModel(
+        equatorial_diameter_km=facts.equatorial_diameter_km,
+        rotation_hours=facts.rotation_hours,
+        year_earth_years=facts.year_earth_years,
+        moons=facts.moons,
+        discovered_by=facts.discovered_by,
+        discovered_year=facts.discovered_year,
+        about=facts.note,
+    )
+
 
 @app.get("/api/altitude", response_model=AltitudeResponse, tags=["night"])
 def get_altitude(date_: str | None = Query(None, alias="date"),

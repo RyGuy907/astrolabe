@@ -824,3 +824,53 @@ def test_constellation_headers_reach_past_the_session_too(client):
     # And a late group must genuinely start after it.
     for group in late:
         assert group["window_start"] >= session_end
+
+
+@requires_ephemeris
+def test_targets_carry_their_reference_facts(client):
+    """The detail panel reads these straight off the row, so they have to
+    reach the wire rather than being looked up in the browser."""
+    body = client.get(
+        "/api/targets?date=2026-09-15&location=home&include_all=true&limit=1000"
+    ).json()
+    rows = {row["messier"]: row for row in
+            (r for group in body["groups"].values() for r in group)
+            if row["messier"]}
+
+    m13 = rows[13]
+    assert m13["distance_ly"] == pytest.approx(22200)
+    assert m13["discovered_by"] == "Edmond Halley"
+    assert m13["discovered_year"] == 1714
+    assert m13["about"]
+
+    # An object with no curated entry must carry nulls, not blanks or zeros:
+    # the UI drops the row entirely on null and would print "0 ly" otherwise.
+    anonymous = next(row for group in body["groups"].values() for row in group
+                     if row["messier"] is None and not row["showpiece"])
+    assert anonymous["distance_ly"] is None
+    assert anonymous["discovered_by"] is None
+    assert anonymous["about"] is None
+
+
+@requires_ephemeris
+def test_planets_carry_their_reference_facts(client):
+    """And the numbers the disc is drawn from -- phase, apparent size and ring
+    tilt -- which is what makes the drawing tonight's rather than a stock
+    picture of a different decade."""
+    body = client.get(
+        "/api/planets?date=2026-09-15&location=home&find_next=false"
+    ).json()
+    planets = {p["name"]: p for p in body["planets"]}
+
+    saturn = planets["saturn"]
+    assert saturn["facts"]["moons"] > 50
+    assert saturn["facts"]["discovered_by"] is None      # naked-eye
+    assert saturn["ring_tilt_deg"] is not None
+
+    uranus = planets["uranus"]
+    assert uranus["facts"]["discovered_year"] == 1781
+    assert uranus["facts"]["rotation_hours"] < 0          # retrograde
+
+    for planet in body["planets"]:
+        assert planet["facts"] is not None, planet["name"]
+        assert planet["distance_au"] is not None

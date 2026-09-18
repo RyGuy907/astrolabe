@@ -221,6 +221,21 @@ class TargetModel(BaseModel):
                     "this sky - light pollution, moonlight, or both. Listed "
                     "rather than filtered, and sorted last.",
     )
+    distance_ly: float | None = Field(
+        default=None,
+        description="Distance in light years, from engine/reference.py. Not "
+                    "derived from the catalogue's parallax or redshift "
+                    "columns -- see that module for why both are traps.",
+    )
+    discovered_by: str | None = None
+    discovered_year: int | None = Field(
+        default=None, description="Negative for BCE.",
+    )
+    about: str | None = Field(
+        default=None,
+        description="One line on what the object is, where the type label "
+                    "alone undersells it.",
+    )
     showpiece: bool = Field(
         default=False,
         description="On the curated list of well-known objects worth "
@@ -278,6 +293,25 @@ class TargetsResponse(BaseModel):
     groups: dict[str, list[TargetModel]]
 
 
+class PlanetFactsModel(BaseModel):
+    """Constants about a planet, from engine/reference.py."""
+
+    equatorial_diameter_km: float
+    rotation_hours: float = Field(
+        description="Sidereal rotation. Negative for retrograde rotation, "
+                    "which is Venus and Uranus.",
+    )
+    year_earth_years: float
+    moons: int
+    discovered_by: str | None = Field(
+        default=None,
+        description="Null for the five naked-eye planets, which have no "
+                    "discoverer to name.",
+    )
+    discovered_year: int | None = None
+    about: str
+
+
 class PlanetModel(BaseModel):
     name: str
     observable: bool
@@ -300,6 +334,7 @@ class PlanetModel(BaseModel):
         description="Set when the altitude floor is unreachable within a year, "
                     "so the UI can say what the planet does reach.",
     )
+    facts: PlanetFactsModel | None = None
     notes: list[str]
 
 

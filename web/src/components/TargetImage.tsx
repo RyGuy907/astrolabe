@@ -79,9 +79,14 @@ interface Props {
   raDeg: number;
   decDeg: number;
   sizeArcmin: number | null;
+  /** Rendered in the column beside the cutout, above the caption. That column
+   *  held one line of attribution and 300px of nothing, which is where the
+   *  object's facts now go. */
+  children?: React.ReactNode;
 }
 
-export function TargetImage({ name, raDeg, decDeg, sizeArcmin }: Props) {
+export function TargetImage({ name, raDeg, decDeg, sizeArcmin,
+                              children }: Props) {
   const [state, setState] = useState<"loading" | "ready" | "failed">("loading");
   const [src, setSrc] = useState<string | null>(null);
   const [fromCache, setFromCache] = useState(false);
@@ -165,13 +170,16 @@ export function TargetImage({ name, raDeg, decDeg, sizeArcmin }: Props) {
         </div>
       )}
 
-      <figcaption className="muted small">
-        DSS2, {fov.toFixed(2)}° across · hips2fits /{" "}
-        <a href="https://cds.unistra.fr/" target="_blank" rel="noreferrer">
-          CDS
-        </a>
-        {fromCache && " · cached"}
-      </figcaption>
+      <div className="target-image-side">
+        {children}
+        <figcaption className="muted small">
+          DSS2, {fov.toFixed(2)}° across · hips2fits /{" "}
+          <a href="https://cds.unistra.fr/" target="_blank" rel="noreferrer">
+            CDS
+          </a>
+          {fromCache && " · cached"}
+        </figcaption>
+      </div>
     </figure>
   );
 }

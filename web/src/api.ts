@@ -211,6 +211,12 @@ export interface TargetModel {
   too_faint: boolean;
   /** On engine/showpieces.py's curated list of well-known objects. */
   showpiece: boolean;
+  /** Reference data from engine/reference.py. Curated, so often null. */
+  distance_ly: number | null;
+  discovered_by: string | null;
+  /** Negative for BCE. */
+  discovered_year: number | null;
+  about: string | null;
   notes: string[];
 }
 
@@ -248,6 +254,19 @@ export interface TargetsResponse {
   groups: Record<string, TargetModel[]>;
 }
 
+/** Constants about a planet, from engine/reference.py. */
+export interface PlanetFactsModel {
+  equatorial_diameter_km: number;
+  /** Sidereal rotation. Negative for retrograde: Venus and Uranus. */
+  rotation_hours: number;
+  year_earth_years: number;
+  moons: number;
+  /** Null for the five naked-eye planets, which have no discoverer to name. */
+  discovered_by: string | null;
+  discovered_year: number | null;
+  about: string;
+}
+
 export interface PlanetModel {
   name: string;
   observable: boolean;
@@ -266,6 +285,7 @@ export interface PlanetModel {
   ring_tilt_deg: number | null;
   next_visible_date: string | null;
   best_altitude_deg: number | null;
+  facts: PlanetFactsModel | null;
   notes: string[];
 }
 
