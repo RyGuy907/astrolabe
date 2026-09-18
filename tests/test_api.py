@@ -839,6 +839,9 @@ def test_targets_carry_their_reference_facts(client):
 
     m13 = rows[13]
     assert m13["distance_ly"] == pytest.approx(22200)
+    # Distance times apparent size, computed in the engine rather than in the
+    # browser: it is geometry, and PLAN.md 4 keeps the adapter thin.
+    assert 80 <= m13["diameter_ly"] <= 200
     assert m13["discovered_by"] == "Edmond Halley"
     assert m13["discovered_year"] == 1714
     assert m13["about"]
@@ -848,6 +851,7 @@ def test_targets_carry_their_reference_facts(client):
     anonymous = next(row for group in body["groups"].values() for row in group
                      if row["messier"] is None and not row["showpiece"])
     assert anonymous["distance_ly"] is None
+    assert anonymous["diameter_ly"] is None
     assert anonymous["discovered_by"] is None
     assert anonymous["about"] is None
 

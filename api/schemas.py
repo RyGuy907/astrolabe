@@ -227,6 +227,14 @@ class TargetModel(BaseModel):
                     "derived from the catalogue's parallax or redshift "
                     "columns -- see that module for why both are traps.",
     )
+    diameter_ly: float | None = Field(
+        default=None,
+        description="Roughly how big the object actually is, in light years: "
+                    "distance times apparent size. Present only where both "
+                    "are known, and an order-of-magnitude answer -- the "
+                    "catalogue's angular size is an isophotal extent, so the "
+                    "Pleiades comes out at 19 ly against a true 43.",
+    )
     discovered_by: str | None = None
     discovered_year: int | None = Field(
         default=None, description="Negative for BCE.",

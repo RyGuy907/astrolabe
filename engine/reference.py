@@ -48,6 +48,7 @@ throughout and formatted for display in `web/src/format.ts`.
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 
 
@@ -177,7 +178,8 @@ MESSIER_FACTS: dict[int, DeepSkyFacts] = {
                      "The richest open cluster in the sky for a small scope."),
     12: DeepSkyFacts(15700, "Charles Messier", 1764),
     13: DeepSkyFacts(22200, "Edmond Halley", 1714,
-                     "Several hundred thousand stars in a ball 145 ly across."),
+                     "Several hundred thousand stars, packed so tightly at "
+                     "the core that they are a light year apart."),
     14: DeepSkyFacts(30300, "Charles Messier", 1764),
     15: DeepSkyFacts(33600, "Jean-Dominique Maraldi", 1746),
     16: DeepSkyFacts(5700, "Philippe Loys de Cheseaux", 1745),
@@ -362,6 +364,38 @@ NGC_FACTS: dict[str, DeepSkyFacts] = {
                                "A satellite galaxy of our own, and the host "
                                "of the 1987 supernova."),
 }
+
+
+def physical_diameter_ly(distance_ly: float | None,
+                         angular_size_arcmin: float | None) -> float | None:
+    """How big the object actually is, from how far away and how big it looks.
+
+    Small-angle geometry and nothing more: `distance * angle in radians`. At
+    these angles the error from not using `2 * d * tan(theta/2)` is far below
+    the noise in either input.
+
+    **What limits this is the angular size, not the arithmetic.** A catalogue
+    diameter is an isophotal extent -- how wide the object is down to some
+    brightness cut -- and different surveys cut in different places. Checked
+    against accepted values it lands within about 30%: M31 at 131,000 ly
+    against ~152,000, M27 at 2.7 against ~2.9, M57 at 0.8 against ~1. The
+    Pleiades is the worst case at 19 ly against a true extent nearer 43,
+    because the catalogued 150 arcminutes is the bright core and the cluster
+    goes on well past it.
+
+    So this is an order-of-magnitude answer, and the UI says "about". It is
+    still worth showing: that the Ring Nebula is about a light year across
+    while M31 is a hundred thousand is the thing a reader wants, and neither
+    number is available anywhere else on the page.
+
+    Returns None when either input is missing, which is most of the catalogue
+    -- distance is curated and only the showpieces have one.
+    """
+    if distance_ly is None or not angular_size_arcmin:
+        return None
+    if distance_ly <= 0 or angular_size_arcmin <= 0:
+        return None
+    return distance_ly * math.radians(angular_size_arcmin / 60.0)
 
 
 def deep_sky_facts(name: str, messier: int | None) -> DeepSkyFacts | None:

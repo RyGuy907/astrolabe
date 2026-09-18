@@ -38,7 +38,8 @@ from engine.locations import Location, LocationError, atlas_sqm_for
 from engine.planets import ALL_PLANETS, report_all
 from engine.scoring import score_night, verdict
 from engine.session import dark_overlap_hours, resolve_session
-from engine.reference import deep_sky_facts, planet_facts
+from engine.reference import (deep_sky_facts, physical_diameter_ly,
+                              planet_facts)
 from engine.showpieces import showpiece_ids
 from engine.targets import (
     DEFAULT_GROUP_LIMIT,
@@ -409,6 +410,8 @@ def get_targets(date_: str | None = Query(None, alias="date"),
         obj = assessment.obj if assessment else item
 
         facts = deep_sky_facts(obj.name, obj.messier)
+        diameter = physical_diameter_ly(
+            facts.distance_ly if facts else None, obj.size_arcmin)
 
         if assessment is None:
             return TargetModel(
@@ -421,6 +424,7 @@ def get_targets(date_: str | None = Query(None, alias="date"),
                 visible_tonight=False, visible_late=False,
                 showpiece=obj.name in showpieces,
                 distance_ly=facts.distance_ly if facts else None,
+                diameter_ly=diameter,
                 discovered_by=facts.discovered_by if facts else None,
                 discovered_year=facts.discovered_year if facts else None,
                 about=facts.note if facts else None,
@@ -445,6 +449,7 @@ def get_targets(date_: str | None = Query(None, alias="date"),
             too_faint=assessment.too_faint,
             showpiece=obj.name in showpieces,
             distance_ly=facts.distance_ly if facts else None,
+            diameter_ly=diameter,
             discovered_by=facts.discovered_by if facts else None,
             discovered_year=facts.discovered_year if facts else None,
             about=facts.note if facts else None,

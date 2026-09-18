@@ -426,6 +426,20 @@ wrong by a factor of 4,600 beside a photograph is worse than no number, so
 `engine/reference.py` holds quoted values and anything without one shows no
 distance.
 
+**True size comes free once distance is known.** Distance times apparent size
+is how big the thing actually is — the Ring Nebula about a light year across,
+M31 about 130,000 — and neither number appears anywhere else on the page. It
+is computed in the engine (`physical_diameter_ly`), because small-angle
+geometry is astronomy and the API stays a thin adapter.
+
+What limits it is the angular size, not the arithmetic: a catalogue diameter
+is an isophotal extent, cut at whatever brightness the survey chose. Checked
+against accepted values it lands within about 30% — M31 at 131,000 ly against
+~152,000, M27 at 2.7 against ~2.9 — with the Pleiades the worst case at 19 ly
+against a true 43, because the catalogued 150 arcminutes is the bright core and
+the cluster goes on well past it. So the UI writes "about", rounds to two
+significant figures, and does not pretend to six.
+
 That file covers the showpieces — the objects anyone actually opens — plus the
 planets. The other twelve thousand entries get what the catalogue genuinely
 knows, and every row the UI has no value for is omitted rather than printed

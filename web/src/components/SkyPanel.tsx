@@ -17,6 +17,7 @@ import {
   formatLightMinutes,
   formatLightYears,
   formatRotation,
+  formatTrueSize,
   formatYear,
 } from "./FactSheet";
 import type {
@@ -194,6 +195,11 @@ function TargetRow({ target, timeZone, showAll }: {
               {target.size_arcmin !== null && (
                 <Fact label="Apparent size">
                   {formatAngularSize(target.size_arcmin)}
+                </Fact>
+              )}
+              {target.diameter_ly !== null && (
+                <Fact label="True size">
+                  {formatTrueSize(target.diameter_ly)} across
                 </Fact>
               )}
               {target.magnitude !== null && (

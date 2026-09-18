@@ -52,6 +52,26 @@ export function formatLightYears(ly: number): string {
   return `${Math.round(ly).toLocaleString("en-GB")} ly`;
 }
 
+/**
+ * A physical diameter in light years, with the precision the number deserves.
+ *
+ * Derived from distance times apparent size, and the apparent size is an
+ * isophotal extent, so this is good to roughly 30%. Rounding hard is the
+ * honest presentation: "about 130,000 ly" rather than "131,391 ly", which
+ * would imply six significant figures nobody has.
+ */
+export function formatTrueSize(ly: number): string {
+  if (ly >= 1_000_000) return `~${(ly / 1_000_000).toFixed(1)} million ly`;
+  if (ly >= 1000) {
+    // Two significant figures: 131,391 -> 130,000.
+    const magnitude = 10 ** (Math.floor(Math.log10(ly)) - 1);
+    return `~${(Math.round(ly / magnitude) * magnitude).toLocaleString("en-GB")} ly`;
+  }
+  if (ly >= 10) return `~${ly.toFixed(0)} ly`;
+  if (ly >= 1) return `~${ly.toFixed(1)} ly`;
+  return `~${ly.toFixed(2)} ly`;
+}
+
 /** An angular size in arcminutes, dropping to arcseconds when that reads better. */
 export function formatAngularSize(arcmin: number): string {
   if (arcmin < 1) return `${(arcmin * 60).toFixed(0)}″`;

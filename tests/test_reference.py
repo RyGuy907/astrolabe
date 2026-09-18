@@ -22,6 +22,7 @@ from engine.reference import (
     NGC_FACTS,
     PLANET_FACTS,
     deep_sky_facts,
+    physical_diameter_ly,
     planet_facts,
 )
 from engine.showpieces import showpiece_ids
@@ -180,3 +181,66 @@ def test_planet_sizes_are_ordered_as_they_actually_are():
 def test_planet_lookup_is_case_and_space_insensitive():
     assert planet_facts(" Jupiter ") is PLANET_FACTS["jupiter"]
     assert planet_facts("moon") is None
+
+
+# --- true size: distance times apparent size --------------------------------
+
+def test_the_small_angle_geometry_is_right():
+    """One radian at one light year is one light year across."""
+    import math
+
+    assert physical_diameter_ly(1.0, math.degrees(1.0) * 60) == pytest.approx(1.0)
+    # Halve the distance, halve the size; double the angle, double the size.
+    assert physical_diameter_ly(100, 10) == pytest.approx(
+        2 * physical_diameter_ly(50, 10))
+    assert physical_diameter_ly(100, 20) == pytest.approx(
+        2 * physical_diameter_ly(100, 10))
+
+
+@pytest.mark.parametrize("messier,accepted_ly,tolerance", [
+    (31, 152_000, 0.35),     # Andromeda
+    (27, 2.9, 0.35),         # Dumbbell
+    (57, 1.0, 0.40),         # Ring
+    (1, 11, 0.45),           # Crab
+    (13, 145, 0.40),         # Hercules cluster
+])
+def test_computed_sizes_land_near_the_accepted_ones(catalog, messier,
+                                                    accepted_ly, tolerance):
+    """Loose bounds on purpose.
+
+    The limit is not the arithmetic, it is what a catalogue's angular size
+    means: an isophotal extent, cut at whatever brightness the survey chose.
+    These are order-of-magnitude checks that catch a unit slip -- arcminutes
+    read as degrees would be 60x out -- not a claim to precision.
+    """
+    obj = next(o for o in catalog if o.messier == messier)
+    computed = physical_diameter_ly(MESSIER_FACTS[messier].distance_ly,
+                                    obj.size_arcmin)
+    assert computed is not None
+    assert abs(computed - accepted_ly) / accepted_ly <= tolerance, (
+        f"M{messier}: computed {computed:,.1f} ly against an accepted "
+        f"{accepted_ly:,} ly"
+    )
+
+
+def test_a_missing_input_yields_no_answer():
+    """Most of the catalogue has no curated distance, and the UI drops the row
+    on None. A zero or a NaN would be printed."""
+    assert physical_diameter_ly(None, 10) is None
+    assert physical_diameter_ly(1000, None) is None
+    assert physical_diameter_ly(1000, 0) is None
+    assert physical_diameter_ly(0, 10) is None
+    assert physical_diameter_ly(-5, 10) is None
+
+
+def test_no_showpiece_gets_an_absurd_size(catalog):
+    """Nothing in a visual catalogue is smaller than a solar system or larger
+    than a galaxy cluster. A unit error would blow straight through both."""
+    for obj in catalog:
+        facts = deep_sky_facts(obj.name, obj.messier)
+        if facts is None:
+            continue
+        size = physical_diameter_ly(facts.distance_ly, obj.size_arcmin)
+        if size is None:
+            continue
+        assert 0.001 <= size <= 2_000_000, f"{obj.name}: {size} ly across"

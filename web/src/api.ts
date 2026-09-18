@@ -213,6 +213,8 @@ export interface TargetModel {
   showpiece: boolean;
   /** Reference data from engine/reference.py. Curated, so often null. */
   distance_ly: number | null;
+  /** Distance times apparent size. Order of magnitude -- see the engine. */
+  diameter_ly: number | null;
   discovered_by: string | null;
   /** Negative for BCE. */
   discovered_year: number | null;
