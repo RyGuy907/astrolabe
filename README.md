@@ -440,10 +440,14 @@ change, so a runtime dependency on somebody else's CDN buys nothing and breaks
 quietly later. All are public domain; credits appear under each image, in
 `THIRD_PARTY_NOTICES.md`, and in the component.
 
-Two obvious candidates were rejected as misleading beside an observing list:
-Magellan's radar map of Venus's surface, which no telescope has ever shown, and
-the JWST portrait of Uranus blazing with rings. The picked ones are Mariner
-10's cloud-top Venus and Voyager 2's plain blue-green Uranus. Even so, a
+Two candidates were rejected as misleading beside an observing list: Magellan's
+radar map of Venus's surface, which no telescope has ever shown, and the JWST
+portrait of Uranus blazing with rings. Three more were replaced for being
+*unrecognisable* rather than wrong — Juno's Jupiter is a partial disc with the
+Great Red Spot in an odd corner, the Voyager Saturn was grainy, and Mariner
+10's ultraviolet Venus is blue and white. The set is now the view each planet
+is usually pictured as: Hubble's OPAL portraits for Jupiter and Saturn, natural
+colour for Venus, Voyager 2 for Uranus and Neptune. Even so, a
 spacecraft close-up is not the eyepiece — Jupiter's Great Red Spot is a faint
 notch, and Uranus and Neptune are featureless dots — which is the same caveat
 the survey cutouts carry for deep-sky objects. Tonight's *actual* numbers

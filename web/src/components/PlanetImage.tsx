@@ -21,13 +21,22 @@
  * Uranus, which are at least the same object you will be looking at.
  */
 
-/** Credit per image, shown under it. Public domain, credit owed regardless. */
+/**
+ * Credit per image, shown under it. Public domain, credit owed regardless.
+ *
+ * Several are second choices. The first pass used Juno's Jupiter, whose
+ * closeup puts the Great Red Spot in an unfamiliar place on a partial disc,
+ * a grainy Voyager Saturn, and Mariner 10's ultraviolet Venus, which is blue
+ * and white and looks nothing like the planet. These are the views anyone
+ * would recognise: Hubble's OPAL portraits of Jupiter and Saturn, and Mariner
+ * 10 in natural colour for Venus.
+ */
 const CREDITS: Record<string, string> = {
   mercury: "NASA / Johns Hopkins APL / Carnegie Institution — MESSENGER",
   venus: "NASA / JPL-Caltech — Mariner 10",
   mars: "NASA / JPL-Caltech / MSSS — Mars Global Surveyor",
-  jupiter: "NASA / JPL-Caltech / SwRI / MSSS — Juno",
-  saturn: "NASA / JPL-Caltech — Voyager",
+  jupiter: "NASA / ESA / STScI — Hubble OPAL",
+  saturn: "NASA / ESA / STScI — Hubble OPAL",
   uranus: "NASA / JPL-Caltech — Voyager 2",
   neptune: "NASA / JPL-Caltech — Voyager 2",
 };

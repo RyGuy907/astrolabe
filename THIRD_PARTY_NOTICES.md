@@ -48,20 +48,24 @@ use or large-scale redistribution.
   | File | Credit |
   |---|---|
   | `mercury.jpg` | NASA / Johns Hopkins APL / Carnegie Institution — MESSENGER (PIA15162) |
-  | `venus.jpg` | NASA / JPL-Caltech — Mariner 10 |
+  | `venus.jpg` | NASA / JPL-Caltech — Mariner 10, natural colour (PIA23791) |
   | `mars.jpg` | NASA / JPL-Caltech / MSSS — Mars Global Surveyor (PIA04304) |
-  | `jupiter.jpg` | NASA / JPL-Caltech / SwRI / MSSS — Juno (PIA22946) |
-  | `saturn.jpg` | NASA / JPL-Caltech — Voyager |
+  | `jupiter.jpg` | NASA / ESA / STScI — Hubble OPAL, 5 January 2024 |
+  | `saturn.jpg` | NASA / ESA / STScI — Hubble OPAL, 22 October 2023 |
   | `uranus.jpg` | NASA / JPL-Caltech — Voyager 2 (PIA18182) |
   | `neptune.jpg` | NASA / JPL-Caltech — Voyager 2 (PIA01492) |
 - **Modifications:** each was cropped square around the planet and resized to
-  480 x 480. No colour or content was altered. The crop script is in the
-  commit that added them.
-- **Why these ones.** Two obvious candidates were deliberately rejected as
-  misleading next to an observing list: Magellan's radar map of Venus's
-  surface, which no telescope has ever shown, and the JWST portrait of Uranus
-  blazing with rings. Mariner 10's cloud-top Venus and Voyager 2's plain
-  blue-green Uranus are at least the same object the observer will see.
+  480 x 480. Jupiter's source is a two-panel Hubble comparison and the left
+  globe was taken from it; Saturn's was trimmed clear of its outlying moons so
+  they would not drag the crop. No colour or content was altered. The crop
+  script is in the commits that added and revised them.
+- **Why these ones.** Two candidates were rejected as misleading next to an
+  observing list: Magellan's radar map of Venus's surface, which no telescope
+  has ever shown, and the JWST portrait of Uranus blazing with rings. Three
+  more were replaced for being unrecognisable rather than wrong — Juno's
+  Jupiter, which is a partial disc with the Great Red Spot in an odd place; a
+  grainy Voyager Saturn; and Mariner 10's *ultraviolet* Venus, which is blue
+  and white. The set is now the view each planet is usually pictured as.
 - **Bundled rather than hotlinked** because they are static, small, and a
   runtime dependency on a third-party CDN for unchanging bytes is a thing that
   breaks quietly later.
