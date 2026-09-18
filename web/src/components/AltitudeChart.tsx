@@ -19,9 +19,17 @@ const MARGIN = { top: 16, right: 18, bottom: 40, left: 48 };
 const PLOT_WIDTH = WIDTH - MARGIN.left - MARGIN.right;
 const PLOT_HEIGHT = HEIGHT - MARGIN.top - MARGIN.bottom;
 
+/** Cool-end palette, to match the theme the stylesheet sets.
+ *
+ * The curves are the one place colour is load-bearing rather than decorative
+ * -- eight of them can be on the chart at once and the legend chip is the
+ * only key -- so they stay eight clearly distinct hues. What changes is the
+ * temperature: the base sheet opens on amber and salmon, which fight a blue
+ * accent on pure black. These are the same spacing around the wheel, shifted
+ * cold and desaturated to sit on #000 without glowing. */
 const SERIES_COLORS = [
-  "#f4c95d", "#6fb1fc", "#f78da7", "#7ddf9a",
-  "#c39bd3", "#f0946b", "#79d0d8", "#b8c46a",
+  "#0a84ff", "#64d2ff", "#bf5af2", "#30d158",
+  "#5e5ce6", "#ff9f0a", "#8e8e93", "#a0e8c0",
 ];
 
 /** Legend groupings, in display order. Anything unmatched falls into Other. */

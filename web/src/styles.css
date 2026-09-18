@@ -1320,3 +1320,364 @@ footer { text-align: center; padding-top: 8px; }
   .chart-legend-label { width: auto; text-align: left; }
   table.targets { display: block; overflow-x: auto; }
 }
+
+/* ===========================================================================
+   "FLIGHT DECK" -- the sleek-modern variant.
+   ===========================================================================
+   Everything below this line is a theme override appended to the base sheet.
+   It changes surface, type and spacing only: no rule here hides content, and
+   every selector already exists above, so a component that gains a row gains
+   it in this theme too.
+
+   The reference points are the Apple product page, the SpaceX console and the
+   Tesla centre screen, and what those three share is not a colour -- it is
+   restraint. Almost nothing is drawn. There are no cards, no borders around
+   groups of things, no fills competing for attention. Structure comes from
+   whitespace and from one hairline where a hairline is genuinely needed, and
+   the only thing allowed to be large is the number you came to read.
+
+   So the base sheet's boxes are removed rather than restyled, the page gains
+   roughly three times the air it had, and the night's score becomes a display
+   numeral in a full-bleed band instead of a 116px dial inside a card.
+   --------------------------------------------------------------------------- */
+
+:root {
+  /* Apple's dark-mode system values, used as-is. They are not arbitrary:
+     #f5f5f7 on #000 is the contrast pair those pages are built on, and
+     #86868b is the exact secondary grey, which is why it reads as a colour
+     rather than as dimmed white. */
+  --bg: #000000;
+  --panel: #0c0c0e;
+  --panel-2: #141417;
+  --line: rgba(255, 255, 255, 0.09);
+  --line-strong: rgba(255, 255, 255, 0.16);
+  --text: #f5f5f7;
+  --muted-text: #86868b;
+
+  /* Cold, not warm. The base sheet's amber is the single thing that most
+     dates it, and a blue accent on pure black is what makes the rest of the
+     palette look chosen instead of inherited. */
+  --accent: #0a84ff;
+  --accent-soft: rgba(10, 132, 255, 0.14);
+
+  --good: #30d158;
+  --ok: #ffd60a;
+  --poor: #ff9f0a;
+  --bad: #ff453a;
+  --muted: #48484a;
+
+  --radius: 18px;
+  --radius-sm: 12px;
+  --pill: 980px;
+}
+
+body {
+  /* -apple-system first so a Mac renders in the real thing rather than in
+     Inter's approximation of it; Inter is what everyone else gets. */
+  font-family: -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI Variable",
+               "Segoe UI", system-ui, sans-serif;
+  font-size: 15px;
+  letter-spacing: -0.008em;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Air. The base sheet stacks panels 14px apart because they have borders to
+   separate them; with the borders gone the gap is the separator, and it has
+   to be big enough to do that job alone. */
+.app {
+  max-width: 1600px;
+  padding: 0 clamp(20px, 4vw, 64px) 96px;
+  gap: 52px;
+}
+
+/* --- type ---------------------------------------------------------------
+   One family, six weights, and size doing the work that weight and colour do
+   in the base sheet. Headings tighten as they grow, which is the whole trick
+   behind display type that does not look like blown-up body text. */
+h1 {
+  font-size: clamp(1.75rem, 2.6vw, 2.5rem);
+  font-weight: 600;
+  letter-spacing: -0.035em;
+  line-height: 1.05;
+}
+h2, h3 {
+  font-size: 1.15rem;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  margin-bottom: 18px;
+}
+h4 {
+  font-size: 0.68rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.09em;
+  color: var(--muted-text);
+}
+
+/* --- the header becomes a masthead ---------------------------------------
+   Full width, generous top padding, and a hairline under it rather than a
+   change of background. */
+.app-head {
+  align-items: center;
+  padding: 44px 0 30px;
+  border-bottom: 1px solid var(--line);
+  margin-bottom: -18px;
+}
+.brand p {
+  margin-top: 10px;
+  font-size: 0.85rem;
+  gap: 10px;
+  color: var(--muted-text);
+}
+
+/* Tags stop being amber lozenges and become quiet outlined chips: the same
+   information, without shouting it. */
+.tag {
+  background: rgba(255, 255, 255, 0.07);
+  color: var(--text);
+  border: 1px solid var(--line);
+  border-radius: var(--pill);
+  padding: 3px 10px;
+  font-weight: 500;
+  font-size: 0.68rem;
+  letter-spacing: 0.02em;
+  text-transform: none;
+}
+.tag-warn {
+  background: rgba(255, 159, 10, 0.14);
+  border-color: rgba(255, 159, 10, 0.3);
+  color: var(--poor);
+}
+
+/* --- controls ------------------------------------------------------------
+   Everything interactive is a pill with a translucent fill and no border.
+   Hover lifts the fill; it never adds an outline. */
+button.secondary,
+.date-row button,
+.location-trigger,
+.chip,
+select,
+input[type="date"],
+input[type="text"],
+input[type="number"],
+input[type="search"],
+.panel-search input,
+.site-search input {
+  background: rgba(255, 255, 255, 0.07);
+  border: 1px solid transparent;
+  border-radius: var(--pill);
+  color: var(--text);
+  transition: background 0.18s ease, color 0.18s ease;
+}
+button.secondary { padding: 0 18px; height: 36px; font-weight: 500; }
+button.secondary:not(:disabled):hover,
+.date-row button:hover,
+.location-trigger:hover,
+.chip:hover {
+  background: rgba(255, 255, 255, 0.14);
+  border-color: transparent;
+  color: var(--text);
+}
+.date-row { gap: 6px; }
+.date-row button { width: 36px; height: 36px; border-radius: 50%; }
+select, input[type="date"] { height: 36px; padding: 0 14px; border-radius: var(--pill); }
+.panel-search input, .site-search input { border-radius: var(--pill); padding: 9px 16px; }
+.panel-search input:focus { border-color: var(--accent); background: rgba(255, 255, 255, 0.1); }
+
+.chip { border-radius: 50%; width: 26px; height: 26px; color: var(--muted-text); }
+.chip-on { background: var(--accent); border-color: transparent; color: #fff; }
+.chip-on:hover { background: var(--accent); }
+
+.link-button { color: var(--accent); text-decoration: none; font-weight: 500; }
+.link-button:hover { text-decoration: underline; }
+
+/* --- panels stop being cards --------------------------------------------- */
+.panel {
+  background: transparent;
+  border: none;
+  border-radius: 0;
+  padding: 0;
+}
+.panel-head { margin-bottom: 18px; }
+.error {
+  background: rgba(255, 69, 58, 0.1);
+  border: 1px solid rgba(255, 69, 58, 0.3);
+  border-radius: var(--radius);
+  padding: 16px 20px;
+  color: var(--bad);
+}
+.note, .warning {
+  border-left: none;
+  border-radius: var(--radius-sm);
+  background: rgba(255, 255, 255, 0.05);
+  padding: 13px 17px;
+}
+.warning { background: rgba(255, 159, 10, 0.1); color: #ffcf84; }
+
+/* --- the hero ------------------------------------------------------------
+   The score panel breaks out of the page gutter into a full-bleed band lit
+   from the top, so the first screen is one number and one sentence rather
+   than a dashboard. The negative margin is the width of the gutter, restated
+   by the same clamp that sets it. */
+.score-panel {
+  margin: 0 calc(-1 * clamp(20px, 4vw, 64px));
+  padding: 56px clamp(20px, 4vw, 64px) 52px;
+  background:
+    radial-gradient(120% 100% at 50% 0%,
+                    rgba(10, 132, 255, 0.10) 0%,
+                    rgba(10, 132, 255, 0) 60%),
+    linear-gradient(180deg, #0a0a0c 0%, #000 100%);
+  border-bottom: 1px solid var(--line);
+}
+.score-top { gap: 56px; align-items: center; }
+
+/* A 188px ring with a hairline track and a 3px arc: the dial stops looking
+   like a gauge and starts looking like a progress ring. */
+.dial svg { width: 188px; height: 188px; }
+.dial-track { stroke: rgba(255, 255, 255, 0.07); stroke-width: 3; }
+.dial-value { stroke-width: 3; }
+.dial-number { font-size: 38px; font-weight: 200; letter-spacing: -2px; }
+.dial-grade {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 1.4px;
+  text-transform: uppercase;
+}
+.dial-caption { margin-top: 14px; font-size: 0.78rem; }
+
+/* The verdict is the headline of the page, so it is set like one: large,
+   light and tightly tracked. This is the single biggest reason the theme
+   does not read as the base sheet in different colours. */
+.verdict {
+  font-size: clamp(1.4rem, 2.4vw, 2rem);
+  font-weight: 250;
+  letter-spacing: -0.028em;
+  line-height: 1.22;
+  margin-bottom: 34px;
+  max-width: 34ch;
+}
+
+.key-facts { gap: 26px 40px; grid-template-columns: repeat(auto-fit, minmax(128px, 1fr)); }
+.key-facts span {
+  font-size: 0.62rem;
+  letter-spacing: 0.1em;
+  font-weight: 600;
+}
+.key-facts strong {
+  font-size: 1.7rem;
+  font-weight: 300;
+  letter-spacing: -0.035em;
+  line-height: 1.15;
+}
+.dial-facts strong { font-weight: 300; font-size: 1.3rem; letter-spacing: -0.03em; }
+
+.factor { grid-template-columns: 112px 1fr 48px; gap: 14px; margin-bottom: 11px; }
+.factor-track { height: 3px; border-radius: 2px; background: rgba(255, 255, 255, 0.09); }
+.factor-fill { border-radius: 2px; }
+.factor-value { font-variant-numeric: tabular-nums; color: var(--muted-text); }
+
+/* --- tabs become a segmented control ------------------------------------- */
+.tabs {
+  display: inline-flex;
+  border-bottom: none;
+  background: rgba(255, 255, 255, 0.06);
+  border-radius: var(--pill);
+  padding: 3px;
+  gap: 2px;
+  margin: 0 0 20px;
+}
+.tabs button {
+  border-bottom: none;
+  border-radius: var(--pill);
+  padding: 6px 17px;
+  font-size: 0.85rem;
+  font-weight: 500;
+  transition: background 0.18s ease, color 0.18s ease;
+}
+.tabs button.on {
+  background: rgba(255, 255, 255, 0.16);
+  color: var(--text);
+  border-bottom-color: transparent;
+}
+.segmented { border: none; background: rgba(255, 255, 255, 0.06); border-radius: var(--pill); padding: 3px; }
+.segmented button { background: none; border: none; border-radius: var(--pill); padding: 5px 15px; }
+.segmented button.on { background: rgba(255, 255, 255, 0.16); color: var(--text); }
+
+/* --- tables lose their rules --------------------------------------------- */
+table.targets th {
+  border-bottom: 1px solid var(--line);
+  font-size: 0.62rem;
+  letter-spacing: 0.1em;
+  font-weight: 600;
+  padding-bottom: 10px;
+}
+table.targets td {
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+  padding: 11px 8px;
+}
+table.targets tr.charted { background: var(--accent-soft); }
+.group { border-top: 1px solid var(--line); }
+.group-head { padding: 15px 0; font-weight: 500; }
+.group-head:hover { color: var(--accent); }
+
+/* The score pill stops being a filled lozenge and becomes a coloured
+   numeral. The colour still carries the grade, without 300 small blocks of
+   saturated background running down the page. */
+.score-pill {
+  background: none !important;
+  color: inherit;
+  font-weight: 500;
+  font-size: 0.9rem;
+  font-variant-numeric: tabular-nums;
+  padding: 0;
+  min-width: 26px;
+  text-align: right;
+}
+.score-pill-none { color: var(--muted-text); }
+
+.badge {
+  border-radius: var(--pill);
+  font-weight: 500;
+  font-size: 0.64rem;
+  letter-spacing: 0.04em;
+  text-transform: none;
+  padding: 2px 8px;
+}
+
+/* --- chart --------------------------------------------------------------- */
+.chart-sky { fill: #08080a; }
+.chart-grid { stroke: rgba(255, 255, 255, 0.055); }
+.chart-horizon { stroke: rgba(255, 255, 255, 0.25); }
+.chart-line { stroke-width: 1.75; }
+.legend-chip {
+  background: rgba(255, 255, 255, 0.06);
+  border: none;
+  border-radius: var(--pill);
+  padding: 4px 8px 4px 12px;
+  font-size: 0.78rem;
+}
+.legend-chip i { border-radius: 50%; }
+.legend-chip.off { border-style: none; opacity: 0.4; }
+.chart-legend-label { font-size: 0.62rem; letter-spacing: 0.1em; font-weight: 600; }
+
+/* --- everything else that was a box -------------------------------------- */
+.hourly-grid tbody th, .hourly-corner { background: var(--bg); }
+.hourly-score { border-color: var(--bg); border-radius: 5px; }
+.modal {
+  background: #0c0c0e;
+  border: 1px solid var(--line);
+  border-radius: 22px;
+  box-shadow: 0 40px 120px -30px #000;
+}
+.modal-backdrop { backdrop-filter: blur(24px) saturate(1.1); background: rgba(0, 0, 0, 0.55); }
+.event-alert {
+  background: rgba(10, 132, 255, 0.07);
+  border: 1px solid rgba(10, 132, 255, 0.22);
+  border-radius: var(--radius);
+  padding: 15px 20px;
+}
+.event-alert-label { color: var(--accent); letter-spacing: 0.09em; font-size: 0.66rem; }
+.facts > div { border-bottom: 1px solid rgba(255, 255, 255, 0.05); padding: 8px 0; }
+.dashboard-row { gap: 44px; }
+.target-image, .planet-photo { border-radius: var(--radius-sm); }
+.tab-body { max-height: 620px; }
