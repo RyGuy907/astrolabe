@@ -213,8 +213,13 @@ export interface TargetModel {
   showpiece: boolean;
   /** Reference data from engine/reference.py. Curated, so often null. */
   distance_ly: number | null;
-  /** Distance times apparent size. Order of magnitude -- see the engine. */
   diameter_ly: number | null;
+  /** Every common name the catalogue carries, so search can match one that
+   *  is not the one on display. */
+  aliases: string[];
+  /** Double stars only. */
+  separation_arcsec: number | null;
+  component_mags: string | null;
   discovered_by: string | null;
   /** Negative for BCE. */
   discovered_year: number | null;

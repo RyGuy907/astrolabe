@@ -69,6 +69,11 @@ class DeepSkyFacts:
     #: Physical diameter in light years. Quoted, not derived -- see
     #: `_DIAMETER_LY` for why the obvious calculation is worse than it looks.
     diameter_ly: float | None = None
+    #: Double stars only: how far apart the pair sits, in arcseconds. The
+    #: number that decides whether your telescope can split it.
+    separation_arcsec: float | None = None
+    #: Double stars only: the two components' magnitudes, as written.
+    component_mags: str | None = None
 
 
 @dataclass(frozen=True)
@@ -366,6 +371,99 @@ NGC_FACTS: dict[str, DeepSkyFacts] = {
     "ESO056-115": DeepSkyFacts(163000, None, None,
                                "A satellite galaxy of our own, and the host "
                                "of the 1987 supernova."),
+
+    # --- famous visual double stars ------------------------------------
+    #
+    # Not in OpenNGC, which is a deep-sky catalogue: these are stars, and its
+    # 244 unnamed `**` entries are faint NGC pairs nobody points a telescope
+    # at. Coordinates and parallaxes come from SIMBAD via
+    # `scripts/fetch_double_stars.py`; separations and component magnitudes
+    # are the figures observing guides quote, since what a beginner wants to
+    # know is whether their telescope can split it.
+    #
+    # Unlike every other distance here, these are parallax-derived and that is
+    # trustworthy -- they are nearby stars Gaia has measured directly, not the
+    # cross-matched value OpenNGC carries for galaxies.
+    "DBLAlbireo": DeepSkyFacts(
+        363.1, None, None,
+        "Gold and blue, the finest colour contrast in the sky. Splits in binoculars.",
+        separation_arcsec=35.0, component_mags="3.1 / 5.1"),
+    "DBLMizar": DeepSkyFacts(
+        85.8, None, None,
+        "Naked-eye with Alcor beside it; a telescope splits Mizar itself.",
+        separation_arcsec=14.4, component_mags="2.2 / 3.9"),
+    "DBLAlmach": DeepSkyFacts(
+        393.0, None, None,
+        "Orange and blue-green, and brighter than Albireo.",
+        separation_arcsec=9.6, component_mags="2.3 / 5.0"),
+    "DBLCorCaroli": DeepSkyFacts(
+        99.7, None, None,
+        "An easy wide pair in a barren patch of sky.",
+        separation_arcsec=19.3, component_mags="2.9 / 5.6"),
+    "DBLTheDoubleDouble": DeepSkyFacts(
+        162.3, None, None,
+        "Two pairs. Binoculars split it into two stars; 100 mm and steady air splits each of those again.",
+        separation_arcsec=208.0, component_mags="5.0 / 5.2"),
+    "DBLCastor": DeepSkyFacts(
+        50.9, None, None,
+        "A tight bright pair that has visibly rotated since Herschel measured it.",
+        separation_arcsec=5.4, component_mags="1.9 / 3.0"),
+    "DBLIzar": DeepSkyFacts(
+        235.9, None, None,
+        "Struve called it Pulcherrima, the most beautiful. Needs 100 mm and a still night.",
+        separation_arcsec=2.9, component_mags="2.6 / 4.8"),
+    "DBLGraffias": DeepSkyFacts(
+        None, None, None,
+        "A clean white pair low in the summer south.",
+        separation_arcsec=13.6, component_mags="2.6 / 4.5"),
+    "DBLMesarthim": DeepSkyFacts(
+        164.1, None, None,
+        "Two near-identical white stars; one of the first doubles ever found.",
+        separation_arcsec=7.4, component_mags="4.6 / 4.7"),
+    "DBLGammaDelphini": DeepSkyFacts(
+        None, None, None,
+        "Gold and green-white at the nose of the Dolphin.",
+        separation_arcsec=9.0, component_mags="4.3 / 5.1"),
+    "DBLRasalgethi": DeepSkyFacts(
+        359.6, None, None,
+        "A red giant with a green-looking companion.",
+        separation_arcsec=4.6, component_mags="3.5 / 5.4"),
+    "DBL61Cygni": DeepSkyFacts(
+        None, None, None,
+        "The first star to have its distance measured, in 1838.",
+        separation_arcsec=31.6, component_mags="5.2 / 6.1"),
+    "DBLTegmine": DeepSkyFacts(
+        81.8, None, None,
+        "A triple; the brighter component is itself double.",
+        separation_arcsec=6.0, component_mags="5.3 / 6.2"),
+    "DBLIotaCancri": DeepSkyFacts(
+        346.5, None, None,
+        "Often called the spring Albireo, for the same gold and blue.",
+        separation_arcsec=30.5, component_mags="4.0 / 6.6"),
+    "DBLAchird": DeepSkyFacts(
+        19.3, None, None,
+        "A yellow sun much like ours with a red dwarf alongside.",
+        separation_arcsec=13.4, component_mags="3.5 / 7.4"),
+    "DBLAcrux": DeepSkyFacts(
+        322.0, None, None,
+        "The brightest star of the Southern Cross, and a pair.",
+        separation_arcsec=4.0, component_mags="1.3 / 1.7"),
+    "DBLAlphaCentauri": DeepSkyFacts(
+        4.3, None, None,
+        "The nearest star system, and a superb pair.",
+        separation_arcsec=8.0, component_mags="0.0 / 1.3"),
+    "DBLTrapezium": DeepSkyFacts(
+        None, None, None,
+        "The four stars lighting the Orion Nebula from inside it.",
+        separation_arcsec=13.0, component_mags="5.1 / 6.7"),
+    "DBLBetaMonocerotis": DeepSkyFacts(
+        676.7, None, None,
+        "Three blue-white stars in a row; Herschel called it one of the finest sights in the heavens.",
+        separation_arcsec=7.3, component_mags="4.6 / 5.0"),
+    "DBLAlgieba": DeepSkyFacts(
+        130.1, None, None,
+        "Two orange giants, tight and bright.",
+        separation_arcsec=4.6, component_mags="2.4 / 3.6"),
 }
 
 

@@ -37,6 +37,26 @@ use or large-scale redistribution.
 - **Modifications:** transcribed into JSON; radiant coordinates, ZHR, velocity
   and activity dates are reproduced as published.
 
+### SIMBAD — coordinates for the named double stars
+
+- **File:** `engine/catalog/data/double_stars.csv` — 20 rows, built by
+  `scripts/fetch_double_stars.py`.
+- **Source:** SIMBAD astronomical database, CDS, Strasbourg, via its TAP
+  service. Retrieved 2026-09-17.
+- **Why:** OpenNGC is a deep-sky catalogue. Its 244 entries typed `**` are
+  unnamed NGC pairs, almost all far too faint to point at; Albireo, Mizar,
+  Almach and Cor Caroli are not in it at all, because they are stars.
+- **Taken from SIMBAD:** J2000 right ascension, declination, V magnitude
+  where one exists for the composite, and parallax. Separations, component
+  magnitudes and the one-line notes are quoted from standard observing guides
+  and live in `engine/reference.py`.
+- **Fetched at development time only.** `engine/` reaches the network from
+  exactly two modules and this is not one of them; the engine only ever reads
+  the vendored CSV.
+- **Attribution**, as SIMBAD asks: *"This research has made use of the SIMBAD
+  database, operated at CDS, Strasbourg, France."* Wenger et al. 2000, A&AS
+  143, 9.
+
 ### NASA planetary imagery
 
 - **Files:** `web/public/planets/*.jpg` — seven images, 208 KB in total.

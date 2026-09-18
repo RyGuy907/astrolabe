@@ -468,6 +468,33 @@ the survey cutouts carry for deep-sky objects. Tonight's *actual* numbers
 (apparent size, phase, ring tilt) sit in the fact sheet beside the photograph,
 and those do change nightly.
 
+## Named double stars
+
+Albireo, Mizar, Almach, Castor, the Double Double and fifteen more, in
+`engine/catalog/data/double_stars.csv`. They are not in OpenNGC — that is a
+deep-sky catalogue, and its 244 entries typed `**` are unnamed NGC pairs
+almost all far too faint to point at. Coordinates and parallaxes come from
+SIMBAD via `scripts/fetch_double_stars.py`, run at development time and never
+at runtime; separations, component magnitudes and the notes are quoted from
+observing guides.
+
+They earn a place on the popular list twice over: they are among the first
+things anyone is shown through a telescope, and they are nearly immune to
+moonlight, which makes them the right answer on exactly the nights when
+nothing else is.
+
+Two rows are suppressed for them. A double's apparent size *is* its
+separation, so printing both says the same thing twice; and surface
+brightness describes a glow spread over an area, which two point sources do
+not have.
+
+## Search
+
+Only one common name is on display — M17 is labelled the Checkmark Nebula —
+but the catalogue often carries several, and the ones it does not show are
+the ones people type. Every alias is sent to the browser and searched, so
+"swan nebula" and "omega nebula" both find M17 and it keeps the label it had.
+
 ## Popular targets
 
 The catalogue holds 12,371 objects and perhaps 137 of them are what anyone

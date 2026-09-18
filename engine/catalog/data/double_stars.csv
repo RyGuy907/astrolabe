@@ -1,0 +1,21 @@
+Name;Type;RA;Dec;Const;MajAx;MinAx;PosAng;B-Mag;V-Mag;J-Mag;H-Mag;K-Mag;SurfBr;Hubble;Pax;Pm-RA;Pm-Dec;RadVel;Redshift;Cstar U-Mag;Cstar B-Mag;Cstar V-Mag;M;NGC;IC;Cstar Names;Identifiers;Common names;NED notes;OpenNGC notes;Sources
+DBLAlbireo;**;19:30:43.3;+27:57:35;Cyg;0.5833;;;;3.08;;;;;;;;;;;;;;;;;;Albireo;Albireo;;;SIMBAD
+DBLMizar;**;13:23:55.5;+54:55:31;UMa;0.2400;;;;2.20;;;;;;;;;;;;;;;;;;* zet UMa;Mizar;;;SIMBAD
+DBLAlmach;**;02:03:54.0;+42:19:47;And;0.1600;;;;2.10;;;;;;;;;;;;;;;;;;* gam And;Almach;;;SIMBAD
+DBLCorCaroli;**;12:56:01.7;+38:19:06;CVn;0.3217;;;;2.88;;;;;;;;;;;;;;;;;;Cor Caroli;Cor Caroli;;;SIMBAD
+DBLTheDoubleDouble;**;18:44:20.3;+39:40:12;Lyr;3.4667;;;;5.00;;;;;;;;;;;;;;;;;;* eps01 Lyr;The Double Double;;;SIMBAD
+DBLCastor;**;07:34:35.9;+31:53:18;Gem;0.0900;;;;1.58;;;;;;;;;;;;;;;;;;* alf Gem;Castor;;;SIMBAD
+DBLIzar;**;14:44:59.2;+27:04:27;Boo;0.0483;;;;2.45;;;;;;;;;;;;;;;;;;* eps Boo;Izar;;;SIMBAD
+DBLGraffias;**;16:05:26.2;-19:48:19;Sco;0.2267;;;;2.50;;;;;;;;;;;;;;;;;;* bet Sco;Graffias;;;SIMBAD
+DBLMesarthim;**;01:53:31.8;+19:17:38;Ari;0.1233;;;;4.60;;;;;;;;;;;;;;;;;;* gam Ari;Mesarthim;;;SIMBAD
+DBLGammaDelphini;**;20:46:39.4;+16:07:28;Del;0.1500;;;;4.30;;;;;;;;;;;;;;;;;;* gam Del;Gamma Delphini;;;SIMBAD
+DBLRasalgethi;**;17:14:38.9;+14:23:25;Her;0.0767;;;;3.50;;;;;;;;;;;;;;;;;;* alf Her;Rasalgethi;;;SIMBAD
+DBL61Cygni;**;21:06:54.0;+38:44:58;Cyg;0.5267;;;;5.20;;;;;;;;;;;;;;;;;;* 61 Cyg;61 Cygni;;;SIMBAD
+DBLTegmine;**;08:12:12.7;+17:38:52;Cnc;0.1000;;;;5.30;;;;;;;;;;;;;;;;;;* zet Cnc;Tegmine;;;SIMBAD
+DBLIotaCancri;**;08:46:41.8;+28:45:36;Cnc;0.5083;;;;4.02;;;;;;;;;;;;;;;;;;* iot Cnc;Iota Cancri;;;SIMBAD
+DBLAchird;**;00:49:06.3;+57:48:55;Cas;0.2233;;;;3.44;;;;;;;;;;;;;;;;;;* eta Cas;Achird;;;SIMBAD
+DBLAcrux;**;12:26:35.9;-63:05:57;Cru;0.0667;;;;1.30;;;;;;;;;;;;;;;;;;* alf Cru;Acrux;;;SIMBAD
+DBLAlphaCentauri;**;14:39:36.5;-60:50:02;Cen;0.1333;;;;-0.10;;;;;;;;;;;;;;;;;;* alf Cen;Alpha Centauri;;;SIMBAD
+DBLTrapezium;**;05:35:18.0;-05:24:00;Ori;0.2167;;;;5.10;;;;;;;;;;;;;;;;;;* the Ori;Trapezium;;;SIMBAD
+DBLBetaMonocerotis;**;06:28:49.1;-07:01:59;Mon;0.1217;;;;3.74;;;;;;;;;;;;;;;;;;* bet Mon;Beta Monocerotis;;;SIMBAD
+DBLAlgieba;**;10:19:58.4;+19:50:29;Leo;0.0767;;;;2.40;;;;;;;;;;;;;;;;;;* gam Leo;Algieba;;;SIMBAD

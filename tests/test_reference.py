@@ -252,3 +252,87 @@ def test_a_diameter_is_never_larger_than_its_distance():
         for key, facts in table.items():
             if facts.diameter_ly and facts.distance_ly:
                 assert facts.diameter_ly < facts.distance_ly, key
+
+
+# --- the named double stars -------------------------------------------------
+#
+# These are not in OpenNGC. It is a deep-sky catalogue: its 244 entries typed
+# `**` are unnamed NGC pairs, almost all far too faint to point at, and
+# Albireo, Mizar and Almach are simply absent. They come from a separate
+# vendored CSV built from SIMBAD by `scripts/fetch_double_stars.py`.
+
+def test_the_famous_doubles_are_in_the_catalogue(catalog):
+    """The ones anyone would look for by name."""
+    by_name = {o.display_name: o for o in catalog}
+    for name in ("Albireo", "Mizar", "Almach", "Cor Caroli", "Castor",
+                 "The Double Double", "Izar", "Algieba"):
+        assert name in by_name, f"{name} is not in the catalogue"
+        assert by_name[name].group == "Double Stars"
+
+
+def test_a_double_shows_its_own_name_not_our_bookkeeping(catalog):
+    """Their identifiers are ones this project invented for the vendored CSV,
+    so `DBLAlbireo (Albireo)` would be showing internal plumbing to the
+    reader. They are known by their name and nothing else."""
+    albireo = next(o for o in catalog if o.name == "DBLAlbireo")
+    assert albireo.display_name == "Albireo"
+
+
+def test_every_double_carries_the_facts_that_make_it_worth_finding(catalog):
+    """Separation and component magnitudes, which decide whether a given
+    telescope can split it -- the only question that matters for a double and
+    one no deep-sky field answers."""
+    doubles = [o for o in catalog if o.name.startswith("DBL")]
+    assert len(doubles) >= 15
+
+    for obj in doubles:
+        facts = deep_sky_facts(obj.name, obj.messier)
+        assert facts is not None, obj.name
+        assert facts.separation_arcsec, obj.name
+        assert facts.component_mags, obj.name
+        assert facts.note, obj.name
+
+
+def test_double_star_coordinates_are_where_they_should_be(catalog):
+    """A spot check against figures independent of the fetch script.
+
+    Albireo is 19h 30m 43s +27 58' and Alpha Centauri is 14h 39m 36s
+    -60 50'. If the sexagesimal conversion or the SIMBAD query drifted, these
+    would move by degrees rather than arcseconds.
+    """
+    albireo = next(o for o in catalog if o.name == "DBLAlbireo")
+    assert albireo.ra_deg == pytest.approx(292.680, abs=0.01)
+    assert albireo.dec_deg == pytest.approx(27.960, abs=0.01)
+
+    alpha_cen = next(o for o in catalog if o.name == "DBLAlphaCentauri")
+    assert alpha_cen.ra_deg == pytest.approx(219.902, abs=0.05)
+    assert alpha_cen.dec_deg == pytest.approx(-60.834, abs=0.05)
+
+
+def test_double_star_distances_are_parallax_derived_and_sane(catalog):
+    """Unlike every other distance here these come from parallax, and for
+    nearby stars that is trustworthy -- Gaia measured them directly. Alpha
+    Centauri at 4.3 ly is the check that the conversion is right."""
+    facts = deep_sky_facts("DBLAlphaCentauri", None)
+    assert facts.distance_ly == pytest.approx(4.3, abs=0.3)
+
+    achird = deep_sky_facts("DBLAchird", None)
+    assert achird.distance_ly == pytest.approx(19.3, abs=1.0)
+
+
+def test_a_double_is_never_judged_on_surface_brightness(catalog):
+    """Surface brightness describes a glow spread over an area, and a pair of
+    point sources does not have one.
+
+    The guard is group membership, not geometry. `is_extended` is purely a
+    size test and the Double Double genuinely spans 3.5 arcminutes, so it
+    passes one; what keeps the contrast test away from it is that
+    `DIFFUSE_GROUPS` is galaxies and nebulae only, and a double is scored on
+    integrated magnitude like a cluster.
+    """
+    from engine.targets import DIFFUSE_GROUPS
+
+    doubles = [o for o in catalog if o.name.startswith("DBL")]
+    assert doubles
+    for obj in doubles:
+        assert obj.group not in DIFFUSE_GROUPS, obj.name

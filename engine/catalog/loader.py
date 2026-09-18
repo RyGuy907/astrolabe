@@ -27,6 +27,20 @@ DATA_DIR = Path(__file__).resolve().parent / "data"
 NGC_CSV = DATA_DIR / "NGC.csv"
 ADDENDUM_CSV = DATA_DIR / "addendum.csv"
 
+#: Famous visual double stars, which OpenNGC does not have.
+#:
+#: Its 244 entries typed `**` are unnamed NGC pairs, almost all far too faint
+#: to be worth pointing at; Albireo, Mizar, Almach and Cor Caroli are not in
+#: it at all, because they are stars and this is a deep-sky catalogue. Kept in
+#: its own file rather than merged into `addendum.csv`, which ships with
+#: OpenNGC and would be overwritten by the next release. Built by
+#: `scripts/fetch_double_stars.py` from SIMBAD.
+DOUBLE_STARS_CSV = DATA_DIR / "double_stars.csv"
+
+#: Identifier prefix for the rows in that file. Ours, not a real catalogue
+#: designation, which is why `display_name` hides it.
+DOUBLE_STAR_PREFIX = "DBL"
+
 SCHEMA_VERSION = 1
 
 # OpenNGC type code -> our observing group (PLAN.md 3.3.5).
@@ -102,7 +116,15 @@ class DeepSkyObject:
 
     @property
     def display_name(self) -> str:
-        """"M31 (Andromeda Galaxy)" where possible, else the catalog name."""
+        """"M31 (Andromeda Galaxy)" where possible, else the catalog name.
+
+        The named double stars are the exception: their identifier is one we
+        invented for the vendored CSV, so "DBLAlbireo (Albireo)" would be
+        showing our own bookkeeping back to the reader. They are known by
+        their name and nothing else, so that is all they get.
+        """
+        if self.name.startswith(DOUBLE_STAR_PREFIX) and self.common_names:
+            return self.common_names[0]
         primary = f"M{self.messier}" if self.messier else _pretty_ngc(self.name)
         if self.common_names:
             return f"{primary} ({self.common_names[0]})"
@@ -258,10 +280,12 @@ def _dedupe(objects: list[DeepSkyObject]) -> list[DeepSkyObject]:
 
 
 def parse_catalog(ngc_csv: Path | None = None,
-                  addendum_csv: Path | None = None) -> list[DeepSkyObject]:
+                  addendum_csv: Path | None = None,
+                  double_stars_csv: Path | None = None) -> list[DeepSkyObject]:
     """Read the vendored CSVs into deduplicated DeepSkyObject records."""
     objects: list[DeepSkyObject] = []
-    for path in (ngc_csv or NGC_CSV, addendum_csv or ADDENDUM_CSV):
+    for path in (ngc_csv or NGC_CSV, addendum_csv or ADDENDUM_CSV,
+                 double_stars_csv or DOUBLE_STARS_CSV):
         if not path.exists():
             continue
         with open(path, encoding="utf-8", newline="") as fh:

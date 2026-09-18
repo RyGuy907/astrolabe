@@ -30,6 +30,12 @@ Where the entries come from
   never saw (Omega Centauri, 47 Tucanae, the Magellanic Clouds, Eta Carinae)
   plus the northern objects that acquired names anyway: the Double Cluster,
   the Veil, the Helix, the Coathanger.
+* **Famous double stars** -- Albireo, Mizar, Almach and the rest. These come
+  from `engine/catalog/data/double_stars.csv` rather than OpenNGC, which is a
+  deep-sky catalogue and does not have them. They earn their place twice
+  over: they are among the first things anyone is shown through a telescope,
+  and they are nearly immune to moonlight, so they are the right answer on
+  the nights when nothing else is.
 
 Why some Messier objects are left out
 -------------------------------------
@@ -136,6 +142,30 @@ NON_MESSIER_SHOWPIECES: frozenset[str] = frozenset({
     "NGC4038",     # Antennae -- two galaxies mid-collision
     "NGC0292",     # Small Magellanic Cloud
     "ESO056-115",  # Large Magellanic Cloud
+    # --- double stars ---------------------------------------------------
+    # Famous enough that leaving them out would look like an omission, and
+    # they are the one class of target a bright moon barely touches -- which
+    # makes them the right answer on exactly the nights when nothing else is.
+    "DBLAlbireo",           # Albireo
+    "DBLMizar",             # Mizar
+    "DBLAlmach",            # Almach
+    "DBLCorCaroli",        # Cor Caroli
+    "DBLTheDoubleDouble", # The Double Double
+    "DBLCastor",            # Castor
+    "DBLIzar",              # Izar
+    "DBLGraffias",          # Graffias
+    "DBLMesarthim",         # Mesarthim
+    "DBLGammaDelphini",    # Gamma Delphini
+    "DBLRasalgethi",        # Rasalgethi
+    "DBL61Cygni",          # 61 Cygni
+    "DBLTegmine",           # Tegmine
+    "DBLIotaCancri",       # Iota Cancri
+    "DBLAchird",            # Achird
+    "DBLAcrux",             # Acrux
+    "DBLAlphaCentauri",    # Alpha Centauri
+    "DBLTrapezium",         # Trapezium
+    "DBLBetaMonocerotis",  # Beta Monocerotis
+    "DBLAlgieba",           # Algieba
 })
 
 

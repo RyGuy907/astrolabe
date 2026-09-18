@@ -234,6 +234,17 @@ class TargetModel(BaseModel):
                     "catalogue's angular size -- that is an isophotal extent "
                     "and came out around 30% low.",
     )
+    aliases: list[str] = Field(
+        default_factory=list,
+        description="Every common name the catalogue carries, so search can "
+                    "match one that is not the one on display. M17 is shown "
+                    "as the Checkmark Nebula and is also the Swan, the "
+                    "Lobster and the Omega.",
+    )
+    separation_arcsec: float | None = Field(
+        default=None, description="Double stars: how far apart the pair sits.",
+    )
+    component_mags: str | None = None
     discovered_by: str | None = None
     discovered_year: int | None = Field(
         default=None, description="Negative for BCE.",

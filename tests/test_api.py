@@ -878,3 +878,43 @@ def test_planets_carry_their_reference_facts(client):
     for planet in body["planets"]:
         assert planet["facts"] is not None, planet["name"]
         assert planet["distance_au"] is not None
+
+
+@requires_ephemeris
+def test_targets_carry_every_name_they_go_by(client):
+    """Only the first common name is on display, so search matches nothing
+    else unless the rest reach the browser. M17 is shown as the Checkmark
+    Nebula and is also the Swan, the Lobster and the Omega."""
+    body = client.get(
+        "/api/targets?date=2026-09-15&location=home&include_all=true&limit=1000"
+    ).json()
+    rows = {row["messier"]: row for row in
+            (r for group in body["groups"].values() for r in group)
+            if row["messier"]}
+
+    m17 = rows[17]
+    assert "Checkmark" in m17["display_name"]
+    lowered = [alias.lower() for alias in m17["aliases"]]
+    assert "swan nebula" in lowered
+    assert "omega nebula" in lowered
+
+
+@requires_ephemeris
+def test_named_double_stars_reach_the_wire(client):
+    """They come from a vendored CSV of their own, not OpenNGC, so this is
+    the check that the third catalogue file is actually being read."""
+    body = client.get(
+        "/api/targets?date=2026-09-15&location=home&include_all=true&limit=1000"
+    ).json()
+    rows = {row["display_name"]: row for group in body["groups"].values()
+            for row in group}
+
+    albireo = rows.get("Albireo")
+    assert albireo is not None, "Albireo is not in the target list"
+    assert albireo["object_type"] == "double star"
+    assert albireo["separation_arcsec"] == pytest.approx(35.0)
+    assert albireo["component_mags"] == "3.1 / 5.1"
+    assert albireo["showpiece"] is True
+    # Parallax-derived and trustworthy for a nearby star, unlike the
+    # catalogue's parallax column for galaxies.
+    assert 300 <= albireo["distance_ly"] <= 420

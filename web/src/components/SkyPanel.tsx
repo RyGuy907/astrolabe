@@ -103,6 +103,9 @@ function TargetRow({ target, timeZone, showAll }: {
   // Per row, and closed by default. The image is only requested once a row is
   // opened, so browsing a 270-row list costs nothing.
   const [open, setOpen] = useState(false);
+  //: Component magnitudes are only set for the curated doubles, and a couple
+  //: of the usual rows do not apply to a pair of stars.
+  const isDouble = target.component_mags !== null;
   return (
     <>
     <tr className={target.visible_tonight && !target.too_faint ? undefined : "dim"}>
@@ -192,7 +195,9 @@ function TargetRow({ target, timeZone, showAll }: {
                   {formatLightYears(target.distance_ly)}
                 </Fact>
               )}
-              {target.size_arcmin !== null && (
+              {/* A double star's apparent size *is* its separation, and the
+                  row below says so in the units people use for it. */}
+              {target.size_arcmin !== null && !isDouble && (
                 <Fact label="Apparent size">
                   {formatAngularSize(target.size_arcmin)}
                 </Fact>
@@ -202,10 +207,21 @@ function TargetRow({ target, timeZone, showAll }: {
                   {formatTrueSize(target.diameter_ly)} across
                 </Fact>
               )}
-              {target.magnitude !== null && (
+              {target.separation_arcsec !== null && (
+                <Fact label="Separation">
+                  {target.separation_arcsec.toFixed(1)}″
+                </Fact>
+              )}
+              {target.component_mags && (
+                <Fact label="Components">{target.component_mags}</Fact>
+              )}
+              {target.magnitude !== null && target.component_mags === null && (
                 <Fact label="Magnitude">{target.magnitude.toFixed(1)}</Fact>
               )}
-              {target.surface_brightness !== null && (
+              {/* Surface brightness describes a glow spread over an area.
+                  Two point sources do not have one, and the number the
+                  formula produces for a pair is meaningless. */}
+              {target.surface_brightness !== null && !isDouble && (
                 <Fact label="Surface brightness">
                   {target.surface_brightness.toFixed(1)} mag/arcsec²
                 </Fact>
@@ -402,6 +418,10 @@ export function SkyPanel({
             designation,
             // "M 13" and "M13" should both find it.
             designation ? `m ${target.messier}` : "",
+            // Every other name it goes by. Only the first is on display, so
+            // without these "swan nebula" finds nothing and M17 sits there
+            // labelled Checkmark.
+            ...target.aliases,
           ].join(" ").toLowerCase(),
         );
       }
@@ -418,9 +438,14 @@ export function SkyPanel({
   // same data narrowed here, which is what makes the toggle instant. The
   // ordering mirrors engine.targets._brightness_key: solid targets first,
   // then too-faint ones, brightest within each half.
-  const { filteredGroups, matchTotals } = useMemo(() => {
+  const { filteredGroups, matchTotals, worthwhileTotals } = useMemo(() => {
     const groups: Record<string, TargetModel[]> = {};
     const totals: Record<string, number> = {};
+    // Rows minus the ones badged too faint. The tab counts these rather than
+    // every row: "visible tonight" renders nine thousand objects at an open
+    // horizon and all but a few hundred are below what the sky will show, so
+    // a row count is a true number that answers nobody's question.
+    const worthwhile: Record<string, number> = {};
     if (targets) {
       for (const [key, allRows] of Object.entries(targets.groups)) {
         const popular = popularOnly
@@ -437,6 +462,7 @@ export function SkyPanel({
         const kept = query ? scoped.filter(matchesTarget) : scoped;
         if (kept.length > 0) {
           totals[key] = kept.length;
+          worthwhile[key] = kept.filter((t) => !t.too_faint).length;
           // While searching, every matching group is expanded at once, so
           // an unbounded render is what made a broad query cost seconds.
           // Browsing one group by hand stays uncapped.
@@ -444,8 +470,17 @@ export function SkyPanel({
         }
       }
     }
-    return { filteredGroups: groups, matchTotals: totals };
+    return { filteredGroups: groups, matchTotals: totals,
+             worthwhileTotals: worthwhile };
   }, [targets, showAll, popularOnly, query, haystacks]);
+
+  // What the tab counts: targets worth pointing at, under the filters
+  // currently set. It used to be `total_passing`, a server-side count that
+  // took no notice of the toggles below it and sat at the same number
+  // whichever view was selected -- which reads as a broken filter rather than
+  // as a different statistic.
+  const shownCount = Object.values(worthwhileTotals)
+    .reduce((total, count) => total + count, 0);
 
   const allMatchingGroups = Object.keys(filteredGroups);
   const groupNames = query
@@ -478,7 +513,7 @@ export function SkyPanel({
           className={tab === "targets" ? "on" : ""}
           onClick={() => setTab("targets")}
         >
-          Targets{targets ? ` (${targets.total_passing})` : ""}
+          Targets{targets ? ` (${shownCount})` : ""}
         </button>
         <button
           role="tab"

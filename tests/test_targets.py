@@ -405,14 +405,23 @@ def test_brightness_sort_orders_within_a_group(home, kit, catalog):
 
 @requires_ephemeris
 def test_hercules_leads_with_m13_when_sorted_by_brightness(home, kit, catalog):
-    """The case that prompted the fix."""
+    """The case that prompted the fix: M13 must not be buried in Hercules.
+
+    Asserted against the deep-sky entries rather than the whole group. Adding
+    the named double stars put Rasalgethi -- magnitude 3.5 against M13's 5.8
+    -- at the top of Hercules, which is what a brightness sort is supposed to
+    do and not the bug this guards against. The bug was M13 sitting below
+    anonymous NGC galaxies two magnitudes fainter than it.
+    """
     results = assess_targets(night_window(REFERENCE_DATE, home), kit,
                              catalog=catalog)
     grouped = group_targets(results, limit_per_group=8, by="constellation",
                             sort="brightness")
 
     assert "Her" in grouped, "Hercules should have targets in September"
-    assert grouped["Her"][0].obj.messier == 13
+    deep_sky = [r for r in grouped["Her"] if r.obj.group != "Double Stars"]
+    assert deep_sky, "Hercules should have deep-sky targets in September"
+    assert deep_sky[0].obj.messier == 13
 
 
 @requires_ephemeris
