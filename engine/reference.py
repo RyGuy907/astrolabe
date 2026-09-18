@@ -48,7 +48,7 @@ throughout and formatted for display in `web/src/format.ts`.
 
 from __future__ import annotations
 
-import math
+import dataclasses
 from dataclasses import dataclass
 
 
@@ -66,6 +66,9 @@ class DeepSkyFacts:
     #: One line of what the object actually is, where the type label alone
     #: undersells it ("G" for the Andromeda Galaxy, say).
     note: str | None = None
+    #: Physical diameter in light years. Quoted, not derived -- see
+    #: `_DIAMETER_LY` for why the obvious calculation is worse than it looks.
+    diameter_ly: float | None = None
 
 
 @dataclass(frozen=True)
@@ -366,36 +369,72 @@ NGC_FACTS: dict[str, DeepSkyFacts] = {
 }
 
 
-def physical_diameter_ly(distance_ly: float | None,
-                         angular_size_arcmin: float | None) -> float | None:
-    """How big the object actually is, from how far away and how big it looks.
+#: Physical diameters in light years, keyed like the tables above.
+#:
+#: **Why these are quoted rather than calculated.** Distance times apparent
+#: size is one line of trigonometry and it was the first implementation. The
+#: trouble is the apparent size: a catalogue diameter is an *isophotal*
+#: extent, measured out to whatever surface brightness that survey chose to
+#: cut at, and that is not the object's physical edge. It came out around 30%
+#: low across the board -- M31 at 131,000 ly against an accepted 152,000, M13
+#: at 107 against 145 -- and worst where it would be noticed most: the
+#: Pleiades at 19 ly, because the catalogued 150 arcminutes is the bright core
+#: and the cluster carries on well past it.
+#:
+#: Since the distance beside it is already a quoted value, deriving the
+#: diameter from a number that means something slightly different was the
+#: odd one out. These are the accepted figures.
+#:
+#: **Gaps are the honest part.** Roughly half the list has no entry, and that
+#: is not laziness: "the diameter" of a globular cluster depends on whether
+#: you mean the core, the half-mass radius or the tidal radius, and an
+#: emission nebula simply fades out. Where sources disagree by more than they
+#: agree, there is no row rather than a number picked from among them.
+_DIAMETER_LY: dict[int | str, float] = {
+    # Messier
+    1: 11, 2: 175, 3: 180, 4: 75, 5: 165, 6: 12, 7: 25, 8: 110,
+    9: 90, 10: 83, 11: 22, 12: 75, 13: 145, 14: 100, 15: 175, 16: 70,
+    17: 40, 18: 17, 19: 140, 20: 42, 21: 13, 22: 97, 23: 15, 24: 600,
+    25: 19, 26: 22, 27: 2.9, 28: 60, 29: 11, 30: 93,
+    31: 152_000, 32: 6_500, 33: 60_000, 34: 14, 35: 24, 36: 14, 37: 25,
+    38: 25, 39: 7, 41: 25, 42: 24, 44: 16, 45: 13, 46: 30, 47: 12,
+    48: 23, 50: 18, 51: 76_000, 52: 19, 53: 220, 54: 300, 55: 100, 56: 84,
+    57: 1.0, 62: 100, 63: 98_000, 64: 54_000, 65: 90_000, 66: 95_000,
+    67: 10, 68: 106, 69: 85, 70: 68, 71: 27, 72: 106, 75: 130,
+    77: 170_000, 78: 5, 79: 118, 80: 96, 81: 90_000, 82: 37_000,
+    83: 55_000, 87: 240_000, 92: 109, 93: 20, 94: 50_000, 95: 46_000,
+    96: 66_000, 101: 170_000, 103: 15, 104: 49_000, 106: 80_000, 107: 79,
+    110: 17_000,
+    # Non-Messier showpieces
+    "NGC0869": 70, "NGC0884": 70, "NGC0457": 30,
+    "NGC0104": 120, "NGC5139": 150,
+    "NGC7000": 100, "NGC6960": 110, "NGC6992": 110, "NGC7293": 2.9,
+    "NGC2238": 130, "NGC1499": 100, "NGC7635": 7, "NGC6888": 25,
+    "NGC7023": 6, "NGC2359": 30, "NGC2070": 650,
+    "NGC0253": 70_000, "NGC5128": 60_000, "NGC4565": 100_000,
+    "NGC4631": 140_000, "NGC0891": 100_000, "NGC2903": 80_000,
+    "NGC3628": 100_000, "NGC6946": 40_000,
+    "NGC0292": 7_000, "ESO056-115": 14_000,
+}
 
-    Small-angle geometry and nothing more: `distance * angle in radians`. At
-    these angles the error from not using `2 * d * tan(theta/2)` is far below
-    the noise in either input.
 
-    **What limits this is the angular size, not the arithmetic.** A catalogue
-    diameter is an isophotal extent -- how wide the object is down to some
-    brightness cut -- and different surveys cut in different places. Checked
-    against accepted values it lands within about 30%: M31 at 131,000 ly
-    against ~152,000, M27 at 2.7 against ~2.9, M57 at 0.8 against ~1. The
-    Pleiades is the worst case at 19 ly against a true extent nearer 43,
-    because the catalogued 150 arcminutes is the bright core and the cluster
-    goes on well past it.
+def _with_diameters(table: dict) -> dict:
+    """Fold `_DIAMETER_LY` into a facts table once, at import.
 
-    So this is an order-of-magnitude answer, and the UI says "about". It is
-    still worth showing: that the Ring Nebula is about a light year across
-    while M31 is a hundred thousand is the thing a reader wants, and neither
-    number is available anywhere else on the page.
-
-    Returns None when either input is missing, which is most of the catalogue
-    -- distance is curated and only the showpieces have one.
+    Kept as a separate table in the source because a diameter and a discovery
+    credit come from different references and reading them in one line makes
+    neither easy to check; merged here so every lookup has one shape.
     """
-    if distance_ly is None or not angular_size_arcmin:
-        return None
-    if distance_ly <= 0 or angular_size_arcmin <= 0:
-        return None
-    return distance_ly * math.radians(angular_size_arcmin / 60.0)
+    merged = {}
+    for key, facts in table.items():
+        diameter = _DIAMETER_LY.get(key)
+        merged[key] = (dataclasses.replace(facts, diameter_ly=diameter)
+                       if diameter is not None else facts)
+    return merged
+
+
+MESSIER_FACTS = _with_diameters(MESSIER_FACTS)
+NGC_FACTS = _with_diameters(NGC_FACTS)
 
 
 def deep_sky_facts(name: str, messier: int | None) -> DeepSkyFacts | None:

@@ -229,11 +229,10 @@ class TargetModel(BaseModel):
     )
     diameter_ly: float | None = Field(
         default=None,
-        description="Roughly how big the object actually is, in light years: "
-                    "distance times apparent size. Present only where both "
-                    "are known, and an order-of-magnitude answer -- the "
-                    "catalogue's angular size is an isophotal extent, so the "
-                    "Pleiades comes out at 19 ly against a true 43.",
+        description="How big the object actually is, in light years. A quoted "
+                    "value from engine/reference.py, not derived from the "
+                    "catalogue's angular size -- that is an isophotal extent "
+                    "and came out around 30% low.",
     )
     discovered_by: str | None = None
     discovered_year: int | None = Field(

@@ -53,23 +53,20 @@ export function formatLightYears(ly: number): string {
 }
 
 /**
- * A physical diameter in light years, with the precision the number deserves.
+ * A physical diameter in light years.
  *
- * Derived from distance times apparent size, and the apparent size is an
- * isophotal extent, so this is good to roughly 30%. Rounding hard is the
- * honest presentation: "about 130,000 ly" rather than "131,391 ly", which
- * would imply six significant figures nobody has.
+ * No "about" and no rounding beyond what the source states. These are quoted
+ * accepted values, not the distance-times-apparent-size calculation they
+ * replaced: that came out around 30% low, because a catalogue's angular size
+ * is an isophotal extent rather than the object's edge, and it needed the
+ * hedge. A quoted figure does not.
  */
 export function formatTrueSize(ly: number): string {
-  if (ly >= 1_000_000) return `~${(ly / 1_000_000).toFixed(1)} million ly`;
-  if (ly >= 1000) {
-    // Two significant figures: 131,391 -> 130,000.
-    const magnitude = 10 ** (Math.floor(Math.log10(ly)) - 1);
-    return `~${(Math.round(ly / magnitude) * magnitude).toLocaleString("en-GB")} ly`;
-  }
-  if (ly >= 10) return `~${ly.toFixed(0)} ly`;
-  if (ly >= 1) return `~${ly.toFixed(1)} ly`;
-  return `~${ly.toFixed(2)} ly`;
+  if (ly >= 1_000_000) return `${(ly / 1_000_000).toFixed(1)} million ly`;
+  if (ly >= 1000) return `${Math.round(ly).toLocaleString("en-GB")} ly`;
+  if (ly >= 10) return `${ly.toFixed(0)} ly`;
+  if (ly >= 1) return `${ly.toFixed(1)} ly`;
+  return `${ly.toFixed(2)} ly`;
 }
 
 /** An angular size in arcminutes, dropping to arcseconds when that reads better. */

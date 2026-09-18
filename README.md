@@ -426,19 +426,19 @@ wrong by a factor of 4,600 beside a photograph is worse than no number, so
 `engine/reference.py` holds quoted values and anything without one shows no
 distance.
 
-**True size comes free once distance is known.** Distance times apparent size
-is how big the thing actually is — the Ring Nebula about a light year across,
-M31 about 130,000 — and neither number appears anywhere else on the page. It
-is computed in the engine (`physical_diameter_ly`), because small-angle
-geometry is astronomy and the API stays a thin adapter.
+**True size is quoted too, and that was a correction.** The first version
+multiplied distance by apparent size — one line of trigonometry, and about 30%
+low across the board, because a catalogue diameter is an *isophotal* extent cut
+at whatever surface brightness that survey chose, not the object's edge. M31
+came out at 131,000 ly against an accepted 152,000 and the Pleiades at 19
+against 43. With the distance beside it already a quoted value, the calculated
+one was the odd one out. Both are now stated figures.
 
-What limits it is the angular size, not the arithmetic: a catalogue diameter
-is an isophotal extent, cut at whatever brightness the survey chose. Checked
-against accepted values it lands within about 30% — M31 at 131,000 ly against
-~152,000, M27 at 2.7 against ~2.9 — with the Pleiades the worst case at 19 ly
-against a true 43, because the catalogued 150 arcminutes is the bright core and
-the cluster goes on well past it. So the UI writes "about", rounds to two
-significant figures, and does not pretend to six.
+The rule that fell out of it: **compute only what depends on the night.** Where
+you are, when you are out, the weather and the Moon all change the answer, so
+rise and set times, hours above the horizon, scores and visibility are all
+computed per request. What an object *is* — how far, how big, who found it —
+does not change, and is data.
 
 That file covers the showpieces — the objects anyone actually opens — plus the
 planets. The other twelve thousand entries get what the catalogue genuinely

@@ -839,9 +839,9 @@ def test_targets_carry_their_reference_facts(client):
 
     m13 = rows[13]
     assert m13["distance_ly"] == pytest.approx(22200)
-    # Distance times apparent size, computed in the engine rather than in the
-    # browser: it is geometry, and PLAN.md 4 keeps the adapter thin.
-    assert 80 <= m13["diameter_ly"] <= 200
+    # A quoted value, not distance times apparent size: that came out at 107
+    # for M13 because the catalogued 16.5 arcminutes is the bright core.
+    assert m13["diameter_ly"] == pytest.approx(145)
     assert m13["discovered_by"] == "Edmond Halley"
     assert m13["discovered_year"] == 1714
     assert m13["about"]

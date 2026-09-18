@@ -18,11 +18,11 @@ import pytest
 
 from engine.catalog.loader import load_catalog
 from engine.reference import (
+    _DIAMETER_LY,
     MESSIER_FACTS,
     NGC_FACTS,
     PLANET_FACTS,
     deep_sky_facts,
-    physical_diameter_ly,
     planet_facts,
 )
 from engine.showpieces import showpiece_ids
@@ -183,64 +183,72 @@ def test_planet_lookup_is_case_and_space_insensitive():
     assert planet_facts("moon") is None
 
 
-# --- true size: distance times apparent size --------------------------------
+# --- true size -------------------------------------------------------------
+#
+# Quoted, not derived. The first version multiplied distance by apparent size,
+# which is one line of trigonometry and about 30% low across the board: a
+# catalogue diameter is an isophotal extent, cut at whatever brightness the
+# survey chose, not the object's edge. M31 came out at 131,000 ly against an
+# accepted 152,000 and the Pleiades at 19 against 43. Since the distance
+# beside it was already a quoted value, the calculated one was the odd one
+# out.
 
-def test_the_small_angle_geometry_is_right():
-    """One radian at one light year is one light year across."""
-    import math
-
-    assert physical_diameter_ly(1.0, math.degrees(1.0) * 60) == pytest.approx(1.0)
-    # Halve the distance, halve the size; double the angle, double the size.
-    assert physical_diameter_ly(100, 10) == pytest.approx(
-        2 * physical_diameter_ly(50, 10))
-    assert physical_diameter_ly(100, 20) == pytest.approx(
-        2 * physical_diameter_ly(100, 10))
-
-
-@pytest.mark.parametrize("messier,accepted_ly,tolerance", [
-    (31, 152_000, 0.35),     # Andromeda
-    (27, 2.9, 0.35),         # Dumbbell
-    (57, 1.0, 0.40),         # Ring
-    (1, 11, 0.45),           # Crab
-    (13, 145, 0.40),         # Hercules cluster
+@pytest.mark.parametrize("messier,expected", [
+    (31, 152_000),    # Andromeda
+    (13, 145),        # Hercules cluster
+    (42, 24),         # Orion Nebula
+    (57, 1.0),        # Ring Nebula
+    (45, 13),         # Pleiades
+    (27, 2.9),        # Dumbbell
 ])
-def test_computed_sizes_land_near_the_accepted_ones(catalog, messier,
-                                                    accepted_ly, tolerance):
-    """Loose bounds on purpose.
-
-    The limit is not the arithmetic, it is what a catalogue's angular size
-    means: an isophotal extent, cut at whatever brightness the survey chose.
-    These are order-of-magnitude checks that catch a unit slip -- arcminutes
-    read as degrees would be 60x out -- not a claim to precision.
-    """
-    obj = next(o for o in catalog if o.messier == messier)
-    computed = physical_diameter_ly(MESSIER_FACTS[messier].distance_ly,
-                                    obj.size_arcmin)
-    assert computed is not None
-    assert abs(computed - accepted_ly) / accepted_ly <= tolerance, (
-        f"M{messier}: computed {computed:,.1f} ly against an accepted "
-        f"{accepted_ly:,} ly"
-    )
+def test_landmark_diameters_are_the_accepted_values(messier, expected):
+    """Exact, because these are quoted rather than computed. A test that
+    allowed 30% either way would not notice the calculation creeping back."""
+    assert MESSIER_FACTS[messier].diameter_ly == pytest.approx(expected)
 
 
-def test_a_missing_input_yields_no_answer():
-    """Most of the catalogue has no curated distance, and the UI drops the row
-    on None. A zero or a NaN would be printed."""
-    assert physical_diameter_ly(None, 10) is None
-    assert physical_diameter_ly(1000, None) is None
-    assert physical_diameter_ly(1000, 0) is None
-    assert physical_diameter_ly(0, 10) is None
-    assert physical_diameter_ly(-5, 10) is None
+def test_diameters_are_merged_into_both_tables(catalog):
+    """`_DIAMETER_LY` is a separate table in the source -- a diameter and a
+    discovery credit come from different references and reading them on one
+    line makes neither checkable -- and folded in at import. If the fold
+    breaks, every lookup silently loses the field."""
+    assert MESSIER_FACTS[31].diameter_ly is not None
+    assert NGC_FACTS["NGC5139"].diameter_ly is not None
+
+    andromeda = next(o for o in catalog if o.messier == 31)
+    assert deep_sky_facts(andromeda.name, 31).diameter_ly == 152_000
 
 
-def test_no_showpiece_gets_an_absurd_size(catalog):
-    """Nothing in a visual catalogue is smaller than a solar system or larger
-    than a galaxy cluster. A unit error would blow straight through both."""
-    for obj in catalog:
-        facts = deep_sky_facts(obj.name, obj.messier)
-        if facts is None:
-            continue
-        size = physical_diameter_ly(facts.distance_ly, obj.size_arcmin)
-        if size is None:
-            continue
-        assert 0.001 <= size <= 2_000_000, f"{obj.name}: {size} ly across"
+def test_every_diameter_key_matches_a_facts_entry():
+    """A key with no matching object is dead data that looks alive."""
+    orphans = [key for key in _DIAMETER_LY
+               if key not in MESSIER_FACTS and key not in NGC_FACTS]
+    assert not orphans, f"diameters keyed to nothing: {orphans}"
+
+
+def test_no_diameter_is_absurd():
+    """A unit slip -- parsecs for light years, or a stray factor of a
+    thousand -- would still look like a number."""
+    for key, value in _DIAMETER_LY.items():
+        assert 0.1 <= value <= 1_000_000, f"{key}: {value} ly across"
+
+
+def test_a_diameter_never_appears_without_a_distance():
+    """They come from the same references. One without the other means one of
+    them was transcribed against the wrong object."""
+    for table in (MESSIER_FACTS, NGC_FACTS):
+        for key, facts in table.items():
+            if facts.diameter_ly is not None:
+                assert facts.distance_ly is not None, (
+                    f"{key} has a diameter but no distance"
+                )
+
+
+def test_a_diameter_is_never_larger_than_its_distance():
+    """Not a precision check -- a crude one. Nothing in this catalogue
+    subtends anything like a radian, so a diameter exceeding its own distance
+    means the two were transcribed in different units."""
+    for table in (MESSIER_FACTS, NGC_FACTS):
+        for key, facts in table.items():
+            if facts.diameter_ly and facts.distance_ly:
+                assert facts.diameter_ly < facts.distance_ly, key
