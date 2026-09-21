@@ -315,7 +315,12 @@ export interface FinderChartModel {
   at: string;
   orientation: "sky" | "north";
   radius_deg: number;
+  /** The field's default faintest star. */
   limiting_mag: number;
+  /** The faintest star included; a density control can show down to it. */
+  max_mag: number;
+  /** A wide "where is this in the sky" view rather than a hopping chart. */
+  overview: boolean;
   center_alt_deg: number;
   center_az_deg: number;
   stars: ChartPointModel[];
@@ -323,6 +328,8 @@ export interface FinderChartModel {
   objects: ChartPointModel[];
   horizon: [number, number][];
   directions: ChartPointModel[];
+  /** Constellation names at their label positions (overview only). */
+  constellations: ChartPointModel[];
 }
 
 export interface MoonFactsModel {

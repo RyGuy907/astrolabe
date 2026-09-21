@@ -2077,3 +2077,33 @@ button.left-tab { background: rgba(255, 255, 255, 0.05); border-radius: 999px; }
 :root[data-night-vision="on"] .finder-figure svg {
   filter: grayscale(1) sepia(1) hue-rotate(-28deg) saturate(4) brightness(0.9);
 }
+
+/* Finder layers and density. */
+.finder-layers { gap: 6px; }
+.finder-layer {
+  border: none;
+  border-radius: 999px;
+  padding: 5px 12px;
+  font: inherit;
+  font-size: 0.78rem;
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--muted-text);
+  cursor: pointer;
+}
+.finder-layer.on { background: rgba(255, 255, 255, 0.14); color: var(--text); }
+.finder-density {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
+  font-size: 0.72rem;
+  color: var(--muted-text);
+}
+.finder-density input { width: 130px; accent-color: var(--accent); }
+.finder-leader { stroke: rgba(160, 170, 200, 0.45); stroke-width: 0.8; }
+.finder-target-label { fill: #ff8a7e; font-weight: 600; }
+.finder-constellation-label {
+  fill: rgba(140, 170, 255, 0.75);
+  font-style: italic;
+  letter-spacing: 0.04em;
+}

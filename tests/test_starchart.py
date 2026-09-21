@@ -117,3 +117,34 @@ def test_chart_times_are_aware_utc():
 def test_a_bad_orientation_is_refused():
     with pytest.raises(ValueError):
         finder_chart(*M13, UTAH, EVENING, orientation="south")
+
+
+@requires_ephemeris
+def test_the_sky_overview_shows_only_the_major_constellations():
+    """Past 20 degrees the chart is 'where is this in the sky': the figures
+    and names of rank 1-2 constellations only, and bright stars."""
+    from engine.starchart import OVERVIEW_MAX_RANK, _figures
+
+    chart = finder_chart(*M13, UTAH, EVENING, radius_deg=45)
+    assert chart.overview
+    names = {c.label for c in chart.constellations}
+    assert {"Hercules", "Lyra", "Boötes"} <= names
+    minor = {f["name"] for f in _figures().values() if f["rank"] > OVERVIEW_MAX_RANK}
+    assert not names & minor                   # no Sagitta, no Vulpecula
+    assert chart.limiting_mag <= 4.0
+    # And a hopping chart is not an overview and names nothing.
+    hop = finder_chart(*M13, UTAH, EVENING, radius_deg=10)
+    assert not hop.overview and not hop.constellations
+
+
+@requires_ephemeris
+def test_the_chart_carries_fainter_stars_for_the_density_control():
+    """The client thins or thickens the field without asking again, so the
+    chart arrives deeper than its default -- never past the catalogue."""
+    chart = finder_chart(*M13, UTAH, EVENING, radius_deg=20)
+    assert chart.max_mag == pytest.approx(chart.limiting_mag + 1.5)
+    assert max(s.mag for s in chart.stars) > chart.limiting_mag
+    narrow = finder_chart(*M13, UTAH, EVENING, radius_deg=5)
+    assert narrow.max_mag == 8.0                # capped at the catalogue
+    shallow = finder_chart(*M13, UTAH, EVENING, radius_deg=20, extra_mag=0)
+    assert max(s.mag for s in shallow.stars) <= shallow.limiting_mag

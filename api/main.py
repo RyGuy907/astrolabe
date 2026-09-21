@@ -1041,7 +1041,11 @@ def get_finder(location: str | None = None,
                    None, description="moon or a planet, instead of a target."),
                at: str = Query(..., description="ISO-8601 UTC instant to draw the sky at."),
                radius: float = Query(10.0, ge=1.0, le=45.0,
-                                     description="Half-width of the field, degrees."),
+                                     description="Half-width of the field, degrees. "
+                                                 "Over 20 is an overview."),
+               depth: float = Query(1.5, ge=0.0, le=3.0,
+                                    description="Magnitudes fainter than the field's "
+                                                "default to include."),
                orientation: str = Query("sky", pattern="^(sky|north)$"),
                ) -> FinderChartModel:
     """A finder chart around a target or body, for star hopping.
@@ -1086,19 +1090,21 @@ def get_finder(location: str | None = None,
 
     chart = finder_chart(ra, dec, site, when, radius_deg=radius,
                          orientation=orientation, nearby_positions=nearby,
-                         exclude_body=exclude)
+                         exclude_body=exclude, extra_mag=depth)
     point = lambda p: ChartPointModel(x=p.x, y=p.y, label=p.label, mag=p.mag, kind=p.kind)
     return FinderChartModel(
         target=subject,
         center_ra_deg=chart.center_ra_deg, center_dec_deg=chart.center_dec_deg,
         at=chart.at_utc, orientation=chart.orientation, radius_deg=chart.radius_deg,
-        limiting_mag=chart.limiting_mag,
+        limiting_mag=chart.limiting_mag, max_mag=chart.max_mag,
+        overview=chart.overview,
         center_alt_deg=chart.center_alt_deg, center_az_deg=chart.center_az_deg,
         stars=[point(p) for p in chart.stars],
         lines=chart.lines,
         objects=[point(p) for p in chart.objects],
         horizon=chart.horizon,
         directions=[point(p) for p in chart.directions],
+        constellations=[point(p) for p in chart.constellations],
     )
 
 

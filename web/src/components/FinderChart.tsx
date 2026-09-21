@@ -3,11 +3,17 @@
  *
  * Opens as a tab over the altitude chart. The engine lays everything out --
  * `/api/finder` returns chart units, degrees on the tangent plane with the
- * target at the origin -- so this component only scales and draws.
+ * target at the origin -- so this component scales, filters and draws.
  *
  * Defaults to the sky *as seen from the site* at the target's best time:
  * zenith up, so the chart can be held against the sky without turning it.
  * North-up is one click away for anyone working from an atlas.
+ *
+ * Four fields: 10, 20 and 40 degrees for hopping, and "Sky", a 90-degree
+ * overview of where the target sits among the major constellations. Layers
+ * -- constellations, star names, other objects -- can be switched off, and a
+ * density slider shows fewer or more faint stars without a new request: the
+ * chart arrives 1.5 magnitudes deeper than its default.
  *
  * The Telrad rings -- 0.5, 2 and 4 degrees -- are the standard star-hopping
  * reticle, and what printed finder charts overlay for the same reason: point
@@ -15,9 +21,10 @@
  */
 
 import { useEffect, useMemo, useState } from "react";
-import { api, ApiError, type ChartPointModel, type FinderChartModel } from "../api";
+import { api, ApiError, type FinderChartModel } from "../api";
 import { formatTime } from "../format";
 import { BODY_COLORS } from "./AltitudeChart";
+import { placeLabels, type LabelRequest } from "./labels";
 
 /** What the chart is of: a catalogue object or a solar-system body. */
 export interface FinderSubject {
@@ -43,18 +50,50 @@ const FIELDS: { radius: number; label: string; hint: string }[] = [
   { radius: 5, label: "10°", hint: "Finder scope" },
   { radius: 10, label: "20°", hint: "Binoculars and the Telrad" },
   { radius: 20, label: "40°", hint: "The region, by eye" },
+  { radius: 45, label: "Sky", hint: "Where it is among the major constellations" },
 ];
 
-/** On-screen size the SVG is drawn for; everything below scales from it. */
+/** The layers that can be switched off. */
+type Layer = "constellations" | "names" | "objects";
+const LAYERS: { key: Layer; label: string }[] = [
+  { key: "constellations", label: "Constellations" },
+  { key: "names", label: "Star names" },
+  { key: "objects", label: "Other objects" },
+];
+
+/** On-screen size the SVG is drawn for; everything scales from it. */
 const VIEW_PX = 560;
 const STEP_MS = 30 * 60_000;
-
 const TELRAD_RINGS = [0.5, 2, 4];
+/** The density slider's reach: fewer stars down to this, more up to depth. */
+const FEWER_MAG = 2.0;
+/** Stars at least this bright get a name when they have one: every named
+ *  star a hop might use on a hopping chart, only the major ones on the
+ *  whole-sky overview, which is about the shape of the sky. */
+const NAMED_BRIGHTER_THAN = 4.6;
+const NAMED_BRIGHTER_THAN_OVERVIEW = 2.5;
 
 function compass(az: number): string {
   const names = ["N", "NNE", "NE", "ENE", "E", "ESE", "SE", "SSE",
                  "S", "SSW", "SW", "WSW", "W", "WNW", "NW", "NNW"];
   return names[Math.round((((az % 360) + 360) % 360) / 22.5) % 16];
+}
+
+/** A per-browser preference: read once, guarded, since storage can throw. */
+function stored<T>(key: string, fallback: T): T {
+  try {
+    const raw = window.localStorage.getItem(key);
+    return raw === null ? fallback : (JSON.parse(raw) as T);
+  } catch {
+    return fallback;
+  }
+}
+function store(key: string, value: unknown) {
+  try {
+    window.localStorage.setItem(key, JSON.stringify(value));
+  } catch {
+    /* a display preference is not worth breaking the page over */
+  }
 }
 
 export function FinderChart({ subject, location, timeZone, nightStart, nightEnd }: Props) {
@@ -63,6 +102,15 @@ export function FinderChart({ subject, location, timeZone, nightStart, nightEnd 
   const [at, setAt] = useState(subject.at);
   const [chart, setChart] = useState<FinderChartModel | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [layers, setLayers] = useState<Record<Layer, boolean>>(() =>
+    stored("astro:finder-layers",
+           { constellations: true, names: true, objects: true }));
+  //: The density slider, as magnitudes relative to the field's default, so
+  //: a setting carries sensibly from one field to another.
+  const [density, setDensity] = useState<number>(() => stored("astro:finder-density", 0));
+
+  useEffect(() => store("astro:finder-layers", layers), [layers]);
+  useEffect(() => store("astro:finder-density", density), [density]);
 
   // A new subject starts at its own best time.
   useEffect(() => setAt(subject.at), [subject.id, subject.at]);
@@ -93,24 +141,84 @@ export function FinderChart({ subject, location, timeZone, nightStart, nightEnd 
   // unit, and Chrome renders text that small -- then scaled up 28 times --
   // with broken hinting: glyphs doubled and overlapping.
   const R = chart?.radius_deg ?? radius;
-  const k = VIEW_PX / 2 / R;                       // pixels per degree
+  const k = VIEW_PX / 2 / R;
   const X = (x: number) => VIEW_PX / 2 + x * k;
-  const Y = (y: number) => VIEW_PX / 2 - y * k;    // chart +y is up
+  const Y = (y: number) => VIEW_PX / 2 - y * k;
+
+  // The faintest star shown: the field's default moved by the slider, never
+  // past what the chart carries.
+  const limit = chart
+    ? Math.min(chart.max_mag, Math.max(chart.limiting_mag - FEWER_MAG,
+                                       chart.limiting_mag + density))
+    : 0;
 
   const stars = useMemo(() => {
     if (!chart) return [];
-    const faint = chart.limiting_mag;
-    return chart.stars.map((s) => ({
-      ...s,
-      // Each magnitude brighter reads as a clearly larger dot, without the
-      // brightest swamping the field.
-      r: Math.max(0.7, Math.min(7, 0.9 + (faint - (s.mag ?? faint)) * 0.95)),
-    }));
-  }, [chart]);
+    return chart.stars
+      .filter((s) => (s.mag ?? 99) <= limit)
+      .map((s) => ({
+        ...s,
+        px: X(s.x),
+        py: Y(s.y),
+        // Each magnitude brighter reads as a clearly larger dot, without the
+        // brightest swamping the field. Sized against the shown limit, so
+        // thinning the field does not shrink what is left.
+        r: Math.max(0.7, Math.min(7, 0.9 + (limit - (s.mag ?? limit)) * 0.95)),
+      }));
+  // X and Y are pure functions of k.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [chart, limit, k]);
+
+  const labels = useMemo(() => {
+    if (!chart) return [];
+    const requests: LabelRequest[] = [{
+      text: chart.target.replace(/\s*\(.*\)$/, ""),
+      x: VIEW_PX / 2, y: VIEW_PX / 2, r: 10, size: 11.5, priority: 0,
+      className: "finder-target-label", optional: false,
+    }];
+    if (layers.objects) {
+      for (const o of chart.objects) {
+        const body = o.kind in BODY_COLORS;
+        // The overview is major constellations and bright stars; deep-sky
+        // neighbours there are clutter. Planets stay: they are bright.
+        if (chart.overview && !body) continue;
+        requests.push({
+          text: o.label.replace(/\s*\(.*\)$/, ""), x: X(o.x), y: Y(o.y), r: 6,
+          size: 10, priority: body ? 1 : 3, className: "finder-object-label",
+          optional: !body,
+        });
+      }
+    }
+    if (layers.constellations) {
+      for (const c of chart.constellations) {
+        requests.push({
+          text: c.label, x: X(c.x), y: Y(c.y), r: 0, size: 11, priority: 2,
+          className: "finder-constellation-label", optional: true,
+        });
+      }
+    }
+    if (layers.names) {
+      for (const s of stars) {
+        if (!s.label || (s.mag ?? 99) >
+            (chart.overview ? NAMED_BRIGHTER_THAN_OVERVIEW : NAMED_BRIGHTER_THAN)) continue;
+        requests.push({
+          text: s.label, x: s.px, y: s.py, r: s.r, size: 10,
+          priority: 10 + (s.mag ?? 10), className: "finder-star-label",
+          optional: true,
+        });
+      }
+    }
+    // Labels keep clear of bright stars as well as of each other.
+    const obstacles = stars.filter((s) => s.r >= 2.4)
+      .map((s) => ({ x: s.px, y: s.py, r: s.r + 1 }));
+    return placeLabels(requests, obstacles, VIEW_PX, VIEW_PX);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [chart, stars, layers, k]);
 
   const below = chart && chart.center_alt_deg < 0;
   const poly = (pts: [number, number][]) =>
     pts.map(([x, y]) => `${X(x).toFixed(1)},${Y(y).toFixed(1)}`).join(" ");
+  const shown = stars.length;
 
   return (
     <div className="finder">
@@ -142,6 +250,25 @@ export function FinderChart({ subject, location, timeZone, nightStart, nightEnd 
         </div>
       </div>
 
+      <div className="finder-controls finder-layers">
+        {LAYERS.map((l) => (
+          <button key={l.key} className={`finder-layer ${layers[l.key] ? "on" : ""}`}
+                  aria-pressed={layers[l.key]}
+                  onClick={() => setLayers({ ...layers, [l.key]: !layers[l.key] })}>
+            {l.label}
+          </button>
+        ))}
+        <label className="finder-density" title="How faint a star to show">
+          <span>Fewer</span>
+          <input type="range" min={-FEWER_MAG}
+                 max={chart ? chart.max_mag - chart.limiting_mag : 1.5}
+                 step={0.1} value={density}
+                 onChange={(e) => setDensity(Number(e.target.value))}
+                 aria-label="Star density" />
+          <span>More</span>
+        </label>
+      </div>
+
       {error && <p className="warning">{error}</p>}
 
       <figure className="finder-figure">
@@ -166,27 +293,24 @@ export function FinderChart({ subject, location, timeZone, nightStart, nightEnd 
               />
             )}
 
-            {chart?.lines.map((run, i) => (
+            {layers.constellations && chart?.lines.map((run, i) => (
               <polyline key={i} className="finder-line" strokeWidth={1.1}
                         points={poly(run)} />
             ))}
 
             {stars.map((s, i) => (
-              <circle key={i} cx={X(s.x)} cy={Y(s.y)} r={s.r} className="finder-star" />
-            ))}
-            {stars.filter((s) => s.label && (s.mag ?? 99) <= 4.6).map((s, i) => (
-              <text key={i} x={X(s.x) + s.r + 3} y={Y(s.y) + 3.5}
-                    className="finder-star-label" fontSize={10.5}>
-                {s.label}
-              </text>
+              <circle key={i} cx={s.px} cy={s.py} r={s.r} className="finder-star" />
             ))}
 
-            {chart?.objects.map((o, i) => (
-              <ObjectMark key={i} point={o} cx={X(o.x)} cy={Y(o.y)} />
-            ))}
+            {layers.objects && chart?.objects
+              .filter((o) => !chart.overview || o.kind in BODY_COLORS)
+              .map((o, i) => (
+                <ObjectMark key={i} kind={o.kind} cx={X(o.x)} cy={Y(o.y)} />
+              ))}
 
-            {/* Telrad rings on the target. */}
-            {TELRAD_RINGS.filter((r) => r < R).map((r) => (
+            {/* Telrad rings on the target: a hopping aid, so not in the
+                whole-sky overview, where they would be specks. */}
+            {!chart?.overview && TELRAD_RINGS.filter((r) => r < R).map((r) => (
               <circle key={r} cx={VIEW_PX / 2} cy={VIEW_PX / 2} r={r * k}
                       className="finder-telrad" strokeWidth={1.2} />
             ))}
@@ -208,7 +332,6 @@ export function FinderChart({ subject, location, timeZone, nightStart, nightEnd 
                 {d.label}
               </text>
             ))}
-
             {chart?.orientation === "north" && (
               <>
                 <text x={VIEW_PX / 2} y={16} textAnchor="middle"
@@ -217,6 +340,19 @@ export function FinderChart({ subject, location, timeZone, nightStart, nightEnd 
                       className="finder-direction" fontSize={11}>E</text>
               </>
             )}
+
+            {labels.map((l, i) => (
+              <g key={i}>
+                {l.leader && (
+                  <line x1={l.leader[0]} y1={l.leader[1]} x2={l.leader[2]}
+                        y2={l.leader[3]} className="finder-leader" />
+                )}
+                <text x={l.lx} y={l.ly} textAnchor={l.anchor}
+                      className={l.className} fontSize={l.size}>
+                  {l.text}
+                </text>
+              </g>
+            ))}
           </g>
         </svg>
       </figure>
@@ -228,41 +364,25 @@ export function FinderChart({ subject, location, timeZone, nightStart, nightEnd 
                 ? <>below the horizon at {formatTime(chart.at, timeZone)}</>
                 : <>{Math.round(chart.center_alt_deg)}° up in the {compass(chart.center_az_deg)} at {formatTime(chart.at, timeZone)}</>)
             : <>north up, east left</>}
-          {" "}· stars to magnitude {chart.limiting_mag} · Telrad rings 0.5°, 2°, 4°
+          {" "}· {shown} stars to magnitude {limit.toFixed(1)}
+          {!chart.overview && <> · Telrad rings 0.5°, 2°, 4°</>}
         </p>
       )}
     </div>
   );
 }
 
-/** A neighbour on the chart: a deep-sky showpiece by type, or a body. */
-function ObjectMark({ point, cx, cy }: { point: ChartPointModel; cx: number; cy: number }) {
-  const body = BODY_COLORS[point.kind];
-  const label = (
-    <text x={cx + 8} y={cy + 3.5} className="finder-object-label" fontSize={10}>
-      {point.label}
-    </text>
-  );
-  if (body) {
-    return (
-      <g>
-        <circle cx={cx} cy={cy} r={4.5} fill={body} />
-        {label}
-      </g>
-    );
-  }
+/** A neighbour's mark: a deep-sky showpiece by type, or a body. */
+function ObjectMark({ kind, cx, cy }: { kind: string; cx: number; cy: number }) {
+  const body = BODY_COLORS[kind];
+  if (body) return <circle cx={cx} cy={cy} r={4.5} fill={body} />;
   const s = 5;
-  const shape = point.kind === "Galaxies"
+  const shape = kind === "Galaxies"
     ? <ellipse cx={cx} cy={cy} rx={s * 1.4} ry={s * 0.7} />
-    : point.kind === "Nebulae"
+    : kind === "Nebulae"
       ? <rect x={cx - s} y={cy - s} width={2 * s} height={2 * s} />
-      : point.kind === "Double Stars"
+      : kind === "Double Stars"
         ? <circle cx={cx} cy={cy} r={s * 0.6} />
         : <circle cx={cx} cy={cy} r={s} strokeDasharray="1.6 1.2" />;
-  return (
-    <g className="finder-object" strokeWidth={1.2}>
-      {shape}
-      {label}
-    </g>
-  );
+  return <g className="finder-object" strokeWidth={1.2}>{shape}</g>;
 }

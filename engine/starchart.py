@@ -52,7 +52,23 @@ NORTH_UP = "north"
 #: Faintest star drawn for a field of a given half-width. A wide field is for
 #: finding the region by eye, where magnitude 8 would bury the pattern; a
 #: narrow one is for the finder scope, which shows that faint.
-LIMITING_MAG = ((5.0, 8.0), (10.0, 7.2), (20.0, 6.2), (90.0, 5.5))
+LIMITING_MAG = ((5.0, 8.0), (10.0, 7.2), (20.0, 6.2), (45.0, 4.0), (90.0, 4.0))
+
+#: Past this half-width the chart is an overview -- "where is this in the
+#: sky" -- rather than a hopping chart: stereographic instead of gnomonic,
+#: and only the constellations people navigate by. Gnomonic keeps lines
+#: straight, which hopping needs, but stretches a 45-degree half-width field
+#: threefold at its corners; stereographic keeps shapes true across it.
+OVERVIEW_ABOVE_DEG = 20.0
+#: d3-celestial's rank 1 is the 22 most prominent constellations and rank 2
+#: the next 24 -- Hercules, Lyra, Draco, Corona Borealis among them, which a
+#: northern observer navigates by. Rank 3 is the faint rest.
+OVERVIEW_MAX_RANK = 2
+
+#: How much fainter than the field's default the chart carries, so a density
+#: control on the client can show more without asking again.
+DEFAULT_EXTRA_MAG = 1.5
+FAINTEST_STAR = 8.0
 
 #: The Moon and planets are placed on the chart when they are in the field,
 #: and the Sun is never charted: a finder chart is a night-time thing.
@@ -83,8 +99,14 @@ class FinderChart:
     #: the horizon then, which the display should say.
     center_alt_deg: float
     center_az_deg: float
+    #: The faintest star actually included: the default plus the extra
+    #: depth, capped at the catalogue's limit. `limiting_mag` is the default.
+    max_mag: float = 0.0
+    overview: bool = False
     stars: list[ChartPoint] = field(default_factory=list)
     lines: list[list[tuple[float, float]]] = field(default_factory=list)
+    #: Constellation names at their label positions, when in frame.
+    constellations: list[ChartPoint] = field(default_factory=list)
     objects: list[ChartPoint] = field(default_factory=list)
     #: The horizon as a polyline, "as seen" only, when it is in the frame.
     horizon: list[tuple[float, float]] = field(default_factory=list)
@@ -116,7 +138,8 @@ def _stars() -> tuple[np.ndarray, np.ndarray, np.ndarray, tuple[str, ...]]:
 
 
 @functools.lru_cache(maxsize=1)
-def _figures() -> dict[str, list[list[list[float]]]]:
+def _figures() -> dict[str, dict]:
+    """Per constellation: name, rank, label position and stick figure."""
     with open(DATA / "constellation_lines.json", encoding="utf-8") as fh:
         return json.load(fh)
 
@@ -125,6 +148,23 @@ def _unit(ra_deg, dec_deg) -> np.ndarray:
     ra, dec = np.radians(ra_deg), np.radians(dec_deg)
     return np.stack([np.cos(dec) * np.cos(ra), np.cos(dec) * np.sin(ra),
                      np.sin(dec)], axis=-1)
+
+
+def _stereographic(lon_deg, lat_deg, lon0_deg: float, lat0_deg: float):
+    """Stereographic tangent-plane coordinates in degrees, as `_gnomonic`.
+
+    Conformal, so shapes stay true across a wide field; scaled so that near
+    the centre it matches the gnomonic chart's degrees.
+    """
+    lon, lat = np.radians(lon_deg), np.radians(lat_deg)
+    lon0, lat0 = math.radians(lon0_deg), math.radians(lat0_deg)
+    cos_c = (math.sin(lat0) * np.sin(lat)
+             + math.cos(lat0) * np.cos(lat) * np.cos(lon - lon0))
+    k = 2.0 / np.maximum(1.0 + cos_c, 1e-6)
+    x = k * np.cos(lat) * np.sin(lon - lon0)
+    y = k * (math.cos(lat0) * np.sin(lat)
+             - math.sin(lat0) * np.cos(lat) * np.cos(lon - lon0))
+    return np.degrees(x), np.degrees(y), cos_c
 
 
 def _gnomonic(lon_deg, lat_deg, lon0_deg: float, lat0_deg: float):
@@ -147,8 +187,9 @@ class _Projector:
     """Places (ra, dec) points on the chart for one orientation and moment."""
 
     def __init__(self, location: Location, when: datetime, orientation: str,
-                 center_ra: float, center_dec: float):
+                 center_ra: float, center_dec: float, *, wide: bool = False):
         self.orientation = orientation
+        self._plane = _stereographic if wide else _gnomonic
         eph = load_ephemeris()
         self._observer = _observer(eph, location)
         self._t = eph.timescale.from_datetime(when)
@@ -169,16 +210,16 @@ class _Projector:
         ra, dec = np.asarray(ra, dtype=float), np.asarray(dec, dtype=float)
         if self.orientation == AS_SEEN:
             alt, az = self.altaz(ra, dec)
-            x, y, cos_c = _gnomonic(az, alt, self.center_az, self.center_alt)
+            x, y, cos_c = self._plane(az, alt, self.center_az, self.center_alt)
         else:
-            x, y, cos_c = _gnomonic(ra, dec, self.center_ra, self.center_dec)
+            x, y, cos_c = self._plane(ra, dec, self.center_ra, self.center_dec)
             x = -x                         # east to the left, looking up
         return x, y, cos_c > 1e-6
 
     def project_altaz(self, alt, az):
         """(x, y, visible) for horizon coordinates -- as-seen charts only."""
-        x, y, cos_c = _gnomonic(np.asarray(az), np.asarray(alt),
-                                self.center_az, self.center_alt)
+        x, y, cos_c = self._plane(np.asarray(az), np.asarray(alt),
+                                  self.center_az, self.center_alt)
         return x, y, cos_c > 1e-6
 
 
@@ -188,19 +229,27 @@ def finder_chart(center_ra_deg: float, center_dec_deg: float,
                  orientation: str = AS_SEEN,
                  nearby: list[ChartPoint] | None = None,
                  nearby_positions: list[tuple[float, float, str, str]] | None = None,
-                 exclude_body: str | None = None) -> FinderChart:
+                 exclude_body: str | None = None,
+                 extra_mag: float = DEFAULT_EXTRA_MAG) -> FinderChart:
     """The chart around (ra, dec) at `when` from `location`.
 
     `radius_deg` is the half-width of the square field. `nearby_positions`
     are other things worth marking -- deep-sky showpieces -- as
     (ra, dec, label, kind); they are kept when they fall in the frame.
     `exclude_body` leaves a body off when it is the chart's own subject.
+    `extra_mag` is how much fainter than the field's default to include.
+
+    Past OVERVIEW_ABOVE_DEG the chart is an overview: stereographic, only
+    the major constellations' figures, and their names.
     """
     when = ensure_utc(when, field="when")
     if orientation not in (AS_SEEN, NORTH_UP):
         raise ValueError(f"orientation must be {AS_SEEN!r} or {NORTH_UP!r}")
-    proj = _Projector(location, when, orientation, center_ra_deg, center_dec_deg)
+    overview = radius_deg > OVERVIEW_ABOVE_DEG
+    proj = _Projector(location, when, orientation, center_ra_deg, center_dec_deg,
+                      wide=overview)
     limit = limiting_mag_for(radius_deg)
+    deepest = min(FAINTEST_STAR, limit + max(0.0, extra_mag))
     # Anything within the square's corner distance might be in frame; the
     # square test after projection decides.
     reach = math.cos(math.radians(min(radius_deg * 1.5, 89.0)))
@@ -211,7 +260,7 @@ def finder_chart(center_ra_deg: float, center_dec_deg: float,
 
     # --- stars ---
     ra, dec, mag, labels = _stars()
-    candidate = (mag <= limit) & (_unit(ra, dec) @ center >= reach)
+    candidate = (mag <= deepest) & (_unit(ra, dec) @ center >= reach)
     idx = np.nonzero(candidate)[0]
     x, y, vis = proj.project(ra[idx], dec[idx])
     keep = in_frame(x, y, vis)
@@ -222,8 +271,17 @@ def finder_chart(center_ra_deg: float, center_dec_deg: float,
     # --- constellation figures: every segment with an end near the field ---
     lines: list[list[tuple[float, float]]] = []
     wide = math.cos(math.radians(min(radius_deg * 2.5, 89.0)))
-    for polylines in _figures().values():
-        for polyline in polylines:
+    constellations: list[ChartPoint] = []
+    for figure in _figures().values():
+        if overview and figure["rank"] > OVERVIEW_MAX_RANK:
+            continue
+        if overview and figure["label"]:
+            lx, ly, lvis = proj.project([figure["label"][0]], [figure["label"][1]])
+            if in_frame(lx, ly, lvis)[0]:
+                constellations.append(ChartPoint(
+                    x=round(float(lx[0]), 4), y=round(float(ly[0]), 4),
+                    label=figure["name"], kind="constellation"))
+        for polyline in figure["lines"]:
             pts = np.array(polyline)
             near = _unit(pts[:, 0], pts[:, 1]) @ center >= wide
             if not near.any():
@@ -287,7 +345,8 @@ def finder_chart(center_ra_deg: float, center_dec_deg: float,
         at_utc=when, orientation=orientation, radius_deg=radius_deg,
         limiting_mag=limit,
         center_alt_deg=float(proj.center_alt), center_az_deg=float(proj.center_az),
-        stars=stars, lines=lines, objects=objects,
+        max_mag=deepest, overview=overview,
+        stars=stars, lines=lines, objects=objects, constellations=constellations,
         horizon=horizon, directions=directions,
     )
 

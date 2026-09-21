@@ -382,7 +382,10 @@ class FinderChartModel(BaseModel):
     at: datetime
     orientation: str = Field(description="sky (as seen from the site) or north")
     radius_deg: float
-    limiting_mag: float
+    limiting_mag: float = Field(description="The field's default faintest star.")
+    max_mag: float = Field(description="The faintest star included; the client "
+                                       "may show down to it.")
+    overview: bool = False
     center_alt_deg: float
     center_az_deg: float
     stars: list[ChartPointModel]
@@ -390,6 +393,7 @@ class FinderChartModel(BaseModel):
     objects: list[ChartPointModel]
     horizon: list[tuple[float, float]]
     directions: list[ChartPointModel]
+    constellations: list[ChartPointModel] = []
 
 
 class MoonFactsModel(BaseModel):

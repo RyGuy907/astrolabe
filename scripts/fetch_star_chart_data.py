@@ -14,8 +14,11 @@ draws:
 * `engine/catalog/data/stars.csv` -- `ra;dec;mag;label` for 41,411 stars.
   `label` is the proper name where there is one, otherwise the Bayer letter
   with its constellation ("α Lyr"), otherwise empty.
-* `engine/catalog/data/constellation_lines.json` -- each constellation's
-  stick figure as a list of polylines of [ra, dec] in degrees.
+* `engine/catalog/data/constellation_lines.json` -- per constellation, its
+  name, d3-celestial's rank (1 the most prominent 22, 2 the next 24, 3 the
+  faint rest), a label position, and its stick figure as polylines of
+  [ra, dec] in degrees. The rank is what lets the whole-sky overview show
+  only the constellations people navigate by.
 
 d3-celestial stores longitude as -180..180; RA here is 0..360.
 
@@ -48,6 +51,7 @@ def main() -> int:
     stars = fetch("stars.8.json")["features"]
     names = fetch("starnames.json")
     lines = fetch("constellations.lines.json")["features"]
+    meta = {f["id"]: f for f in fetch("constellations.json")["features"]}
 
     rows = []
     for star in stars:
@@ -65,11 +69,18 @@ def main() -> int:
         writer.writerow(["ra", "dec", "mag", "label"])
         writer.writerows(rows)
 
-    figures = {
-        feature["id"]: [[[ra_of(lon), round(dec, 4)] for lon, dec in polyline]
-                        for polyline in feature["geometry"]["coordinates"]]
-        for feature in lines
-    }
+    figures = {}
+    for feature in lines:
+        info = meta.get(feature["id"], {})
+        props = info.get("properties", {})
+        label = info.get("geometry", {}).get("coordinates")
+        figures[feature["id"]] = {
+            "name": props.get("name", feature["id"]),
+            "rank": int(props.get("rank", feature["properties"].get("rank", 3))),
+            "label": [ra_of(label[0]), round(label[1], 4)] if label else None,
+            "lines": [[[ra_of(lon), round(dec, 4)] for lon, dec in polyline]
+                      for polyline in feature["geometry"]["coordinates"]],
+        }
     with open(OUT / "constellation_lines.json", "w", encoding="utf-8") as fh:
         json.dump(figures, fh, separators=(",", ":"), ensure_ascii=False)
 
