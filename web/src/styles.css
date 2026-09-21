@@ -474,13 +474,13 @@ button.secondary:not(:disabled):hover { border-color: var(--accent); }
   background: none;
   border: none;
   padding: 0;
-  color: var(--accent);
+  color: var(--muted-text);
   font: inherit;
   font-size: 0.66rem;
   cursor: pointer;
-  opacity: 0.85;
+  opacity: 0.6;
 }
-.legend-all:hover { opacity: 1; text-decoration: underline; }
+.legend-all:hover { opacity: 1; color: var(--text); }
 .chart-legend-label {
   flex: none;
   width: 96px;
@@ -1032,15 +1032,17 @@ table.targets tr.charted { background: rgba(244, 201, 93, 0.06); }
 .night-vision-toggle {
   display: inline-flex;
   align-items: center;
-  gap: 7px;
-  height: 28px;
-  padding: 0 11px 0 6px;
-  font-size: 0.78rem;
+  gap: 6px;
+  height: 24px;
+  padding: 0 9px 0 5px;
   background: rgba(255, 255, 255, 0.07);
   border: 1px solid transparent;
   border-radius: 999px;
-  color: var(--text);
+  color: var(--muted-text);
   font: inherit;
+  /* After the shorthand, which resets size: set before it, this was
+     silently back to 15px. */
+  font-size: 0.72rem;
   font-weight: 500;
   cursor: pointer;
   transition: background 0.18s ease;
@@ -1049,8 +1051,8 @@ table.targets tr.charted { background: rgba(244, 201, 93, 0.06); }
 .switch-track {
   position: relative;
   flex: none;
-  width: 26px;
-  height: 15px;
+  width: 22px;
+  height: 13px;
   border-radius: 999px;
   background: rgba(255, 255, 255, 0.18);
   transition: background 0.2s ease;
@@ -1059,15 +1061,15 @@ table.targets tr.charted { background: rgba(244, 201, 93, 0.06); }
   position: absolute;
   top: 2px;
   left: 2px;
-  width: 11px;
-  height: 11px;
+  width: 9px;
+  height: 9px;
   border-radius: 50%;
   background: var(--text);
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
   transition: transform 0.2s ease;
 }
 .night-vision-toggle[aria-checked="true"] .switch-track { background: var(--accent); }
-.night-vision-toggle[aria-checked="true"] .switch-thumb { transform: translateX(11px); }
+.night-vision-toggle[aria-checked="true"] .switch-thumb { transform: translateX(9px); }
 @media (prefers-reduced-motion: reduce) {
   .switch-track, .switch-thumb { transition: none; }
 }
@@ -1936,3 +1938,16 @@ main#main, .dashboard-skeleton { display: flex; flex-direction: column; gap: 36p
 @media (prefers-reduced-motion: reduce) {
   .skeleton-bar, .skeleton-block { animation: none; }
 }
+
+/* The site and date are the controls used every visit, so they get the size.
+   They were 34px and 36px -- not even matching -- beside a switch of the
+   same weight; now they are 40px and the switch is a small thing beside
+   them. */
+.controls .location-trigger,
+.controls .date-row input[type="date"] {
+  height: 40px;
+  font-size: 0.95rem;
+}
+.controls .location-trigger { padding: 0 16px; }
+.controls .date-row input[type="date"] { padding: 0 16px; }
+.controls .date-row button { width: 40px; height: 40px; }
