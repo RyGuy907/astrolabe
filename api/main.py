@@ -35,10 +35,10 @@ from engine.constellations import (assess_constellations, centroid,
                                    constellation_name)
 from engine.horizon import build as build_horizon
 from engine.locations import Location, LocationError, atlas_sqm_for
-from engine.planets import ALL_PLANETS, report_all
+from engine.planets import ALL_PLANETS, report_all, report_moon
 from engine.scoring import score_night, verdict
 from engine.session import dark_overlap_hours, resolve_session
-from engine.reference import deep_sky_facts, planet_facts
+from engine.reference import MOON_FACTS, deep_sky_facts, planet_facts
 from engine.showpieces import showpiece_ids
 from engine.targets import (
     DEFAULT_GROUP_LIMIT,
@@ -71,6 +71,8 @@ from .schemas import (
     SkyMarkModel,
     NightResponse,
     NightWindowModel,
+    MoonFactsModel,
+    MoonModel,
     PlanetFactsModel,
     PlanetModel,
     PlanetsResponse,
@@ -570,6 +572,7 @@ def get_planets(date_: str | None = Query(None, alias="date"),
 
     reports = report_all(site, window, min_altitude_deg=min_altitude,
                          find_next=find_next)
+    moon = report_moon(site, window, min_altitude_deg=min_altitude)
     return PlanetsResponse(
         date=night_date,
         location=_location_model(site),
@@ -596,6 +599,33 @@ def get_planets(date_: str | None = Query(None, alias="date"),
             )
             for r in reports
         ],
+        moon=MoonModel(
+            observable=moon.observable,
+            peak_altitude_deg=moon.peak_altitude_deg,
+            peak_time=moon.peak_time_utc,
+            hours_above_floor=moon.hours_above_floor,
+            magnitude=moon.magnitude,
+            apparent_diameter_arcsec=moon.apparent_diameter_arcsec,
+            illuminated_fraction=moon.illuminated_fraction,
+            waxing=moon.waxing,
+            distance_km=moon.distance_km,
+            elongation_deg=moon.elongation_deg,
+            phase_angle_deg=moon.phase_angle_deg,
+            age_days=moon.age_days,
+            next_phase_name=moon.next_phase_name,
+            next_phase_time=moon.next_phase_utc,
+            moonrise=moon.moonrise_utc,
+            moonset=moon.moonset_utc,
+            facts=MoonFactsModel(
+                diameter_km=MOON_FACTS.diameter_km,
+                sidereal_month_days=MOON_FACTS.sidereal_month_days,
+                synodic_month_days=MOON_FACTS.synodic_month_days,
+                mean_distance_km=MOON_FACTS.mean_distance_km,
+                visible_surface_fraction=MOON_FACTS.visible_surface_fraction,
+                about=MOON_FACTS.note,
+            ),
+            notes=list(moon.notes),
+        ),
     )
 
 

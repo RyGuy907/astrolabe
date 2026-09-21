@@ -356,11 +356,53 @@ class PlanetModel(BaseModel):
     notes: list[str]
 
 
+class MoonFactsModel(BaseModel):
+    """Constants about the Moon, from engine/reference.py."""
+
+    diameter_km: float
+    sidereal_month_days: float
+    synodic_month_days: float
+    mean_distance_km: float
+    visible_surface_fraction: float
+    about: str
+
+
+class MoonModel(BaseModel):
+    """The Moon on this night, with the same row fields a planet has.
+
+    Where a planet reports its apparition, the Moon reports its phase: the
+    next principal phase stands in for the next opposition.
+    """
+
+    observable: bool
+    peak_altitude_deg: float
+    peak_time: datetime | None
+    hours_above_floor: float
+    magnitude: float | None = Field(
+        description="Null within about a day of New Moon, where the "
+                    "brightness formula no longer holds.",
+    )
+    apparent_diameter_arcsec: float
+    illuminated_fraction: float
+    waxing: bool
+    distance_km: float
+    elongation_deg: float
+    phase_angle_deg: float
+    age_days: float
+    next_phase_name: str
+    next_phase_time: datetime
+    moonrise: datetime | None
+    moonset: datetime | None
+    facts: MoonFactsModel
+    notes: list[str]
+
+
 class PlanetsResponse(BaseModel):
     date: date
     location: LocationModel
     min_altitude_deg: float
     planets: list[PlanetModel]
+    moon: MoonModel | None = None
 
 
 class ShowerModel(BaseModel):

@@ -90,6 +90,25 @@ use or large-scale redistribution.
   runtime dependency on a third-party CDN for unchanging bytes is a thing that
   breaks quietly later.
 
+### Full Moon photograph
+
+- **File:** `web/public/planets/moon.jpg` — 480 x 480, 36 KB.
+- **Source:** [`File:FullMoon2010.jpg`](https://commons.wikimedia.org/wiki/File:FullMoon2010.jpg)
+  on Wikimedia Commons, by **Gregory H. Revera**. Retrieved 2026-09-20.
+- **Licence:** [CC BY-SA 3.0](https://creativecommons.org/licenses/by-sa/3.0/).
+  Unlike the planet images this one is *not* public domain: attribution is
+  required, and is shown in the app under the image as well as here. The
+  resized file is distributed under the same licence.
+- **Modifications:** the 2580 x 2452 original was padded to a square on black
+  and resized to 480 x 480. Padded rather than cropped or stretched, so the
+  disc keeps its shape. No colour or content was altered.
+- **Why this one and not NASA's.** The public-domain candidates were the LRO
+  Wide Angle Camera nearside mosaic, which is shaded relief under a low sun
+  with its caption burned into the corner and looks nothing like the full
+  Moon, and Galileo's 1992 view, which was taken off-axis and shows a slice of
+  the far side along the left limb. This is a photograph through a telescope
+  from the ground, which is the view the row describes.
+
 ---
 
 ## Fetched at runtime, not bundled

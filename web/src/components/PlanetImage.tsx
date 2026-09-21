@@ -39,10 +39,22 @@ const CREDITS: Record<string, string> = {
   saturn: "NASA / ESA / STScI — Hubble OPAL",
   uranus: "NASA / JPL-Caltech — Voyager 2",
   neptune: "NASA / JPL-Caltech — Voyager 2",
+  // The one image that is not NASA's, and the one with a licence to honour.
+  // NASA's own full-Moon images are either the LRO mosaic -- shaded relief
+  // under a low sun with a caption burned into the corner, nothing like the
+  // Moon anyone has looked at -- or Galileo's, taken off-axis so a slice of
+  // the far side shows at the left. This is a photograph through a telescope
+  // from the ground, which is exactly the view in question.
+  moon: "Gregory H. Revera — CC BY-SA 3.0",
+};
+
+/** Alt text per image, where "spacecraft photograph" would be untrue. */
+const ALT: Record<string, string> = {
+  moon: "Telescope photograph of the full Moon.",
 };
 
 interface Props {
-  /** Lowercase planet name, which is also the file name. */
+  /** Lowercase planet name, or "moon", which is also the file name. */
   name: string;
 }
 
@@ -61,7 +73,7 @@ export function PlanetImage({ name }: Props) {
         // renders this only once it has been expanded, so nothing is fetched
         // while browsing the list.
         decoding="async"
-        alt={`Spacecraft photograph of ${name}.`}
+        alt={ALT[name] ?? `Spacecraft photograph of ${name}.`}
       />
       <figcaption className="muted small">{credit}</figcaption>
     </figure>
