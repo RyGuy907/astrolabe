@@ -285,6 +285,13 @@ button.secondary:not(:disabled):hover { border-color: var(--accent); }
 .tabs button:hover { color: var(--text); }
 .tabs button.on { color: var(--accent); border-bottom-color: var(--accent); font-weight: 600; }
 .tab-body { max-height: 560px; overflow-y: auto; padding-right: 4px; }
+/* Every scroll box is also a positioning container. `.visually-hidden` text
+   is position:absolute, and an absolutely positioned element is clipped by a
+   scroll box only when that box is its containing block. Without this, the
+   274 screen-reader labels on the target badges sat at their static place
+   far down the list, outside the box, and stretched the page: 2,827px of
+   content in a 23,817px document, with an open group. */
+.tab-body, .table-scroll, .hourly-scroll { position: relative; }
 .panel-search { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
 .panel-search input {
   flex: 1;
