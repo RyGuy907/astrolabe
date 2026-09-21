@@ -1858,7 +1858,11 @@ table.targets tr.charted { background: var(--accent-soft); }
   padding: 11px 0;
   border-bottom: 1px solid rgba(255, 255, 255, 0.05);
 }
-.dashboard-skeleton { display: flex; flex-direction: column; }
+/* The sections of the page -- alert, score panel, chart and lists, log --
+   stacked with no gap, so the score panel's bottom rule sat on the very
+   top of the "Altitude" heading and the tab strip. The skeleton takes the
+   same gap so it still lines up with what replaces it. */
+main#main, .dashboard-skeleton { display: flex; flex-direction: column; gap: 36px; }
 .skeleton-legend {
   display: flex;
   flex-wrap: wrap;

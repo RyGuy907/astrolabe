@@ -103,7 +103,7 @@ export function ConditionsStrip({ slots, timeZone, weatherAvailable }: Props) {
               ))}
             </tr>
             <tr>
-              <th scope="row">Gust</th>
+              <th scope="row">Gust <span className="muted">km/h</span></th>
               {hourly.map((slot) => (
                 <td key={slot.time}>
                   {slot.wind_gust_kmh === null
@@ -134,10 +134,6 @@ export function ConditionsStrip({ slots, timeZone, weatherAvailable }: Props) {
           </tbody>
         </table>
       </div>
-      <p className="muted small">
-        Score is deep sky, with the planetary score in the circle · gust in
-        km/h · moon altitude highlighted when up.
-      </p>
     </div>
   );
 }
