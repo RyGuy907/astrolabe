@@ -70,7 +70,25 @@ export function ConditionsStrip({ slots, timeZone, weatherAvailable }: Props) {
                       : undefined
                   }
                 >
-                  {weatherAvailable ? slot.deep_sky.toFixed(0) : "—"}
+                  {weatherAvailable ? (
+                    <>
+                      <span className="visually-hidden">Deep sky </span>
+                      {slot.deep_sky.toFixed(0)}
+                      {/* The planetary score for the same hour, as a disc on
+                          the cell's right edge in its own grade colour. The
+                          two modes can differ a lot -- a bright Moon costs
+                          deep sky and not planets -- so one tinted number per
+                          hour hid half of what the hour was good for. */}
+                      <span
+                        className="hourly-planet"
+                        style={{ background: scoreColor(slot.planetary) }}
+                        title={`Planetary ${slot.planetary.toFixed(0)}`}
+                      >
+                        <span className="visually-hidden">, planetary </span>
+                        {slot.planetary.toFixed(0)}
+                      </span>
+                    </>
+                  ) : "—"}
                 </td>
               ))}
             </tr>
@@ -116,7 +134,10 @@ export function ConditionsStrip({ slots, timeZone, weatherAvailable }: Props) {
           </tbody>
         </table>
       </div>
-      <p className="muted small">Gust in km/h · moon altitude highlighted when up.</p>
+      <p className="muted small">
+        Score is deep sky, with the planetary score in the circle · gust in
+        km/h · moon altitude highlighted when up.
+      </p>
     </div>
   );
 }

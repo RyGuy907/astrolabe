@@ -534,6 +534,34 @@ button.secondary:not(:disabled):hover { border-color: var(--accent); }
   background-clip: padding-box;
 }
 .hourly-grid td.moon-up { color: var(--accent); font-weight: 600; }
+/* The planetary score disc, pinned to the right edge of each score cell.
+   The ring in the page background separates it from the cell's own tint
+   when the two grades land on the same colour. */
+/* Padded equally on both sides by the disc's width, so the deep-sky number
+   stays centred in its column and never runs under the disc, however
+   narrow a long session makes the cells. */
+.hourly-grid td.hourly-score {
+  position: relative;
+  padding-left: 30px;
+  padding-right: 30px;
+}
+.hourly-planet {
+  position: absolute;
+  right: 4px;
+  top: 50%;
+  transform: translateY(-50%);
+  min-width: 22px;
+  height: 22px;
+  padding: 0 4px;
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.68rem;
+  font-weight: 700;
+  color: #0b0e14;
+  box-shadow: 0 0 0 2px var(--bg);
+}
 
 /* --- target groups --- */
 .group { border-top: 1px solid var(--line); }
