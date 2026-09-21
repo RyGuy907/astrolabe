@@ -1,7 +1,7 @@
 /**
  * The hours you plan to be outside, and the control to change them.
  *
- * Two <input type="time"> fields rather than a datetime picker: nobody thinks
+ * Two clock fields rather than a datetime picker: nobody thinks
  * about which calendar day 01:00 belongs to, and making them say so would be
  * a worse question than the one being asked. The date comes from the night
  * being viewed, and an end time earlier than the start is read as the small
@@ -10,6 +10,12 @@
  * The times shown and typed are the *site's* local time, not the browser's.
  * Somebody planning a trip to a dark site two timezones away is asking about
  * the hours they will be standing there.
+ *
+ * The clock fields are a pair of selects, not <input type="time">. A native
+ * time input takes its 12- or 24-hour format from the operating system's
+ * locale and no page can override it, so on a US-locale machine it showed
+ * AM/PM while every other time in the app is 24-hour -- including the chart
+ * axis the session line is drawn on.
  */
 
 import { useEffect, useState } from "react";
@@ -24,7 +30,7 @@ interface Props {
   onChange: (session: [string, string] | null) => void;
 }
 
-/** An ISO instant as "HH:MM" in the given zone, for an <input type="time">. */
+/** An ISO instant as "HH:MM" in the given zone, for a ClockField. */
 function toLocalTimeValue(iso: string, timeZone: string): string {
   return new Intl.DateTimeFormat("en-GB", {
     timeZone, hour: "2-digit", minute: "2-digit", hour12: false,
@@ -90,6 +96,46 @@ function parseClock(value: string): { hours: number; minutes: number } | null {
   return { hours, minutes };
 }
 
+const HOURS = Array.from({ length: 24 }, (_, h) => String(h).padStart(2, "0"));
+const MINUTE_STEPS = Array.from({ length: 12 }, (_, i) => String(i * 5).padStart(2, "0"));
+
+/**
+ * A 24-hour "HH:MM" as two selects.
+ *
+ * Minutes step by five, which is finer than anyone plans a night -- but the
+ * default session starts at astronomical dusk, which lands on whatever minute
+ * the Sun decides (20:58, say), so the current minute is always offered too.
+ * Otherwise the field would silently show 20:55 for a session that starts at
+ * 20:58.
+ */
+function ClockField({ label, value, onChange }: {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+}) {
+  const [hour = "00", minute = "00"] = value.split(":");
+  const minutes = MINUTE_STEPS.includes(minute)
+    ? MINUTE_STEPS
+    : [...MINUTE_STEPS, minute].sort();
+
+  return (
+    <label>
+      <span>{label}</span>
+      <span className="clock-field">
+        <select value={hour} aria-label={`${label}, hour`}
+                onChange={(e) => onChange(`${e.target.value}:${minute}`)}>
+          {HOURS.map((h) => <option key={h} value={h}>{h}</option>)}
+        </select>
+        <span aria-hidden="true">:</span>
+        <select value={minute} aria-label={`${label}, minute`}
+                onChange={(e) => onChange(`${hour}:${e.target.value}`)}>
+          {minutes.map((m) => <option key={m} value={m}>{m}</option>)}
+        </select>
+      </span>
+    </label>
+  );
+}
+
 export function SessionEditor({ session, timeZone, onChange }: Props) {
   const [start, setStart] = useState(() => toLocalTimeValue(session.start, timeZone));
   const [end, setEnd] = useState(() => toLocalTimeValue(session.end, timeZone));
@@ -133,16 +179,8 @@ export function SessionEditor({ session, timeZone, onChange }: Props) {
     <div className="session-editor">
       <h4>Observing hours</h4>
       <div className="session-fields">
-        <label>
-          <span>From</span>
-          <input type="time" value={start}
-                 onChange={(e) => setStart(e.target.value)} />
-        </label>
-        <label>
-          <span>To</span>
-          <input type="time" value={end}
-                 onChange={(e) => setEnd(e.target.value)} />
-        </label>
+        <ClockField label="From" value={start} onChange={setStart} />
+        <ClockField label="To" value={end} onChange={setEnd} />
         <button className="secondary" onClick={apply}>Apply</button>
         {!session.is_default && (
           <button className="link-button" onClick={() => onChange(null)}>
