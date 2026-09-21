@@ -1,4 +1,4 @@
-# Astro Night Planner
+# Astrolabe
 
 Given a date and a location: is this night worth going out, and what should I
 point at? See [PLAN.md](PLAN.md) for the full spec.

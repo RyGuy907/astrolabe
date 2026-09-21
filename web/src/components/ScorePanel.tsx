@@ -16,7 +16,7 @@
  * would be a confident verdict on a night we know nothing about.
  */
 
-import { useMemo, useState } from "react";
+import { Fragment, useMemo, useState } from "react";
 import type {
   FactorsModel,
   NightWindowModel,
@@ -86,10 +86,10 @@ function Dial({ label, score, grade, mean, gradeable }: {
   );
 }
 
-function FactorBar({ name, value }: { name: string; value: number }) {
+/** One factor's bar and value, for a cell of the factor table. */
+function FactorCell({ value }: { value: number }) {
   return (
-    <div className="factor">
-      <span className="factor-name">{name}</span>
+    <span className="factor-cell">
       <span className="factor-track">
         <span
           className="factor-fill"
@@ -97,7 +97,7 @@ function FactorBar({ name, value }: { name: string; value: number }) {
         />
       </span>
       <span className="factor-value">{value.toFixed(2)}</span>
-    </div>
+    </span>
   );
 }
 
@@ -161,9 +161,12 @@ export function ScorePanel({ score, window: night, session, onSessionChange }: {
           />
         </div>
 
+        {/* No one-line verdict above the facts. It restated what the dials
+            and the facts below already say ("Workable - the Moon is 73% and
+            up...") in the largest type on the page, so it read as the
+            headline while carrying nothing the numbers did not. The API
+            still returns it, for the CLI. */}
         <div className="score-body">
-          <p className="verdict">{score.verdict}</p>
-
           {/* The six facts you act on, in the space the dials used to leave empty. */}
           <div className="key-facts">
             {session && (
@@ -265,78 +268,13 @@ export function ScorePanel({ score, window: night, session, onSessionChange }: {
         {open ? "Less info" : "More info"}
       </button>
 
+      {/* Hour by hour first: it is what people open this for, and it used
+          to sit below a tall two-column block with a screen of scrolling in
+          between. Under it, three columns of similar height -- the hours
+          you plan to be out, the twilight times, and the factor breakdown --
+          instead of a long list beside a short one and a gap. */}
       {open && (
         <div className="score-more">
-          <div>
-            {session && (
-              <SessionEditor
-                session={session}
-                timeZone={tz}
-                onChange={onSessionChange}
-              />
-            )}
-            <h4>Twilight — all times {timeZoneAbbreviation(tz)}</h4>
-            <dl className="facts">
-              {([
-                ["Sunset", night.sunset],
-                ["Civil twilight ends", night.civil_dusk],
-                ["Nautical twilight ends", night.nautical_dusk],
-                ["Astronomical dusk", night.astronomical_dusk],
-                ["Astronomical dawn", night.astronomical_dawn],
-                ["Nautical twilight begins", night.nautical_dawn],
-                ["Civil twilight begins", night.civil_dawn],
-                ["Sunrise", night.sunrise],
-              ] as [string, string | null][]).map(([label, value]) => (
-                <div key={label}>
-                  <dt>{label}</dt>
-                  <dd>{formatTime(value, tz)}</dd>
-                </div>
-              ))}
-              <div>
-                <dt>Astronomical night</dt>
-                <dd>{formatHours(night.astronomical_night_hours)}</dd>
-              </div>
-            </dl>
-            {score.dew_warning && (
-              <p className="warning">
-                <strong>Dew:</strong> the spread drops below{" "}
-                {formatTempSpread(2)} — expect fogging.
-              </p>
-            )}
-          </div>
-
-          {/* Deep sky in both columns, averaged over the night beside the
-              best slot. Only the peak was shown before, and on a night that
-              clouds over halfway through it read `Cloud 1.00` next to an
-              hourly row of 100% -- true of thirty minutes and of nothing
-              else. The pair is the honest presentation: the grade comes from
-              the peak, the night looked like the average. */}
-          {score.peak_factors_deep_sky && (
-            <div className="factors-pair">
-              <div>
-                <h4>Deep sky — night average</h4>
-                {(Object.keys(FACTOR_LABELS) as (keyof FactorsModel)[]).map((key) => (
-                  <FactorBar
-                    key={key}
-                    name={FACTOR_LABELS[key]}
-                    value={(score.mean_factors_deep_sky ??
-                            score.peak_factors_deep_sky!)[key]}
-                  />
-                ))}
-              </div>
-              <div>
-                <h4>Deep sky — best slot</h4>
-                {(Object.keys(FACTOR_LABELS) as (keyof FactorsModel)[]).map((key) => (
-                  <FactorBar
-                    key={key}
-                    name={FACTOR_LABELS[key]}
-                    value={score.peak_factors_deep_sky![key]}
-                  />
-                ))}
-              </div>
-            </div>
-          )}
-
           {/* Folded in rather than a panel of its own: it is the same night
               described hour by hour, and as a separate box it took a full
               screen width to say what the dials say in a glance. */}
@@ -346,6 +284,86 @@ export function ScorePanel({ score, window: night, session, onSessionChange }: {
               timeZone={tz}
               weatherAvailable={score.weather_available}
             />
+          </div>
+
+          {/* Their own row, so auto-fit can collapse unused tracks: in the
+              same grid as the full-width strip above, a spanning item kept a
+              fourth, empty column open and left a third of the row blank. */}
+          <div className="score-more-cols">
+          <div>
+            {session && (
+              <SessionEditor
+                session={session}
+                timeZone={tz}
+                onChange={onSessionChange}
+              />
+            )}
+            {score.dew_warning && (
+              <p className="warning">
+                <strong>Dew:</strong> the spread drops below{" "}
+                {formatTempSpread(2)} — expect fogging.
+              </p>
+            )}
+          </div>
+
+          {/* Evening beside morning. Each twilight stage has an end and a
+              beginning, and pairing them halves the list's height and says
+              what a column of eight times left you to work out. */}
+          <div>
+            <h4>Twilight — {timeZoneAbbreviation(tz)}</h4>
+            <table className="twilight-table">
+              <thead>
+                <tr>
+                  <th scope="col"><span className="visually-hidden">Stage</span></th>
+                  <th scope="col">Evening</th>
+                  <th scope="col">Morning</th>
+                </tr>
+              </thead>
+              <tbody>
+                {([
+                  ["Sun", night.sunset, night.sunrise],
+                  ["Civil", night.civil_dusk, night.civil_dawn],
+                  ["Nautical", night.nautical_dusk, night.nautical_dawn],
+                  ["Astronomical", night.astronomical_dusk, night.astronomical_dawn],
+                ] as [string, string | null, string | null][]).map(
+                  ([stage, evening, morning]) => (
+                    <tr key={stage}>
+                      <th scope="row">{stage}</th>
+                      <td>{formatTime(evening, tz)}</td>
+                      <td>{formatTime(morning, tz)}</td>
+                    </tr>
+                  ))}
+              </tbody>
+            </table>
+            <p className="muted small twilight-total">
+              {formatHours(night.astronomical_night_hours)} of astronomical night
+            </p>
+          </div>
+
+          {/* One table, average beside best slot, rather than two lists.
+              Both matter: only the peak was shown once, and on a night that
+              clouds over halfway through it read `Cloud 1.00` next to an
+              hourly row of 100% -- true of thirty minutes and of nothing
+              else. The grade comes from the peak; the night looked like the
+              average. */}
+          {score.peak_factors_deep_sky && (
+            <div>
+              <h4>Deep-sky factors</h4>
+              <div className="factor-table">
+                <span />
+                <span className="factor-col-head">Night avg</span>
+                <span className="factor-col-head">Best hour</span>
+                {(Object.keys(FACTOR_LABELS) as (keyof FactorsModel)[]).map((key) => (
+                  <Fragment key={key}>
+                    <span className="factor-name">{FACTOR_LABELS[key]}</span>
+                    <FactorCell value={(score.mean_factors_deep_sky ??
+                                        score.peak_factors_deep_sky!)[key]} />
+                    <FactorCell value={score.peak_factors_deep_sky![key]} />
+                  </Fragment>
+                ))}
+              </div>
+            </div>
+          )}
           </div>
         </div>
       )}

@@ -23,6 +23,8 @@ export interface LocationModel {
   timezone: string;
   horizon_name: string;
   horizon_is_generic: boolean;
+  /** Azimuth -> altitude for a measured or custom horizon; null for a preset. */
+  horizon_points: Record<string, number> | null;
   horizon_max_deg: number;
   horizon_facing: number | null;
   /** True when the profile rises above the default altitude floor and can

@@ -25,6 +25,7 @@ import {
   type TargetsResponse,
 } from "./api";
 import { AltitudeChart } from "./components/AltitudeChart";
+import { DashboardSkeleton } from "./components/DashboardSkeleton";
 import { EventAlert } from "./components/EventAlert";
 import { LocationManager } from "./components/LocationManager";
 import { LocationPicker } from "./components/LocationPicker";
@@ -382,8 +383,8 @@ export default function App() {
 
       <header className="app-head">
         <div className="brand">
-          <h1>Astro Night Planner</h1>
-          {night && location && (
+          <h1>Astrolabe</h1>
+          {location && date && (
             <p className="muted">
               <strong>{formatDate(date, location.timezone)}</strong>
               {isTonight && <span className="tag">tonight</span>}
@@ -410,14 +411,6 @@ export default function App() {
                 </span>
               ) : (
                 `Bortle ${location.bortle}`
-              )}
-              {location.horizon_is_generic && (
-                <span className="tag tag-warn" title="Built-in preset, not a survey">
-                  generic horizon
-                  <span className="visually-hidden">
-                    {" "}— a built-in preset, not a survey of this site
-                  </span>
-                </span>
               )}
             </p>
           )}
@@ -463,12 +456,19 @@ export default function App() {
             </div>
           )}
 
+          {/* A switch, not a button: it is a state you leave on, and the
+              track shows which state at a glance. role="switch" makes a
+              screen reader announce it as on or off rather than pressed. */}
           <button
-            className="secondary night-vision-toggle"
+            className="night-vision-toggle"
+            role="switch"
             onClick={() => setNightVision((on) => !on)}
-            aria-pressed={nightVision}
+            aria-checked={nightVision}
             title="Red palette that preserves dark adaptation at the eyepiece"
           >
+            <span className="switch-track" aria-hidden="true">
+              <span className="switch-thumb" />
+            </span>
             Night vision
           </button>
         </div>
@@ -511,8 +511,11 @@ export default function App() {
         </section>
       )}
 
-      {pending.night && !night && locations.length > 0 && (
-        <div className="panel muted">Loading…</div>
+      {/* The dashboard's outline while the night loads, not a one-line
+          "Loading…" -- that collapsed the page and then snapped a full
+          screen of dashboard in underneath it on every site or date change. */}
+      {!error && pending.night && !night && locations.length > 0 && (
+        <DashboardSkeleton />
       )}
 
       {night && location && (

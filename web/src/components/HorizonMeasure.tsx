@@ -20,7 +20,7 @@
  * one — plenty of sites genuinely have an open aspect somewhere.
  */
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { api, type SkyMark } from "../api";
 import { formatTime } from "../format";
 
@@ -52,6 +52,12 @@ export function HorizonMeasure({ lat, lon, onMeasured }: Props) {
   const [chosen, setChosen] = useState<Record<number, string>>({});
   const [loading, setLoading] = useState(false);
   const [failed, setFailed] = useState(false);
+  //: Whether the profile the parent holds came from this component. Only
+  //: then is it this component's to retract. The parent may be holding a
+  //: horizon measured on an earlier night and loaded with the site -- and
+  //: since this mounts as soon as the form opens, retracting
+  //: unconditionally wiped that saved survey before anyone touched it.
+  const produced = useRef(false);
 
   // One request per direction, for the coordinates currently in the form.
   // Which constellations sit low in a direction depends on where and when, so
@@ -64,11 +70,13 @@ export function HorizonMeasure({ lat, lon, onMeasured }: Props) {
     setMarks({});
     setChosen({});
     setComputedAt(null);
-    // Retract the profile too. Clearing only the dropdowns would leave the
-    // parent holding altitudes measured at the *previous* coordinates while
-    // the form shows nothing measured -- the same trap the Bortle field fell
-    // into when a site moved out of the atlas.
-    onMeasured(null);
+    // Retract a profile measured here at the *previous* coordinates, or the
+    // parent would hold it while the form shows nothing measured -- the same
+    // trap the Bortle field fell into when a site moved out of the atlas.
+    if (produced.current) {
+      onMeasured(null);
+      produced.current = false;
+    }
 
     Promise.all(
       DIRECTIONS.map((d) =>
@@ -116,7 +124,9 @@ export function HorizonMeasure({ lat, lon, onMeasured }: Props) {
         .find((m) => m.abbreviation === choice);
       if (mark) profile[azimuthNumber] = Math.round(mark.altitude_deg * 10) / 10;
     }
-    onMeasured(Object.keys(profile).length ? profile : null);
+    const any = Object.keys(profile).length > 0;
+    produced.current = any;
+    onMeasured(any ? profile : null);
   }
 
   if (failed) {

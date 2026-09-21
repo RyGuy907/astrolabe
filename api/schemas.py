@@ -50,6 +50,12 @@ class LocationModel(BaseModel):
                     "about terrain rather than a survey of the site.",
     )
     horizon_max_deg: float
+    horizon_points: dict[str, float] | None = Field(
+        default=None,
+        description="Azimuth -> altitude for a measured horizon (an explicit "
+                    "map), so an edit can send it back unchanged. Null for a "
+                    "preset, a uniform angle or a clear horizon.",
+    )
     horizon_facing: int | None = Field(
         default=None,
         description="Bearing the preset's obstruction was rotated onto, for "

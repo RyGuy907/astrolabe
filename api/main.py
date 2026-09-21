@@ -85,7 +85,7 @@ from .schemas import (
 )
 
 app = FastAPI(
-    title="Astro Night Planner",
+    title="Astrolabe",
     version="0.1.0",
     description="Is tonight worth going out, and what should I point at?",
 )
@@ -162,6 +162,11 @@ def _location_model(location: Location, source: str = "config") -> LocationModel
         horizon_name=location.horizon.name,
         horizon_is_generic=location.horizon.is_generic,
         horizon_max_deg=location.horizon.max_obstruction_deg,
+        # Only an explicit azimuth map -- what measuring produces -- has
+        # points worth sending back. A clear horizon is non-generic too, but
+        # it is one number, and the editor would mistake it for a survey.
+        horizon_points=({str(az): alt for az, alt in location.horizon.points}
+                        if location.horizon.name == "custom" else None),
         horizon_facing=location.horizon.facing,
         horizon_binds=(location.horizon.max_obstruction_deg
                        > DEFAULT_MIN_ALTITUDE_DEG),

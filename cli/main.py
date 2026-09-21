@@ -40,7 +40,7 @@ from engine.weather import get_forecast
 
 app = typer.Typer(
     add_completion=False,
-    help="Astronomy night planner: is tonight worth going out, and what should I point at?",
+    help="Astrolabe: is tonight worth going out, and what should I point at?",
 )
 
 DATE_FORMAT = "%Y-%m-%d"

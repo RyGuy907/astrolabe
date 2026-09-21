@@ -42,7 +42,7 @@ REQUEST_TIMEOUT = 20
 OPEN_METEO_HORIZON = timedelta(days=16)
 SEVENTIMER_HORIZON = timedelta(hours=72)
 
-USER_AGENT = "astro-night-planner/0.1 (personal observing planner)"
+USER_AGENT = "astrolabe/0.1 (personal observing planner)"
 
 OPEN_METEO_FIELDS = [
     "cloud_cover", "cloud_cover_low", "cloud_cover_mid", "cloud_cover_high",

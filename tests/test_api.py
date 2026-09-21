@@ -10,6 +10,7 @@ weather and geocoding take their degraded paths.
 
 from __future__ import annotations
 
+import json
 from datetime import datetime, timezone
 
 import pytest
@@ -374,6 +375,53 @@ def test_create_location_with_a_directional_horizon(client):
         assert listed["horizon_name"] == "ridge"
     finally:
         client.delete("/api/locations/api_facing_site")
+
+
+def test_a_measured_horizon_round_trips_through_an_edit(client):
+    """The editor must be able to send a measured horizon back unchanged.
+
+    It used to get only the profile's name and peak, so saving any edit to a
+    measured site -- a rename -- replaced the survey with a flat ring at its
+    highest angle. The points now come back, and resending them is lossless.
+    """
+    measured = {"0": 12.5, "90": 4.0, "180": 20.0, "270": 0.0}
+    base = {"key": "api_measured_site", "name": "Measured",
+            "lat": 36.6, "lon": -118.06, "bortle": 3}
+    try:
+        client.post("/api/locations",
+                    json={**base, "horizon": json.dumps(measured)})
+        listed = next(loc for loc in client.get("/api/locations").json()
+                      if loc["key"] == "api_measured_site")
+        assert listed["horizon_points"] == measured
+        assert listed["horizon_is_generic"] is False
+
+        # An edit that renames the site and resends what it was given.
+        client.post("/api/locations",
+                    json={**base, "name": "Renamed",
+                          "horizon": json.dumps(listed["horizon_points"])})
+        edited = next(loc for loc in client.get("/api/locations").json()
+                      if loc["key"] == "api_measured_site")
+        assert edited["name"] == "Renamed"
+        assert edited["horizon_points"] == measured
+        assert edited["horizon_max_deg"] == 20.0
+    finally:
+        client.delete("/api/locations/api_measured_site")
+
+
+@pytest.mark.parametrize("horizon", ["0", "10", "ridge"])
+def test_only_a_measured_horizon_reports_points(client, horizon):
+    """A clear horizon, a uniform angle or a preset has nothing to resend --
+    and a clear one reporting {0: 0} would read to the editor as a survey."""
+    key = f"api_unmeasured_{horizon}"
+    try:
+        client.post("/api/locations", json={
+            "key": key, "name": key, "lat": 36.6, "lon": -118.06,
+            "bortle": 3, "horizon": horizon})
+        listed = next(loc for loc in client.get("/api/locations").json()
+                      if loc["key"] == key)
+        assert listed["horizon_points"] is None
+    finally:
+        client.delete(f"/api/locations/{key}")
 
 
 def test_horizon_binds_says_whether_a_profile_can_change_anything(client):

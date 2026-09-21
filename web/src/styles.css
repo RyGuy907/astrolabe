@@ -330,10 +330,52 @@ button.secondary:not(:disabled):hover { border-color: var(--accent); }
 .key-facts strong { font-size: 1.05rem; font-variant-numeric: tabular-nums; }
 .key-facts em { font-style: normal; font-size: 0.8rem; color: var(--muted-text); }
 
-.score-more { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr); gap: 28px; margin-top: 14px; }
+/* Hourly strip across the top, then three columns of similar height: the
+   observing hours, twilight, and the factor table. auto-fit, so they fold to
+   two and then one on narrower screens without a breakpoint per count. */
+.score-more { display: flex; flex-direction: column; gap: 28px; margin-top: 14px; }
+.score-more-cols {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 28px 48px;
+  align-items: start;
+}
+
+/* Twilight as stage x evening/morning. */
+.twilight-table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+.twilight-table th, .twilight-table td {
+  padding: 7px 0;
+  border-bottom: 1px solid var(--line);
+  text-align: right;
+  font-weight: 400;
+}
+.twilight-table thead th {
+  font-size: 0.68rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--muted-text);
+  padding-top: 0;
+}
+.twilight-table tbody th { text-align: left; color: var(--muted-text); font-size: 0.88rem; }
+.twilight-table tr:last-child th, .twilight-table tr:last-child td { border-bottom: none; }
+.twilight-total { margin: 8px 0 0; }
+
+/* Factor name, then night average and best hour side by side. */
+.factor-table {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) minmax(0, 1fr);
+  gap: 10px 16px;
+  align-items: center;
+}
+.factor-col-head {
+  font-size: 0.68rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--muted-text);
+}
+.factor-cell { display: grid; grid-template-columns: minmax(0, 1fr) 34px; gap: 8px; align-items: center; }
 /* The hourly matrix wants the whole width, not one column of the pair. */
-.score-more-wide { grid-column: 1 / -1; min-width: 0; }
-.factors-pair { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; }
+.score-more-wide { min-width: 0; }
 .dial { text-align: center; }
 .dial svg { width: 116px; height: 116px; }
 .dial-track { fill: none; stroke: var(--panel-2); stroke-width: 10; }
@@ -354,7 +396,6 @@ button.secondary:not(:disabled):hover { border-color: var(--accent); }
 .dial-facts span { font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.05em; }
 .dial-facts strong { font-size: 1.05rem; }
 
-.factor { display: grid; grid-template-columns: 104px 1fr 44px; align-items: center; gap: 10px; margin-bottom: 6px; }
 .factor-name { font-size: 0.85rem; color: var(--muted-text); }
 .factor-track { background: var(--panel-2); border-radius: 4px; height: 8px; overflow: hidden; }
 .factor-fill { display: block; height: 100%; border-radius: 4px; }
@@ -480,6 +521,10 @@ button.secondary:not(:disabled):hover { border-color: var(--accent); }
   background: var(--panel);
 }
 .hourly-corner { position: sticky; left: 0; background: var(--panel); }
+/* The label column shrinks to its text. The table fills the width so the
+   hours read as a timeline, and with a short session -- five hours -- the
+   even split gave "Score" a 233px column of its own. */
+.hourly-grid tbody th, .hourly-corner { width: 1%; }
 /* Tinted cells sit edge to edge and read as one band; a border in the panel
    colour separates them without adding height. */
 .hourly-score {
@@ -901,9 +946,49 @@ table.targets tr.charted { background: rgba(244, 201, 93, 0.06); }
           brightness(0.45);
 }
 
-.night-vision-toggle[aria-pressed="true"] {
-  border-color: var(--accent);
-  color: var(--accent);
+/* Night vision as an on/off switch: a pill track with a sliding thumb. The
+   label sits beside it, so the control reads the same whether it is on or
+   off and only the track says which. */
+.night-vision-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  height: 36px;
+  padding: 0 14px 0 8px;
+  background: rgba(255, 255, 255, 0.07);
+  border: 1px solid transparent;
+  border-radius: 999px;
+  color: var(--text);
+  font: inherit;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.18s ease;
+}
+.night-vision-toggle:hover { background: rgba(255, 255, 255, 0.12); }
+.switch-track {
+  position: relative;
+  flex: none;
+  width: 34px;
+  height: 20px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.18);
+  transition: background 0.2s ease;
+}
+.switch-thumb {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--text);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
+  transition: transform 0.2s ease;
+}
+.night-vision-toggle[aria-checked="true"] .switch-track { background: var(--accent); }
+.night-vision-toggle[aria-checked="true"] .switch-thumb { transform: translateX(14px); }
+@media (prefers-reduced-motion: reduce) {
+  .switch-track, .switch-thumb { transition: none; }
 }
 
 /* --- target survey image --------------------------------------------------- */
@@ -1319,7 +1404,7 @@ footer { text-align: center; padding-top: 8px; }
    wants width, which is why this is desktop-first. */
 @media (max-width: 1180px) {
   .dashboard-row { grid-template-columns: minmax(0, 1fr); }
-  .score-more { grid-template-columns: minmax(0, 1fr); }
+  .score-more-cols { grid-template-columns: minmax(0, 1fr); }
   .tab-body { max-height: none; }
 }
 
@@ -1327,7 +1412,7 @@ footer { text-align: center; padding-top: 8px; }
   .app { padding: 18px 14px 48px; }
   .app-head { flex-direction: column; align-items: stretch; }
   .controls { flex-wrap: wrap; }
-  .two-col, .factors-pair { grid-template-columns: 1fr; gap: 16px; }
+  .two-col { grid-template-columns: 1fr; gap: 16px; }
   .event-alert { flex-direction: column; gap: 8px; }
   .dials { justify-content: space-around; gap: 18px; }
   .chart { overflow-x: auto; }
@@ -1602,7 +1687,6 @@ select, input[type="date"] { height: 36px; padding: 0 14px; border-radius: var(-
 }
 .dial-facts strong { font-weight: 300; font-size: 1.3rem; letter-spacing: -0.03em; }
 
-.factor { grid-template-columns: 112px 1fr 48px; gap: 14px; margin-bottom: 11px; }
 .factor-track { height: 3px; border-radius: 2px; background: rgba(255, 255, 255, 0.09); }
 .factor-fill { border-radius: 2px; }
 .factor-value { font-variant-numeric: tabular-nums; color: var(--muted-text); }
@@ -1712,3 +1796,54 @@ table.targets tr.charted { background: var(--accent-soft); }
 .dashboard-row { gap: 44px; }
 .target-image, .planet-photo { border-radius: var(--radius-sm); }
 .tab-body { max-height: 620px; }
+
+/* --- loading skeleton ---------------------------------------------------
+   Grey stand-ins in the dashboard's own layout, with a slow shimmer so a
+   long load reads as working rather than stuck. Tokens only, so it follows
+   the theme and goes red in night vision. */
+.skeleton-bar, .skeleton-block, .skeleton-dial {
+  display: block;
+  border-radius: 6px;
+  background: linear-gradient(90deg,
+    rgba(255, 255, 255, 0.05) 0%,
+    rgba(255, 255, 255, 0.10) 50%,
+    rgba(255, 255, 255, 0.05) 100%);
+  background-size: 200% 100%;
+  animation: skeleton-shimmer 1.6s ease-in-out infinite;
+}
+.skeleton-bar { margin: 4px 0; }
+.skeleton-block { width: 100%; border-radius: 12px; }
+.skeleton-dial {
+  width: 188px;
+  height: 188px;
+  border-radius: 50%;
+  margin: 0 auto 14px;
+  background: none;
+  border: 3px solid rgba(255, 255, 255, 0.07);
+  animation: none;
+}
+.dashboard-skeleton .dial { display: flex; flex-direction: column; align-items: center; }
+.skeleton-row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 11px 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+}
+.dashboard-skeleton { display: flex; flex-direction: column; }
+.skeleton-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px 6px;
+  margin-top: 10px;
+  max-width: 260px;
+  margin-left: 106px;
+}
+.skeleton-legend .skeleton-bar { margin: 0; border-radius: 999px; }
+@keyframes skeleton-shimmer {
+  from { background-position: 100% 0; }
+  to { background-position: -100% 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .skeleton-bar, .skeleton-block { animation: none; }
+}

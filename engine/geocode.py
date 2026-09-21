@@ -19,7 +19,7 @@ from dataclasses import dataclass
 
 GEOCODE_URL = "https://geocoding-api.open-meteo.com/v1/search"
 REQUEST_TIMEOUT = 15
-USER_AGENT = "astro-night-planner/0.1 (personal observing planner)"
+USER_AGENT = "astrolabe/0.1 (personal observing planner)"
 
 
 @dataclass(frozen=True)

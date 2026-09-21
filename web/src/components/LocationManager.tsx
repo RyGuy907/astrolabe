@@ -240,12 +240,13 @@ export function LocationManager({ locations, editingKey, onClose, onCreated }: P
   // saving under the same key edits in place, and there is no second
   // endpoint to keep in step with this one.
   //
-  // The horizon is deliberately not prefilled from a measured profile: the
-  // API reports its name and peak, not its points, so reconstructing one
-  // here would mean inventing the bearings in between. Editing a site with a
-  // measured horizon and not touching the control leaves the angle at the
-  // profile's peak, which is a ring -- honest, and flagged generic -- rather
-  // than a fabricated survey.
+  // A measured horizon is loaded back in as it was saved, so an edit that
+  // does not touch it -- a rename, a corrected elevation -- sends the same
+  // profile back. It used to be dropped: the API reported only the profile's
+  // name and peak, so saving any edit replaced a survey with a flat ring at
+  // its highest angle, and the horizon had to be measured again. It is a set
+  // of *angles*, not of constellations, so it holds on every date and only
+  // ever needs measuring once.
   useEffect(() => {
     if (!editing) return;
     setEntry("manual");
@@ -260,7 +261,13 @@ export function LocationManager({ locations, editingKey, onClose, onCreated }: P
       setBortleEdited(true);
     }
     setHorizon(Math.round(editing.horizon_max_deg / 5) * 5);
-    setShowAdvanced(true);
+    if (editing.horizon_points && !editing.horizon_is_generic) {
+      setMeasuredHorizon(Object.fromEntries(
+        Object.entries(editing.horizon_points)
+          .map(([az, alt]) => [Number(az), alt])));
+    }
+    // Advanced stays closed: editing opens on the coordinates tab, which
+    // already shows the fields most edits are for.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [editingKey]);
 
@@ -435,6 +442,49 @@ export function LocationManager({ locations, editingKey, onClose, onCreated }: P
 
   const emptyResult = searchState === "done" && candidates.length === 0;
 
+  //: Latitude, longitude and elevation. On the "Enter coordinates" tab they
+  //: are the whole point of the tab, so they sit in the main form; on the map
+  //: and search tabs they are filled for you and live under Advanced, for
+  //: when the pick was slightly off. Never both, so a field is never shown
+  //: twice.
+  const coordinateFields = (
+    <>
+            <label>
+              <span>Latitude</span>
+              <input
+                type="text"
+                inputMode="decimal"
+                value={lat}
+                onChange={(e) => setLat(e.target.value)}
+                placeholder="34.1361"
+                className={lat.trim() !== "" && !latValid ? "invalid" : ""}
+              />
+            </label>
+            <label>
+              <span>Longitude</span>
+              <input
+                type="text"
+                inputMode="decimal"
+                value={lon}
+                onChange={(e) => setLon(e.target.value)}
+                placeholder="-118.7745"
+                className={lon.trim() !== "" && !lonValid ? "invalid" : ""}
+              />
+            </label>
+            <label>
+              <span>Elevation (m)</span>
+              <input
+                type="text"
+                inputMode="decimal"
+                value={elevation}
+                onChange={(e) => setElevation(e.target.value)}
+                placeholder="0"
+                className={!elevationValid ? "invalid" : ""}
+              />
+            </label>
+    </>
+  );
+
   return (
     <div className="modal-backdrop" onClick={onClose}>
       <div
@@ -562,6 +612,10 @@ export function LocationManager({ locations, editingKey, onClose, onCreated }: P
             </div>
           )}
 
+          {entry === "manual" && (
+            <div className="site-form">{coordinateFields}</div>
+          )}
+
           <div className="site-form">
             <label>
               <span>Name</span>
@@ -579,7 +633,13 @@ export function LocationManager({ locations, editingKey, onClose, onCreated }: P
               <span>
                 Obstruction angle
                 {measuredHorizon && (
-                  <span className="field-note"> measured, overrides this</span>
+                  <span className="field-note">
+                    {" "}measured, overrides this ·{" "}
+                    <button type="button" className="link-button"
+                            onClick={() => setMeasuredHorizon(null)}>
+                      use one angle instead
+                    </button>
+                  </span>
                 )}
               </span>
               <select
@@ -636,39 +696,7 @@ export function LocationManager({ locations, editingKey, onClose, onCreated }: P
                 placeholder="site_key"
               />
             </label>
-            <label>
-              <span>Latitude</span>
-              <input
-                type="text"
-                inputMode="decimal"
-                value={lat}
-                onChange={(e) => setLat(e.target.value)}
-                placeholder="34.1361"
-                className={lat.trim() !== "" && !latValid ? "invalid" : ""}
-              />
-            </label>
-            <label>
-              <span>Longitude</span>
-              <input
-                type="text"
-                inputMode="decimal"
-                value={lon}
-                onChange={(e) => setLon(e.target.value)}
-                placeholder="-118.7745"
-                className={lon.trim() !== "" && !lonValid ? "invalid" : ""}
-              />
-            </label>
-            <label>
-              <span>Elevation (m)</span>
-              <input
-                type="text"
-                inputMode="decimal"
-                value={elevation}
-                onChange={(e) => setElevation(e.target.value)}
-                placeholder="0"
-                className={!elevationValid ? "invalid" : ""}
-              />
-            </label>
+            {entry !== "manual" && coordinateFields}
             <label>
               <span>
                 Bortle class
