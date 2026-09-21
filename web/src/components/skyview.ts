@@ -90,6 +90,69 @@ export function makeView(center: Vec, fov: number, w: number, h: number): View {
   return { w, h, c, xa, ya, s, project, unproject };
 }
 
+/**
+ * The horizon on screen, exactly. A stereographic projection maps every
+ * circle on the sky to a circle on the plane -- or a straight line, when it
+ * passes through the point opposite the view centre -- so the horizon is one
+ * circle (a line when the view centre sits on the horizon itself).
+ *
+ * Drawn from samples instead, points far behind the view had to be dropped,
+ * and joining what was left bridged the gap with a straight chord across the
+ * sky; filling that outline put "ground" where there was sky.
+ *
+ * Only meaningful in the horizon frame (as seen), where z is the zenith.
+ */
+export type Horizon =
+  | { kind: "circle"; cx: number; cy: number; r: number; groundInside: boolean }
+  /** Through (x, y) along (dx, dy); ground on the side (gx, gy) points to. */
+  | { kind: "line"; x: number; y: number; dx: number; dy: number; gx: number; gy: number };
+
+export function horizonOnScreen(view: View): Horizon {
+  const { c, xa, ya, s, w, h } = view;
+  // Stereographic without the "too far behind" cutoff; only ever given
+  // points at least 90 degrees from the point opposite the centre.
+  const raw = (v: Vec): [number, number] => {
+    const k = 2 / (1 + dot(v, c));
+    return [w / 2 + dot(v, xa) * k * s, h / 2 - dot(v, ya) * k * s];
+  };
+  // Three horizon points: the one under the view centre, and two a quarter
+  // turn either side of it. None is behind the view.
+  let h1: Vec = [c[0], c[1], 0];
+  h1 = Math.hypot(h1[0], h1[1]) < 1e-9 ? [1, 0, 0] : norm(h1);
+  const h2 = norm(cross([0, 0, 1], h1));
+  const h3: Vec = [-h2[0], -h2[1], 0];
+  const [a, b, q] = [raw(h1), raw(h2), raw(h3)];
+
+  const d = 2 * (a[0] * (b[1] - q[1]) + b[0] * (q[1] - a[1]) + q[0] * (a[1] - b[1]));
+  const lineFrom = (): Horizon => {
+    const len = Math.hypot(q[0] - b[0], q[1] - b[1]) || 1;
+    const dx = (q[0] - b[0]) / len, dy = (q[1] - b[1]) / len;
+    // Which side is ground: a point just below the horizon, in front.
+    const g = raw(norm([c[0], c[1], c[2] - 0.3]));
+    const side = (g[0] - b[0]) * -dy + (g[1] - b[1]) * dx;
+    return { kind: "line", x: b[0], y: b[1], dx, dy,
+             gx: -dy * Math.sign(side || 1), gy: dx * Math.sign(side || 1) };
+  };
+  if (Math.abs(d) < 1e-9 * w * w) return lineFrom();
+
+  const a2 = a[0] ** 2 + a[1] ** 2, b2 = b[0] ** 2 + b[1] ** 2, q2 = q[0] ** 2 + q[1] ** 2;
+  const cx = (a2 * (b[1] - q[1]) + b2 * (q[1] - a[1]) + q2 * (a[1] - b[1])) / d;
+  const cy = (a2 * (q[0] - b[0]) + b2 * (a[0] - q[0]) + q2 * (b[0] - a[0])) / d;
+  const r = Math.hypot(a[0] - cx, a[1] - cy);
+  // Within a hair of the horizon the circle is kilometres across; canvas
+  // arcs lose precision there, and a line is indistinguishable.
+  if (r > 200 * w) return lineFrom();
+  // The screen centre is the view direction: sky if it is above the horizon.
+  const centreInside = Math.hypot(w / 2 - cx, h / 2 - cy) < r;
+  return { kind: "circle", cx, cy, r, groundInside: centreInside === c[2] < 0 };
+}
+
+/** Whether pixel (px, py) is below the horizon, by the shape above. */
+export function isGround(hz: Horizon, px: number, py: number): boolean {
+  if (hz.kind === "circle") return (Math.hypot(px - hz.cx, py - hz.cy) < hz.r) === hz.groundInside;
+  return (px - hz.x) * hz.gx + (py - hz.y) * hz.gy > 0;
+}
+
 /** The centre after shifting the view by (dx, dy) pixels, in one step. Close
  *  for small shifts, but the screen's "up" turns as the centre moves, so for
  *  anything that must stay under the pointer use `placeAt`. */

@@ -33,7 +33,7 @@ import { BODY_COLORS } from "./AltitudeChart";
 import { placeLabels, type LabelRequest } from "./labels";
 import { StarCard } from "./StarCard";
 import {
-  apply, applyT, DEG, limitFor, makeView, norm, panned, placeAt, unit, zoomed,
+  apply, applyT, DEG, horizonOnScreen, limitFor, makeView, norm, panned, placeAt, unit, zoomed,
   type Vec, type View,
 } from "./skyview";
 
@@ -286,28 +286,9 @@ export function FinderChart({ subject, location, timeZone, nightStart, nightEnd,
     ctx.fillStyle = "#05070d";
     ctx.fillRect(0, 0, w, h);
 
-    // Ground below the horizon, as seen.
-    if (orientation === "sky") {
-      const ring: [number, number][] = [];
-      for (let az = 0; az <= 360; az += 2) {
-        const p = project([Math.sin(az * DEG), Math.cos(az * DEG), 0]);
-        if (p) ring.push([p[0], p[1]]);
-      }
-      if (ring.length > 2) {
-        ctx.beginPath();
-        ring.forEach(([x, y], i) => (i ? ctx.lineTo(x, y) : ctx.moveTo(x, y)));
-        const nadir = project([0, 0, -1]);
-        const inside = nadir && ctx.isPointInPath(nadir[0] * dpr, nadir[1] * dpr);
-        if (!inside) ctx.rect(w * 3, -h * 2, -w * 5, h * 5);
-        ctx.fillStyle = "rgba(60, 45, 30, 0.55)";
-        ctx.fill("evenodd");
-        ctx.strokeStyle = "rgba(200, 170, 130, 0.7)";
-        ctx.lineWidth = 1.4;
-        ctx.beginPath();
-        ring.forEach(([x, y], i) => (i ? ctx.lineTo(x, y) : ctx.moveTo(x, y)));
-        ctx.stroke();
-      }
-    }
+    // As seen, what is below the horizon is under the ground: drawn, then
+    // covered by it, and neither named nor clickable.
+    const belowGround = (wv: Vec) => orientation === "sky" && wv[2] < 0;
 
     // Constellation figures: at the widest zooms only the major ones.
     const maxRank = f > 100 ? 2 : 3;
@@ -345,6 +326,7 @@ export function FinderChart({ subject, location, timeZone, nightStart, nightEnd,
       ctx.beginPath();
       ctx.arc(p[0], p[1], r, 0, 2 * Math.PI);
       ctx.fill();
+      if (orientation === "sky" && working.wz[i] < 0) continue;
       if (r >= 2.4) bright.push({ x: p[0], y: p[1], r: r + 1 });
       const pick: Pick = { kind: "star", index: i };
       newHits.push({ x: p[0], y: p[1], reach: Math.max(6, r + 3), rank: 2, pick });
@@ -364,9 +346,11 @@ export function FinderChart({ subject, location, timeZone, nightStart, nightEnd,
       ctx.strokeStyle = "#7fd6a0";
       for (const o of sky.objects) {
         if (subject.kind === "target" && o.id === subject.id) continue;
-        const p = project(toWork(o.v));
+        const ov = toWork(o.v);
+        const p = project(ov);
         if (!p || p[0] < 0 || p[1] < 0 || p[0] > w || p[1] > h) continue;
         drawObject(ctx, o.group, p[0], p[1]);
+        if (belowGround(ov)) continue;
         const pick: Pick = { kind: "go", subject: {
           kind: "target", id: o.id, label: o.name, at, ra: o.ra, dec: o.dec } };
         newHits.push({ x: p[0], y: p[1], reach: 12, rank: 0, pick });
@@ -381,18 +365,51 @@ export function FinderChart({ subject, location, timeZone, nightStart, nightEnd,
     if (layers.objects) {
       for (const b of frame.bodies) {
         if (subject.kind === "body" && b.name === subject.id) continue;
-        const p = project(toWork(unit(b.ra, b.dec)));
+        const bv = toWork(unit(b.ra, b.dec));
+        const p = project(bv);
         if (!p || p[0] < 0 || p[1] < 0 || p[0] > w || p[1] > h) continue;
         ctx.fillStyle = BODY_COLORS[b.name] ?? "#fff";
         ctx.beginPath();
         ctx.arc(p[0], p[1], b.name === "moon" ? 7 : 4.5, 0, 2 * Math.PI);
         ctx.fill();
+        if (belowGround(bv)) continue;
         const name = b.name[0].toUpperCase() + b.name.slice(1);
         const pick: Pick = { kind: "go", subject: { kind: "body", id: b.name, label: name, at } };
         newHits.push({ x: p[0], y: p[1], reach: 12, rank: 0, pick });
         labels.push({ text: name, x: p[0], y: p[1], r: 6, size: 10, priority: 1,
                       className: "#d8dcff", optional: false, tag: tag(pick) });
       }
+    }
+
+    // The ground, as seen: the horizon is an exact circle (or line) on this
+    // projection -- see `horizonOnScreen` -- filled on the ground's side,
+    // over the stars and figures below it.
+    if (orientation === "sky") {
+      const hz = horizonOnScreen(v);
+      ctx.beginPath();
+      if (hz.kind === "circle") {
+        ctx.arc(hz.cx, hz.cy, hz.r, 0, 2 * Math.PI);
+        if (!hz.groundInside) ctx.rect(-w, -h, 3 * w, 3 * h);
+      } else {
+        const far = 4 * (w + h);
+        ctx.moveTo(hz.x - hz.dx * far, hz.y - hz.dy * far);
+        ctx.lineTo(hz.x + hz.dx * far, hz.y + hz.dy * far);
+        ctx.lineTo(hz.x + hz.dx * far + hz.gx * far, hz.y + hz.dy * far + hz.gy * far);
+        ctx.lineTo(hz.x - hz.dx * far + hz.gx * far, hz.y - hz.dy * far + hz.gy * far);
+        ctx.closePath();
+      }
+      ctx.fillStyle = "rgba(38, 29, 20, 0.88)";
+      ctx.fill("evenodd");
+      ctx.strokeStyle = "rgba(200, 170, 130, 0.7)";
+      ctx.lineWidth = 1.4;
+      ctx.beginPath();
+      if (hz.kind === "circle") ctx.arc(hz.cx, hz.cy, hz.r, 0, 2 * Math.PI);
+      else {
+        const far = 4 * (w + h);
+        ctx.moveTo(hz.x - hz.dx * far, hz.y - hz.dy * far);
+        ctx.lineTo(hz.x + hz.dx * far, hz.y + hz.dy * far);
+      }
+      ctx.stroke();
     }
 
     // Constellation names, on wide views.

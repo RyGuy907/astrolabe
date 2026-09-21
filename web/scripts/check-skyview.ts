@@ -8,7 +8,8 @@
  */
 
 import {
-  DEG, dot, limitFor, makeView, norm, placeAt, unit, zoomed, type Vec,
+  DEG, dot, horizonOnScreen, isGround, limitFor, makeView, norm, placeAt, unit, zoomed,
+  type Vec,
 } from "../src/components/skyview";
 
 let failures = 0;
@@ -112,6 +113,26 @@ for (const factor of [0.5, 1.8]) {
   const v = makeView([0, 0, 1], 30, W, H);
   const p = v.project(norm([0.05, 0, 1]));
   check("a view centred on the zenith still projects", p !== null && Number.isFinite(p[0]));
+}
+
+// --- the horizon: ground exactly where the sky is below it -----------------
+// Every pixel of a grid is checked against the truth -- unproject it and see
+// whether it points below the horizon -- across views that broke the old
+// sampled outline: wide fields, looking up, looking down, and exactly level.
+for (const [alt, az, fov] of [[20, 180, 90], [40, 250, 180], [89, 30, 120], [90, 0, 180],
+                              [0, 90, 60], [0.001, 90, 60], [-15, 300, 100], [5, 10, 20],
+                              [60, 120, 180], [-60, 45, 150]]) {
+  const v = makeView(altaz(alt, az), fov, W, H);
+  const hz = horizonOnScreen(v);
+  let wrong = 0, n = 0;
+  for (let py = 3; py < H; py += 12) for (let px = 3; px < W; px += 12) {
+    const truth = v.unproject(px, py)[2];
+    if (Math.abs(truth) < 0.004) continue;          // on the line itself
+    n++;
+    if (isGround(hz, px, py) !== truth < 0) wrong++;
+  }
+  check(`horizon at alt ${alt}, ${fov} degrees wide: ground exactly below it (${hz.kind})`,
+        wrong === 0, `${wrong} of ${n} pixels wrong`);
 }
 
 // --- detail follows zoom ----------------------------------------------------
