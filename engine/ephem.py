@@ -55,6 +55,20 @@ _BODY_ALIASES = {
 
 Interval = tuple[datetime, datetime]
 
+#: Deflectors for `.apparent()` when observing fixed catalogue positions --
+#: deep-sky objects, constellation centroids, meteor radiants. None.
+#:
+#: Skyfield's default bends the light of every target by the gravity of the
+#: Sun, Jupiter and Saturn, which means evaluating all three at each target's
+#: own light-arrival time: for 12,000 catalogue objects that was 1.15 s of a
+#: 2.2 s target assessment, and it ran again for every sampled time. The
+#: effect is 1.75 arcseconds at the Sun's limb and milliarcseconds anywhere a
+#: telescope would be pointed at night -- thousands of times below anything
+#: an altitude filter can resolve. Aberration (~20") and the Earth's own
+#: deflection are still applied; only the three distant bodies are dropped.
+#: Solar-system bodies keep the default, where it is cheap anyway.
+FIXED_TARGET_DEFLECTORS: tuple[int, ...] = ()
+
 
 class EphemerisMissingError(RuntimeError):
     """Raised when the ephemeris is absent and downloading is disallowed."""

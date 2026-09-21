@@ -91,15 +91,24 @@ def _warm_caches() -> None:
     """Load the slow, static things once, before anyone asks for them.
 
     The catalogue parse, the timezone finder and the ephemeris each cost
-    about a second the first time and nothing after. Without this, whoever
+    about a second the first time and nothing after, and the coming months'
+    conjunctions a few seconds. Without this, whoever
     made the first request after a restart paid all of it -- the horizon
     measurer's first open took 4 s where later ones took under 1 s. Nothing
     is computed about any night; these are caches of vendored data.
     """
     from engine.ephem import load_ephemeris
+    from engine.events import conjunctions
     from engine.locations import _timezone_finder
 
-    for warm in (load_catalog, _timezone_finder, load_ephemeris):
+    def next_conjunctions():
+        # The events tab looks 90 days ahead of whichever night is open.
+        # Computed month by month and cached, so warming four months covers
+        # tonight and a week or so of stepping forward.
+        conjunctions(now_utc().date(), 120)
+
+    for warm in (load_catalog, _timezone_finder, load_ephemeris,
+                 next_conjunctions):
         try:
             warm()
         except Exception:  # noqa: BLE001 -- a warm-up must never stop startup
@@ -121,9 +130,13 @@ app = FastAPI(
     lifespan=_lifespan,
 )
 
-# The unfiltered target list is ~7 MB of JSON; it compresses to a fraction of
+# The unfiltered target list is ~10 MB of JSON; it compresses to a fraction of
 # that and the payload is almost entirely repeated field names.
-app.add_middleware(GZipMiddleware, minimum_size=1000)
+#
+# Level 5, not the default 9: on that payload 9 took 617 ms to save 94 KB over
+# level 5's 131 ms. This is served from localhost, where half a second of
+# compression costs more than any saving in transfer.
+app.add_middleware(GZipMiddleware, minimum_size=1000, compresslevel=5)
 
 # The Vite dev server runs on a different origin during development.
 app.add_middleware(

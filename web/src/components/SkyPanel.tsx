@@ -642,8 +642,12 @@ export function SkyPanel({
   // 40-constellation match can be collapsed down to the one you wanted.
   // `openGroups` is keyed per group and only holds groups actually clicked,
   // so the default returns as soon as the query changes.
-  const isGroupOpen = (name: string, index: number) =>
-    openGroups[name] ?? (query ? true : index === 0);
+  //
+  // Without a search, every group starts closed. The first used to open by
+  // default, which meant whatever sorted first -- Andromeda, alphabetically
+  // -- was always open, and it is no more likely to be the one you want.
+  const isGroupOpen = (name: string) =>
+    openGroups[name] ?? Boolean(query);
 
   const eventCount = events
     ? events.showers.length + events.lunar_eclipses.length + events.conjunctions.length
@@ -764,9 +768,9 @@ export function SkyPanel({
               </p>
             )}
 
-            {groupNames.map((group, index) => {
+            {groupNames.map((group) => {
               const rows = filteredGroups[group];
-              const open = isGroupOpen(group, index);
+              const open = isGroupOpen(group);
               const info = targets.group_info?.[group];
               const label = info?.label ?? group;
               const isConstellation = info?.is_constellation ?? false;

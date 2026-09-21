@@ -11,6 +11,8 @@ use for them.
 
 from __future__ import annotations
 
+import functools
+
 import json
 import math
 from dataclasses import dataclass
@@ -22,7 +24,7 @@ from skyfield import almanac, eclipselib
 from skyfield.api import Star
 from skyfield.searchlib import find_minima
 
-from .ephem import Ephemeris, _observer, load_ephemeris
+from .ephem import FIXED_TARGET_DEFLECTORS, Ephemeris, _observer, load_ephemeris
 from .equipment import naked_eye_limiting_mag
 from .locations import BORTLE_SQM, Location
 from .timeutil import UTC, ensure_utc, local_noon_utc
@@ -121,7 +123,8 @@ def _radiant_altitudes(eph: Ephemeris, location: Location,
     radiant = Star(ra_hours=shower.radiant_ra_deg / 15.0,
                    dec_degrees=shower.radiant_dec_deg)
     times = eph.timescale.from_datetimes(stamps)
-    return observer.at(times).observe(radiant).apparent().altaz()[0].degrees
+    return (observer.at(times).observe(radiant)
+            .apparent(FIXED_TARGET_DEFLECTORS).altaz()[0].degrees)
 
 
 def assess_shower(shower: MeteorShower, location: Location, night,
@@ -290,14 +293,45 @@ def conjunctions(start: date, days: int, *,
 
     PLAN.md §3.3: scan for planet-planet pairs under 5 deg and Moon-planet
     pairs under 3 deg using `find_minima` on the separation function.
+
+    Computed a calendar month at a time and cached. Conjunctions are
+    geocentric -- the same for every site -- and fixed by the ephemeris, so
+    there is nothing to recompute: the search was 1.7 s of every events
+    request, and stepping the date by one day repeated 89 days of it.
+    """
+    window_start = datetime(start.year, start.month, start.day, tzinfo=UTC)
+    window_end = window_start + timedelta(days=days)
+
+    out: list[Conjunction] = []
+    year, month = start.year, start.month
+    while datetime(year, month, 1, tzinfo=UTC) < window_end:
+        out.extend(c for c in _conjunctions_in_month(
+                       year, month, planet_threshold_deg, moon_threshold_deg,
+                       include_moon)
+                   if window_start <= c.time_utc < window_end)
+        year, month = (year + 1, 1) if month == 12 else (year, month + 1)
+    return sorted(out, key=lambda c: c.time_utc)
+
+
+@functools.lru_cache(maxsize=48)
+def _conjunctions_in_month(year: int, month: int, planet_threshold_deg: float,
+                           moon_threshold_deg: float,
+                           include_moon: bool) -> tuple[Conjunction, ...]:
+    """Every close approach with its minimum inside one calendar month.
+
+    Searched over the month padded by a day either side, then trimmed to the
+    month. `find_minima` only reports minima strictly inside its interval, so
+    an unpadded search would drop an approach falling right on midnight of the
+    1st from both neighbouring months.
     """
     eph = load_ephemeris()
     ts = eph.timescale
 
-    t0 = ts.from_datetime(datetime(start.year, start.month, start.day, tzinfo=UTC))
-    end_date = start + timedelta(days=days)
-    t1 = ts.from_datetime(
-        datetime(end_date.year, end_date.month, end_date.day, tzinfo=UTC))
+    month_start = datetime(year, month, 1, tzinfo=UTC)
+    month_end = (datetime(year + 1, 1, 1, tzinfo=UTC) if month == 12
+                 else datetime(year, month + 1, 1, tzinfo=UTC))
+    t0 = ts.from_datetime(month_start - timedelta(days=1))
+    t1 = ts.from_datetime(month_end + timedelta(days=1))
 
     pairs: list[tuple[str, str, float]] = []
     for i, first in enumerate(CONJUNCTION_BODIES):
@@ -318,13 +352,16 @@ def conjunctions(start: date, days: int, *,
             separation = float(np.atleast_1d(separations)[index])
             if separation > threshold:
                 continue
+            when = times[index].utc_datetime().replace(tzinfo=UTC)
+            if not month_start <= when < month_end:
+                continue
             out.append(Conjunction(
-                time_utc=times[index].utc_datetime().replace(tzinfo=UTC),
+                time_utc=when,
                 body_a=name_a, body_b=name_b,
                 separation_deg=separation,
                 involves_moon="moon" in (name_a, name_b),
             ))
-    return sorted(out, key=lambda c: c.time_utc)
+    return tuple(out)
 
 
 # --- comets -----------------------------------------------------------------

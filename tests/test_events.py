@@ -256,3 +256,40 @@ def test_a_tighter_threshold_finds_fewer_conjunctions():
                          include_moon=False)
     assert len(tight) <= len(loose)
     assert all(c.separation_deg <= 1.0 for c in tight)
+
+
+@requires_ephemeris
+def test_conjunctions_are_the_same_searched_by_month_as_in_one_window():
+    """Conjunctions are cached a calendar month at a time. Stitched back
+    together they must match one search over the whole window -- including
+    across a month boundary, where an unpadded search would drop a minimum
+    falling right on midnight of the 1st."""
+    from skyfield.searchlib import find_minima
+
+    from engine.ephem import load_ephemeris
+    from engine.events import (CONJUNCTION_BODIES, MOON_CONJUNCTION_DEG,
+                               PLANET_CONJUNCTION_DEG, _separation_function)
+    from engine.timeutil import UTC
+
+    start, days = date(2026, 9, 21), 90
+    stitched = conjunctions(start, days)
+
+    eph = load_ephemeris()
+    t0 = eph.timescale.from_datetime(datetime(2026, 9, 21, tzinfo=UTC))
+    t1 = eph.timescale.from_datetime(datetime(2026, 9, 21, tzinfo=UTC)
+                                     + timedelta(days=days))
+    direct = []
+    pairs = [(a, b, PLANET_CONJUNCTION_DEG)
+             for i, a in enumerate(CONJUNCTION_BODIES)
+             for b in CONJUNCTION_BODIES[i + 1:]]
+    pairs += [("moon", b, MOON_CONJUNCTION_DEG) for b in CONJUNCTION_BODIES]
+    for a, b, threshold in pairs:
+        times, seps = find_minima(t0, t1, _separation_function(eph, a, b))
+        for t, s in zip(times, seps):
+            if float(s) <= threshold:
+                direct.append((t.utc_datetime(), a, b))
+    direct.sort()
+
+    assert [(c.body_a, c.body_b) for c in stitched] == [(a, b) for _, a, b in direct]
+    for c, (when, _, _) in zip(stitched, direct):
+        assert abs((c.time_utc - when).total_seconds()) < 5

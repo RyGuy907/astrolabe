@@ -113,15 +113,32 @@ def centroids(catalog) -> dict[str, ConstellationPosition]:
     `centroid` -- 89 full scans, 2.2 million string operations -- was 99% of
     the time the horizon measurer spent per direction: 1.5 s, four times over.
     """
+    # Centroids are a fixed property of the catalogue, and the same catalogue
+    # comes back for every request -- load_catalog hands out the same frozen
+    # objects each time -- so they are computed once per catalogue. Keyed on
+    # the objects' identities, with the objects held so an id cannot be
+    # reused; a different catalogue (a test's, say) simply misses.
+    key = tuple(id(obj) for obj in catalog)
+    cached = _CENTROIDS.get(key)
+    if cached is not None:
+        return dict(cached[1])
+
     groups: dict[str, list] = {}
     for obj in catalog:
         groups.setdefault(obj.constellation.strip().lower(), []).append(obj)
     out = {}
-    for key, members in groups.items():
+    for abbreviation, members in groups.items():
         position = _centroid_of(members)
         if position is not None:
-            out[key] = position
-    return out
+            out[abbreviation] = position
+    if len(_CENTROIDS) >= 4:
+        _CENTROIDS.pop(next(iter(_CENTROIDS)))
+    _CENTROIDS[key] = (tuple(catalog), out)
+    return dict(out)
+
+
+#: catalogue identity -> (the catalogue, its centroids). See `centroids`.
+_CENTROIDS: dict[tuple[int, ...], tuple[tuple, dict]] = {}
 
 
 def _centroid_of(members: list) -> ConstellationPosition | None:
@@ -201,7 +218,7 @@ def assess_constellations(positions: list[ConstellationPosition],
     """
     from skyfield.api import Star
 
-    from .ephem import _observer, load_ephemeris
+    from .ephem import FIXED_TARGET_DEFLECTORS, _observer, load_ephemeris
 
     if not positions:
         return {}
@@ -232,7 +249,8 @@ def assess_constellations(positions: list[ConstellationPosition],
     peaks = [-90.0] * len(positions)
 
     for index in range(len(stamps)):
-        altitudes = observer.at(times[index]).observe(stars).apparent().altaz()[0].degrees
+        altitudes = (observer.at(times[index]).observe(stars)
+                     .apparent(FIXED_TARGET_DEFLECTORS).altaz()[0].degrees)
         for slot, altitude in enumerate(altitudes):
             value = float(altitude)
             above[slot].append(value >= min_altitude_deg)
@@ -316,7 +334,7 @@ def marks_toward(azimuth_deg: float,
     """
     from skyfield.api import Star
 
-    from .ephem import _observer, load_ephemeris
+    from .ephem import FIXED_TARGET_DEFLECTORS, _observer, load_ephemeris
     from .timeutil import ensure_utc
 
     when = ensure_utc(when, field="when")
@@ -334,7 +352,8 @@ def marks_toward(azimuth_deg: float,
         dec_degrees=[p.dec_deg for p in positions],
     )
     time = eph.timescale.from_datetime(when)
-    alt, az, _ = observer.at(time).observe(stars).apparent().altaz()
+    alt, az, _ = (observer.at(time).observe(stars)
+                  .apparent(FIXED_TARGET_DEFLECTORS).altaz())
 
     marks: list[SkyMark] = []
     for position, altitude, azimuth in zip(positions, alt.degrees, az.degrees):

@@ -993,3 +993,63 @@ def test_the_horizon_alone_can_be_the_floor(kit, catalog):
     # A higher treeline admits strictly fewer objects. That the horizon is
     # doing the filtering at all is the assertion.
     assert counts[0] > counts[20] > counts[40]
+
+
+@requires_ephemeris
+def test_a_repeated_night_is_served_from_the_cache(home):
+    """Reloading or stepping back to a night must not recompute 12,000
+    objects -- and must give back exactly what it computed the first time."""
+    from engine.targets import _ASSESSED
+
+    kit = load_equipment()
+    window = night_window(REFERENCE_DATE, home)
+    first = assess_targets(window, kit, min_altitude_deg=0.0)
+    again = assess_targets(night_window(REFERENCE_DATE, home), kit,
+                           min_altitude_deg=0.0)
+    assert [a.obj.name for a in first] == [a.obj.name for a in again]
+    assert first is not again           # a caller may sort its own list
+    assert any(hit[0] is window for hit in _ASSESSED.values())
+
+
+@requires_ephemeris
+def test_anything_the_result_depends_on_misses_the_cache(home):
+    """Logging an object changes what the assessment says about it, so a
+    different logged set must recompute rather than hand back the old one.
+    (Its score need not change: with no log context there is no novelty
+    bonus at all, so logged and no-context score alike. The flag does.)"""
+    kit = load_equipment()
+    window = night_window(REFERENCE_DATE, home)
+    plain = assess_targets(window, kit)
+    target = plain[0].obj.name
+    logged = assess_targets(window, kit, logged={target})
+    before = next(a for a in plain if a.obj.name == target)
+    after = next(a for a in logged if a.obj.name == target)
+    assert before.previously_logged is False
+    assert after.previously_logged is True
+
+
+@requires_ephemeris
+def test_dropping_distant_deflection_moves_nothing_that_matters(home):
+    """FIXED_TARGET_DEFLECTORS skips the Sun/Jupiter/Saturn light bending,
+    which cost more than half of every assessment. It must not move any
+    object by more than a fraction of an arcsecond, or change a verdict."""
+    import engine.targets as targets_mod
+
+    kit = load_equipment()
+    window = night_window(REFERENCE_DATE, home)
+    catalog = load_catalog()          # a catalogue bypasses the cache
+    fast = {a.obj.name: a for a in targets_mod.assess_targets(
+        window, kit, catalog=catalog, include_too_faint=True)}
+    saved = targets_mod.FIXED_TARGET_DEFLECTORS
+    try:
+        targets_mod.FIXED_TARGET_DEFLECTORS = (10, 599, 699)
+        slow = {a.obj.name: a for a in targets_mod.assess_targets(
+            window, kit, catalog=catalog, include_too_faint=True)}
+    finally:
+        targets_mod.FIXED_TARGET_DEFLECTORS = saved
+    assert fast.keys() == slow.keys()
+    for name, a in fast.items():
+        b = slow[name]
+        assert abs(a.peak_altitude_deg - b.peak_altitude_deg) < 1 / 3600
+        assert a.score == pytest.approx(b.score, abs=1e-6)
+        assert (a.too_faint, a.visible_late) == (b.too_faint, b.visible_late)

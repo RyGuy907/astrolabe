@@ -22,6 +22,7 @@ other and should not be read as a detection prediction.
 from __future__ import annotations
 
 import math
+from collections import OrderedDict
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 
@@ -29,7 +30,8 @@ import numpy as np
 from skyfield.api import Star
 
 from .catalog.loader import DeepSkyObject, load_catalog
-from .ephem import Interval, NightWindow, _observer, load_ephemeris
+from .ephem import (FIXED_TARGET_DEFLECTORS, Interval, NightWindow, _observer,
+                    load_ephemeris)
 from .equipment import (
     DEFAULT_EXTINCTION_K,
     Equipment,
@@ -361,6 +363,67 @@ def assess_targets(
 ) -> list[TargetAssessment]:
     """Every catalog object that passes the hard filters, best first.
 
+    Cached per night: see `_assess_uncached` for the assessment itself. The
+    same night, site, telescope and settings always give the same answer --
+    there is no weather in it -- and reloading the page or stepping back to a
+    night recomputed all 12,000 objects to get it. The key is everything the
+    result depends on; `night_window` is itself cached, so the same date and
+    site hand back the same window object, which is what the key holds. A
+    caller passing its own catalogue bypasses the cache.
+    """
+    scope = scope or equipment.scope()
+    if catalog is not None:
+        return _assess_uncached(
+            window, equipment, scope, catalog=catalog,
+            min_altitude_deg=min_altitude_deg, session=session,
+            min_minutes_above_floor=min_minutes_above_floor, step=step,
+            contrast_floor=contrast_floor, extinction_k=extinction_k,
+            logged=logged, include_too_faint=include_too_faint)
+
+    key = (id(window), scope, equipment.eye_pupil_mm, min_altitude_deg,
+           session, min_minutes_above_floor, step, contrast_floor,
+           extinction_k, frozenset(logged or ()), include_too_faint)
+    hit = _ASSESSED.get(key)
+    if hit is not None and hit[0] is window:
+        _ASSESSED.move_to_end(key)
+        return list(hit[1])
+
+    result = _assess_uncached(
+        window, equipment, scope, min_altitude_deg=min_altitude_deg,
+        session=session, min_minutes_above_floor=min_minutes_above_floor,
+        step=step, contrast_floor=contrast_floor, extinction_k=extinction_k,
+        logged=logged, include_too_faint=include_too_faint)
+    # The window is held alongside, so its id cannot be reused by another
+    # object while the entry lives.
+    _ASSESSED[key] = (window, tuple(result))
+    while len(_ASSESSED) > _ASSESSED_MAX:
+        _ASSESSED.popitem(last=False)
+    return result
+
+
+#: A handful of recent nights: enough to step back and forth or reload
+#: without holding every night ever viewed.
+_ASSESSED_MAX = 6
+_ASSESSED: "OrderedDict[tuple, tuple[NightWindow, tuple]]" = OrderedDict()
+
+
+def _assess_uncached(
+    window: NightWindow,
+    equipment: Equipment,
+    scope: Scope | None = None,
+    *,
+    catalog: list[DeepSkyObject] | None = None,
+    min_altitude_deg: float = DEFAULT_MIN_ALTITUDE_DEG,
+    session: Interval | None = None,
+    min_minutes_above_floor: int = DEFAULT_MIN_MINUTES_ABOVE_FLOOR,
+    step: timedelta = DEFAULT_STEP,
+    contrast_floor: float = DEFAULT_CONTRAST_FLOOR,
+    extinction_k: float = DEFAULT_EXTINCTION_K,
+    logged: set[str] | None = None,
+    include_too_faint: bool = False,
+) -> list[TargetAssessment]:
+    """The assessment behind `assess_targets`, uncached.
+
     `logged` is the set of catalog ids already in the observation log. Objects
     absent from it get PLAN.md 3.3.4's small novelty bonus. Passed in as data
     so the engine never reads the log database itself.
@@ -441,7 +504,7 @@ def assess_targets(
     for index in range(len(times)):
         moment = sky_times[index]
         here = observer.at(moment)
-        star_positions = here.observe(stars).apparent()
+        star_positions = here.observe(stars).apparent(FIXED_TARGET_DEFLECTORS)
         alt, az, _ = star_positions.altaz()
         altitudes[index] = alt.degrees
         azimuths[index] = az.degrees
