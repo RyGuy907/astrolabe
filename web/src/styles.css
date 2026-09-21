@@ -538,6 +538,18 @@ table.targets tr.charted { background: rgba(244, 201, 93, 0.06); }
   font-size: 0.8rem;
 }
 .target-notes { color: var(--muted-text); font-size: 0.78rem; margin-top: 2px; }
+/* A heading row that starts a second group inside a table -- the Moon, below
+   the planets -- so both groups share one set of column widths. */
+.table-section th {
+  text-align: left;
+  padding: 18px 8px 6px;
+  font-size: 0.72rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--muted-text);
+  border-bottom: 1px solid var(--line);
+}
 .badge {
   display: inline-block;
   margin-left: 6px;

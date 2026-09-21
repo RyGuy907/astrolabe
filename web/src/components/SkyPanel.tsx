@@ -22,6 +22,7 @@ import {
 } from "./FactSheet";
 import type {
   EventsResponse,
+  MoonModel,
   PlanetModel,
   PlanetsResponse,
   TargetModel,
@@ -32,6 +33,7 @@ import {
   formatDegrees,
   formatMagnitude,
   formatTime,
+  moonPhaseName,
   scoreColor,
   titleCase,
 } from "../format";
@@ -377,6 +379,145 @@ function PlanetRow({ planet, charted, onToggleChart, minAltitude }: {
                   </Fact>
                 ) : null}
                 {facts && <div className="fact-about">{facts.about}</div>}
+              </FactSheet>
+            </div>
+          </td>
+        </tr>
+      )}
+    </>
+  );
+}
+
+/** Light travel time for a distance in km, for a body far closer than an AU. */
+function formatLightSeconds(km: number): string {
+  return `${(km / 299_792.458).toFixed(2)} light seconds`;
+}
+
+/**
+ * The Moon, in the same six columns as a planet.
+ *
+ * The Apparition column is where the two differ: a planet's story is weeks to
+ * opposition, and the Moon's is its phase and the next quarter, which is what
+ * decides whether it is tonight's target or the thing washing out every
+ * other target. Times are the site's clock, formatted here and nowhere else.
+ */
+function MoonRow({ moon, charted, onToggleChart, minAltitude, timeZone }: {
+  moon: MoonModel;
+  charted: string[];
+  onToggleChart: (id: string, label: string,
+                  kind: "body" | "constellation") => void;
+  minAltitude: number;
+  timeZone: string;
+}) {
+  const [open, setOpen] = useState(false);
+  const onChart = charted.includes("moon");
+  const phase = moonPhaseName(moon.illuminated_fraction, moon.waxing);
+  const facts = moon.facts;
+
+  return (
+    <>
+      <tr className={moon.observable ? undefined : "dim"}>
+        <td>
+          <button
+            className={`chip ${onChart ? "chip-on" : ""}`}
+            onClick={() => onToggleChart("moon", "moon", "body")}
+            title="Toggle on the altitude chart"
+            aria-label={onChart ? "Remove the Moon from the chart" : "Chart the Moon"}
+            aria-pressed={onChart}
+          >
+            {onChart ? "✓" : "+"}
+          </button>
+        </td>
+        <td>
+          <button
+            className="target-name"
+            onClick={() => setOpen(!open)}
+            aria-expanded={open}
+            title={open ? "Hide the details" : "Show the details"}
+          >
+            <span className="caret">{open ? "▾" : "▸"}</span>
+            <strong>Moon</strong>
+          </button>
+          <div className="target-notes">
+            {(moon.illuminated_fraction * 100).toFixed(0)}% lit
+          </div>
+        </td>
+        <td>{formatMagnitude(moon.magnitude)}</td>
+        <td>{formatAngularSize(moon.apparent_diameter_arcsec / 60)}</td>
+        <td>{formatDegrees(moon.peak_altitude_deg)}</td>
+        <td>
+          {phase}
+          <div className="target-notes">
+            {moon.next_phase_name}{" "}
+            {formatTime(moon.next_phase_time, timeZone, true)}
+          </div>
+          {!moon.observable && moon.notes.length === 0 && (
+            <div className="target-notes">
+              stays below {minAltitude}° tonight
+            </div>
+          )}
+          {moon.notes.map((note) => (
+            <div key={note} className="target-notes">{note}</div>
+          ))}
+        </td>
+      </tr>
+
+      {open && (
+        <tr className="target-detail">
+          <td colSpan={6}>
+            <div className="detail-split">
+              <PlanetImage name="moon" />
+
+              <FactSheet>
+                <Fact label="Distance">
+                  {Math.round(moon.distance_km).toLocaleString("en-GB")} km ·{" "}
+                  {formatLightSeconds(moon.distance_km)}
+                </Fact>
+                <Fact label="Diameter">
+                  {facts.diameter_km.toLocaleString("en-GB")} km
+                </Fact>
+                <Fact label="Apparent size">
+                  {formatAngularSize(moon.apparent_diameter_arcsec / 60)}
+                </Fact>
+                <Fact label="Illuminated">
+                  {(moon.illuminated_fraction * 100).toFixed(0)}%
+                </Fact>
+                <Fact label="Phase">
+                  {titleCase(phase)}, {moon.age_days.toFixed(1)} days old
+                </Fact>
+                {/* In time order, not rise-then-set. These follow the
+                    almanac convention -- events in the site's calendar day
+                    -- so on a waxing Moon the set comes first, in the small
+                    hours, and "rises 16:33 / sets 00:46" would read as a set
+                    eight hours after the rise instead of before it. */}
+                {(moon.moonrise || moon.moonset) && (
+                  <Fact label="Rise and set">
+                    {[
+                      { verb: "rises", at: moon.moonrise },
+                      { verb: "sets", at: moon.moonset },
+                    ]
+                      .filter((e): e is { verb: string; at: string } => e.at !== null)
+                      .sort((a, b) => a.at.localeCompare(b.at))
+                      .map((e) => `${e.verb} ${formatTime(e.at, timeZone, true)}`)
+                      .join(" · ")}
+                  </Fact>
+                )}
+                <Fact label={`Next ${moon.next_phase_name}`}>
+                  {formatTime(moon.next_phase_time, timeZone, true)}
+                </Fact>
+                <Fact label="Orbit">
+                  {facts.sidereal_month_days} days · {facts.synodic_month_days}{" "}
+                  days New Moon to New Moon
+                </Fact>
+                <Fact label="Day">
+                  {facts.sidereal_month_days} days, so the same face always
+                  points at us
+                </Fact>
+                <Fact label="Ever visible">
+                  {(facts.visible_surface_fraction * 100).toFixed(0)}% of the
+                  surface, thanks to libration
+                </Fact>
+                <div className="fact-about">{facts.about}</div>
               </FactSheet>
             </div>
           </td>
@@ -787,6 +928,24 @@ export function SkyPanel({
                     />
                 ))}
               </tbody>
+              {/* Its own tbody, headed, below every planet -- a second group
+                  in the same table so the columns stay aligned. */}
+              {planets.moon && (!query || "moon".includes(query) ||
+                moonPhaseName(planets.moon.illuminated_fraction,
+                              planets.moon.waxing).includes(query)) && (
+                <tbody>
+                  <tr className="table-section">
+                    <th colSpan={6} scope="rowgroup">Moon</th>
+                  </tr>
+                  <MoonRow
+                    moon={planets.moon}
+                    charted={charted}
+                    onToggleChart={onToggleChart}
+                    minAltitude={planets.min_altitude_deg}
+                    timeZone={timeZone}
+                  />
+                </tbody>
+              )}
             </table>
           </div>
         )}

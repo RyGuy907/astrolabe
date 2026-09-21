@@ -296,11 +296,43 @@ export interface PlanetModel {
   notes: string[];
 }
 
+export interface MoonFactsModel {
+  diameter_km: number;
+  sidereal_month_days: number;
+  synodic_month_days: number;
+  mean_distance_km: number;
+  visible_surface_fraction: number;
+  about: string;
+}
+
+export interface MoonModel {
+  observable: boolean;
+  peak_altitude_deg: number;
+  peak_time: string | null;
+  hours_above_floor: number;
+  /** Null within about a day of New Moon, where the formula stops holding. */
+  magnitude: number | null;
+  apparent_diameter_arcsec: number;
+  illuminated_fraction: number;
+  waxing: boolean;
+  distance_km: number;
+  elongation_deg: number;
+  phase_angle_deg: number;
+  age_days: number;
+  next_phase_name: string;
+  next_phase_time: string;
+  moonrise: string | null;
+  moonset: string | null;
+  facts: MoonFactsModel;
+  notes: string[];
+}
+
 export interface PlanetsResponse {
   date: string;
   location: LocationModel;
   min_altitude_deg: number;
   planets: PlanetModel[];
+  moon: MoonModel | null;
 }
 
 export interface ShowerModel {

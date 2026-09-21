@@ -154,6 +154,42 @@ def planet_facts(name: str) -> PlanetFacts | None:
     return PLANET_FACTS.get(name.strip().lower())
 
 
+@dataclass(frozen=True)
+class MoonFacts:
+    """Reference data for the Moon. Constants, like PlanetFacts.
+
+    A separate shape rather than a PlanetFacts with odd values in it, because
+    two of the planet fields are wrong questions here -- the Moon has no moons,
+    and its "year" is the Earth's -- and the two periods that do matter, the
+    sidereal month and the synodic one, have nowhere to go on a planet.
+    """
+
+    diameter_km: float
+    #: Sidereal month: one orbit, and also one rotation, which is why the
+    #: same face always points at us.
+    sidereal_month_days: float
+    #: New Moon to New Moon. Longer than the sidereal month because the Earth
+    #: has moved round the Sun in the meantime and the Moon has to catch up.
+    synodic_month_days: float
+    mean_distance_km: float
+    #: Fraction of the surface ever visible from Earth, thanks to libration.
+    visible_surface_fraction: float
+    note: str
+
+
+#: Values from NASA's Moon fact sheet.
+MOON_FACTS = MoonFacts(
+    diameter_km=3474.8,
+    sidereal_month_days=27.32,
+    synodic_month_days=29.53,
+    mean_distance_km=384_400,
+    visible_surface_fraction=0.59,
+    note="Best along the terminator, where low sunlight throws every crater "
+         "into relief -- which makes Full Moon, flat and glaring, the worst "
+         "night to look at it.",
+)
+
+
 #: Deep-sky reference data, keyed by Messier number.
 #:
 #: Discovery credit names the first recorded observer, which is often not

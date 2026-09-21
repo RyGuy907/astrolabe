@@ -387,3 +387,171 @@ def report_all(location: Location, window, *,
         key=lambda r: (not r.observable,
                        r.magnitude if r.magnitude is not None else 99.0),
     )
+
+
+# --- the Moon -----------------------------------------------------------------
+
+#: Mean radius, IAU 2015 (Archinal et al. 2018), for the apparent diameter.
+MOON_RADIUS_KM = 1737.4
+#: Mean Earth-Moon distance, the one Allen's magnitude formula is normalised to.
+MOON_MEAN_DISTANCE_KM = 384_400.0
+
+#: `almanac.moon_phases` returns 0-3; these are the names it means.
+MOON_PHASE_NAMES = ("New Moon", "First Quarter", "Full Moon", "Last Quarter")
+
+
+@dataclass(frozen=True)
+class MoonReport:
+    """The Moon assessed against one night, shaped to sit beside the planets.
+
+    It is a report rather than a PlanetReport because the fields that matter
+    are different. A planet's story is its apparition -- weeks to opposition,
+    the window closing -- and none of that applies to something that goes
+    round in a month. What does matter is the phase, how old it is and when
+    the next quarter falls, which is what decides whether the Moon is the
+    target tonight or the thing ruining every other target.
+    """
+
+    observable: bool
+    peak_altitude_deg: float
+    peak_time_utc: datetime | None
+    hours_above_floor: float
+
+    #: None within a day or so of New Moon, where the formula stops holding.
+    magnitude: float | None
+    apparent_diameter_arcsec: float
+    #: Copied from the NightWindow rather than recomputed, so this row and the
+    #: dashboard's Moon figure are the same number by construction.
+    illuminated_fraction: float
+    waxing: bool
+    distance_km: float
+    elongation_deg: float
+    phase_angle_deg: float
+    #: Days since the last New Moon.
+    age_days: float
+
+    next_phase_name: str
+    next_phase_utc: datetime
+
+    moonrise_utc: datetime | None
+    moonset_utc: datetime | None
+    notes: tuple[str, ...] = ()
+
+    def __post_init__(self) -> None:
+        for field_name in ("peak_time_utc", "next_phase_utc",
+                           "moonrise_utc", "moonset_utc"):
+            value = getattr(self, field_name)
+            if value is not None:
+                object.__setattr__(self, field_name,
+                                   ensure_utc(value, field=field_name))
+
+
+#: Beyond this phase angle Allen's fit is extrapolating, not fitting.
+MOON_MAGNITUDE_MAX_PHASE_DEG = 150.0
+
+
+def moon_magnitude(phase_angle_deg: float, distance_km: float) -> float | None:
+    """Apparent V magnitude of the Moon.
+
+    Skyfield's `planetary_magnitude` implements Mallama & Hilton for the
+    planets and raises for the Moon, so this is the standard fit from Allen's
+    Astrophysical Quantities: V = -12.73 + 0.026|a| + 4e-9 a^4 at mean
+    distance, with the inverse-square correction for how far away it actually
+    is (worth +-0.2 mag between perigee and apogee). Good to about a tenth of
+    a magnitude away from the very thinnest crescents, which is more precision
+    than anyone deciding whether the Moon is too bright needs.
+
+    Returns None past 150 deg of phase angle -- the last day or so either side
+    of New Moon. The quartic term is fitted to observations that stop there,
+    and extrapolating it gives a confident-looking number for a Moon nobody
+    can see anyway.
+    """
+    a = abs(phase_angle_deg)
+    if a > MOON_MAGNITUDE_MAX_PHASE_DEG:
+        return None
+    return (-12.73 + 0.026 * a + 4e-9 * a ** 4
+            + 5.0 * math.log10(distance_km / MOON_MEAN_DISTANCE_KM))
+
+
+def report_moon(location: Location, window, *,
+                min_altitude_deg: float = DEFAULT_MIN_ALTITUDE_DEG) -> MoonReport:
+    """The Moon on one night: where it goes, how bright, and what phase.
+
+    Assessed sunset to sunrise, like the inner planets and for the same
+    reason: a first-quarter Moon is highest at dusk, and an astronomical-night
+    window would report it as barely up on the evening it is best placed.
+    Phase-dependent values are taken at the midpoint of that span, the same
+    instant the NightWindow measures illumination at.
+    """
+    eph = load_ephemeris()
+    ts = eph.timescale
+
+    if window.sunset_utc and window.sunrise_utc:
+        start, end = window.sunset_utc, window.sunrise_utc
+    else:
+        # Polar day or night: no sunset to start from, so take the local day.
+        start = local_noon_utc(window.date, location.tz)
+        end = start + timedelta(days=1)
+
+    stamps, cursor = [], start
+    while cursor <= end:
+        stamps.append(cursor)
+        cursor += timedelta(minutes=30)
+
+    altitudes = np.asarray(_altitudes(eph, location, "moon", stamps))
+    peak_index = int(np.argmax(altitudes))
+    peak_altitude = float(altitudes[peak_index])
+    hours_above = float(np.sum(altitudes >= min_altitude_deg)) * 0.5
+
+    mid = start + (end - start) / 2
+    t_mid = ts.from_datetime(mid)
+    earth = eph.kernel["earth"]
+    astrometric = earth.at(t_mid).observe(eph.target("moon"))
+    distance_km = float(astrometric.distance().km)
+    elongation = float(astrometric.apparent().separation_from(
+        earth.at(t_mid).observe(eph.target("sun")).apparent()).degrees)
+    phase_angle = float(almanac.phase_angle(eph.kernel, "moon", t_mid).degrees)
+
+    # One search either side of the midpoint answers both "how old is it"
+    # and "when is the next quarter".
+    phases = almanac.moon_phases(eph.kernel)
+    before, before_phase = almanac.find_discrete(
+        ts.from_datetime(mid - timedelta(days=31)), t_mid, phases)
+    new_moons = [t for t, p in zip(before, before_phase) if int(p) == 0]
+    age_days = ((mid - new_moons[-1].utc_datetime()).total_seconds() / 86400.0
+                if new_moons else float("nan"))
+
+    after, after_phase = almanac.find_discrete(
+        t_mid, ts.from_datetime(mid + timedelta(days=31)), phases)
+    next_phase_name = MOON_PHASE_NAMES[int(after_phase[0])]
+    next_phase_utc = after[0].utc_datetime().replace(tzinfo=UTC)
+
+    observable = (peak_altitude >= min_altitude_deg
+                  and hours_above >= DEFAULT_MIN_HOURS)
+    notes: list[str] = []
+    if window.moon_illumination < 0.03:
+        # Up or not, a Moon this thin is lost in the glare of the Sun it sits
+        # beside. Calling it observable would send someone out to find nothing.
+        notes.append("too thin to see - close to New Moon")
+        observable = False
+
+    return MoonReport(
+        observable=observable,
+        peak_altitude_deg=peak_altitude,
+        peak_time_utc=stamps[peak_index],
+        hours_above_floor=hours_above,
+        magnitude=moon_magnitude(phase_angle, distance_km),
+        apparent_diameter_arcsec=2.0 * math.degrees(
+            math.atan(MOON_RADIUS_KM / distance_km)) * 3600.0,
+        illuminated_fraction=window.moon_illumination,
+        waxing=window.moon_waxing,
+        distance_km=distance_km,
+        elongation_deg=elongation,
+        phase_angle_deg=phase_angle,
+        age_days=age_days,
+        next_phase_name=next_phase_name,
+        next_phase_utc=next_phase_utc,
+        moonrise_utc=window.moonrise_utc,
+        moonset_utc=window.moonset_utc,
+        notes=tuple(notes),
+    )
