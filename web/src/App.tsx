@@ -3,7 +3,7 @@
  *
  * Layout, top to bottom: controls, an alert for anything in the next week,
  * the score-and-night panel, then a two-column row with the altitude chart
- * beside the Targets/Planets/Events panel — so adding something to the chart
+ * beside the Deep Sky/Solar System/Events panel — so adding something to the chart
  * and seeing it appear happens without scrolling. Conditions and the log sit
  * below.
  *
@@ -106,7 +106,7 @@ export default function App() {
     }
   }, [nightVision]);
   // "Visible tonight" lists only what passes the observability filters;
-  // "All targets" drops the filtering entirely and badges each row instead.
+  // "All objects" drops the filtering entirely and badges each row instead.
   const [showAllTargets, setShowAllTargets] = useState(false);
   // Narrows either view to engine/showpieces.py's curated list.
   const [popularOnly, setPopularOnly] = useState(false);
@@ -239,7 +239,7 @@ export default function App() {
 
   // --- auto-fill the chart for each new night ---
   // Just the Moon and the naked-eye planets that are actually up. Deep-sky
-  // regions are added deliberately from the Targets tab rather than guessed at.
+  // regions are added deliberately from the Deep Sky tab rather than guessed at.
   useEffect(() => {
     if (!planets) return;
     const signature = `${date}|${locationKey}`;
@@ -342,7 +342,7 @@ export default function App() {
     setIsTonight(location ? next === resolveNightDate(location.timezone) : false);
   }
 
-  /** Add or drop a series, from the Targets/Planets tables. */
+  /** Add or drop a series, from the Deep Sky/Solar System tables. */
   function toggleSeries(id: string, label: string,
                         kind: "body" | "constellation") {
     setSeries((current) =>
@@ -559,8 +559,9 @@ export default function App() {
                 />
               ) : (
                 <p className="muted">
-                  Nothing charted. Add targets or planets from the panel beside
-                  this one.
+                  Nothing charted. Add constellations from Deep Sky or the
+                  Moon and planets from Solar System, in the panel beside this
+                  one.
                 </p>
               )}
             </section>

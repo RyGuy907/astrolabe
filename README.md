@@ -350,7 +350,7 @@ fabricated interval.
 
 `/api/night` and `/api/targets` take `session_start` and `session_end` as
 ISO-8601 UTC instants and echo back the session they used, so a client never
-has to guess the default. The planets tab is deliberately **not** narrowed:
+has to guess the default. The Solar System tab is deliberately **not** narrowed:
 `observing_span` assesses Mercury and Venus from sunset, because they almost
 never clear an altitude floor with the Sun more than 18° down, and a session
 beginning at astronomical dusk would report the brightest planet in the sky as

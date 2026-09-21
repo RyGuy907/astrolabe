@@ -414,8 +414,8 @@ export function AltitudeChart({
           are chosen from different places in the UI. */}
       {paths.length === 0 ? (
         <p className="muted small">
-          Nothing charted. Add planets or constellations from the panel beside
-          this one.
+          Nothing charted. Add constellations from Deep Sky or the Moon and
+          planets from Solar System, in the panel beside this one.
         </p>
       ) : (
         <div className="chart-legend">

@@ -1,5 +1,12 @@
 /**
- * One panel, three tabs: Targets, Planets, Events.
+ * One panel, three tabs: Deep Sky, Solar System, Events.
+ *
+ * Named to match the two dials above them -- the deep-sky score says how good
+ * tonight is for the first tab, the planetary score for the second. "Targets"
+ * stopped saying anything once the Moon and planets had a tab of their own,
+ * and "Planets" stopped being true once the Moon was in it. Deep Sky also
+ * holds the famous double stars, which observing guides routinely list
+ * alongside it.
  *
  * These were three separate boxes. Folding them into a tab strip keeps the
  * dashboard to a handful of regions and lets this column sit beside the
@@ -645,7 +652,7 @@ export function SkyPanel({
   return (
     <section className="panel sky-panel" aria-labelledby="sky-heading">
       <h2 id="sky-heading" className="visually-hidden">
-        Targets, planets and events
+        Deep sky, solar system and events
       </h2>
       <div className="tabs" role="tablist">
         <button
@@ -654,7 +661,7 @@ export function SkyPanel({
           className={tab === "targets" ? "on" : ""}
           onClick={() => setTab("targets")}
         >
-          Targets{targets ? ` (${shownCount})` : ""}
+          Deep Sky{targets ? ` (${shownCount})` : ""}
         </button>
         <button
           role="tab"
@@ -662,7 +669,9 @@ export function SkyPanel({
           className={tab === "planets" ? "on" : ""}
           onClick={() => setTab("planets")}
         >
-          Planets{planets ? ` (${planets.planets.filter((p) => p.observable).length})` : ""}
+          Solar System{planets ? ` (${
+            planets.planets.filter((p) => p.observable).length +
+            (planets.moon?.observable ? 1 : 0)})` : ""}
         </button>
         <button
           role="tab"
@@ -683,7 +692,7 @@ export function SkyPanel({
             tab === "targets"
               ? "Search objects, types or constellations…"
               : tab === "planets"
-                ? "Search planets…"
+                ? "Search the Moon and planets…"
                 : "Search events…"
           }
           aria-label="Search this panel"
@@ -697,11 +706,11 @@ export function SkyPanel({
 
       <div className={`tab-body ${isStale ? "stale" : ""}`}>
         {tab === "targets" && !targets && targetsPending && (
-          <p className="muted" role="status">Computing tonight's targets…</p>
+          <p className="muted" role="status">Computing tonight's deep-sky list…</p>
         )}
 
         {tab === "targets" && !targets && !targetsPending && (
-          <p className="muted">No target list for this night.</p>
+          <p className="muted">No deep-sky list for this night.</p>
         )}
 
         {tab === "targets" && targets && (
@@ -720,11 +729,11 @@ export function SkyPanel({
                   onClick={() => onShowAllChange(true)}
                   title="Every catalogued object, badged by visibility"
                 >
-                  All targets
+                  All objects
                 </button>
               </div>
               {/* Composes with the toggle beside it rather than replacing it:
-                  checked in "All targets" it is the whole showpiece list
+                  checked in "All objects" it is the whole showpiece list
                   whether or not tonight cooperates, and in "Visible tonight"
                   it is the part of that list you can actually point at. */}
               <label className="checkbox-field">
@@ -733,7 +742,7 @@ export function SkyPanel({
                   checked={popularOnly}
                   onChange={(e) => onPopularOnlyChange(e.target.checked)}
                 />
-                <span>Popular targets only</span>
+                <span>Popular objects only</span>
               </label>
             </div>
             {/* The API returns this and the CLI prints it on every run; the
@@ -906,7 +915,7 @@ export function SkyPanel({
               <thead>
                 <tr>
                   <th aria-label="Chart" />
-                  <th>Planet</th>
+                  <th>Body</th>
                   <th>Mag</th>
                   <th>Size</th>
                   <th>Peak</th>

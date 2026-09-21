@@ -42,7 +42,7 @@ body {
   gap: 14px;
 }
 
-/* Chart beside the Targets/Planets/Events panel. The chart gets the larger
+/* Chart beside the Deep Sky/Solar System/Events panel. The chart gets the larger
    share because curves need horizontal room; the panel is a reading column. */
 .dashboard-row {
   display: grid;
