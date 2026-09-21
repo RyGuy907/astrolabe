@@ -106,7 +106,7 @@ export function StarCard({ index, x, y, width, height, onClose }: Props) {
               {star.age
                 ? <>{star.age[0].toUpperCase() + star.age.slice(1)}
                     {star.age_basis === "upper limit" &&
-                      <span className="muted"> — stars this massive don't last longer</span>}</>
+                      <span className="muted"> — stars this massive don't usually last longer</span>}</>
                 : <span className="muted">Unknown — a single star's light doesn't reveal it</span>}
             </dd>
             <dt>Magnitude</dt>

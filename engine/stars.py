@@ -13,9 +13,14 @@ printing every figure with the same confidence:
   within ~150 pc; by 500 pc the parallax is a couple of milliarcseconds and
   its error a sizeable fraction of it, so beyond that it is marked rough.
 * **Type and temperature** come from the spectral type, which is measured.
-  Where the type is missing or unparseable, temperature falls back to the
-  B-V colour (Ballesteros 2012), which is fine for cool stars and saturates
-  for hot ones.
+  For F and G stars short of supergiants the B-V colour (Ballesteros 2012)
+  gives the temperature instead: checked against Gaia DR3 it is the closer of
+  the two there, while
+  for K stars and anything hotter than F the type wins (colour saturates for
+  hot stars). About a third of catalogue types carry no luminosity class
+  ("K0"); a G, K or M star of that kind shining more than two magnitudes
+  above the main sequence for its type is taken to be a giant. Treating
+  those as dwarfs made them too hot and a third too small against Gaia.
 * **Size** is estimated: bolometric luminosity (absolute magnitude plus a
   temperature-dependent bolometric correction, Torres 2010) and temperature
   give the radius through L = 4 pi R^2 sigma T^4. Rounded, and shown as an
@@ -41,12 +46,19 @@ LY_PER_PC = 3.26156
 SUN_TEMP_K = 5772
 SUN_MBOL = 4.74
 
-#: Main-sequence effective temperature at subclass 0 of each spectral class
-#: and the next class's 0, for interpolating by subclass (Pecaut & Mamajek
-#: 2013, rounded).
-_CLASS_TEMPS = {"O": (44900, 31400), "B": (31400, 9700), "A": (9700, 7220),
-                "F": (7220, 5920), "G": (5920, 5280), "K": (5280, 3850),
-                "M": (3850, 2400)}
+#: Main-sequence effective temperature by type (Pecaut & Mamajek 2013,
+#: rounded), as (position along O0..M9, kelvin). Point by point: interpolating
+#: a whole class from its ends put late-B stars 1,500-2,500 K too hot, which
+#: the audit against published temperatures caught (Regulus, B7V, at 13,800 K
+#: against a measured ~12,000).
+_MS_TEMPS = [(3, 44900), (5, 41400), (7, 36100), (10, 31400), (11, 26000),
+             (12, 20600), (13, 17000), (15, 15700), (16, 14500), (17, 14000),
+             (18, 12300), (19, 10700), (20, 9700), (21, 9300), (22, 8800),
+             (23, 8600), (25, 8100), (27, 7650), (30, 7220), (32, 6810),
+             (35, 6510), (38, 6170), (40, 5920), (42, 5770), (45, 5660),
+             (48, 5490), (50, 5280), (52, 4990), (53, 4830), (55, 4450),
+             (57, 4050), (60, 3850), (62, 3560), (63, 3430), (64, 3210),
+             (65, 3060), (66, 2810), (67, 2680), (68, 2570), (69, 2380)]
 
 #: Cool giants and supergiants are 500-900 K cooler than dwarfs of the same
 #: type, enough to matter for the radius, which goes as 1/T^2. Kelvin at
@@ -54,6 +66,13 @@ _CLASS_TEMPS = {"O": (44900, 31400), "B": (31400, 9700), "A": (9700, 7220),
 #: giant temperatures (van Belle et al. 1999, Alonso et al. 1999), rounded.
 _GIANT_TEMPS = [(0, 5600), (5, 5100), (10, 4750), (12, 4400), (13, 4250),
                 (15, 3950), (20, 3850), (22, 3650), (25, 3350), (28, 2900)]
+
+#: Main-sequence absolute visual magnitude along the types (Pecaut & Mamajek
+#: 2013, rounded), for telling a giant from a dwarf when the type doesn't say.
+_MS_MV = [("O", 5, -5.0), ("B", 0, -3.5), ("B", 5, -1.1), ("A", 0, 1.1), ("A", 5, 1.9),
+          ("F", 0, 2.5), ("F", 5, 3.4), ("G", 0, 4.4), ("G", 5, 5.1), ("K", 0, 5.9),
+          ("K", 5, 7.4), ("M", 0, 8.9), ("M", 5, 12.3)]
+_ORDER = "OBAFGKM"
 
 _COLOURS = {"O": "Blue", "B": "Blue-white", "A": "White", "F": "Yellow-white",
             "G": "Yellow", "K": "Orange", "M": "Red"}
@@ -63,14 +82,14 @@ _COLOURS = {"O": "Blue", "B": "Blue-white", "A": "White", "F": "Yellow-white",
 #: given as the round figure or range most often quoted. `spect` overrides a
 #: catalogue type that is wrong or unusable (HYG has Capella as "M1: comp").
 _KNOWN: dict[int, dict[str, str]] = {
-    32349: {"age": "about 230 million years", "spect": "A1V"},            # Sirius
-    91262: {"age": "about 450 million years"},                            # Vega
-    27989: {"age": "about 8–10 million years"},                           # Betelgeuse
+    32349: {"age": "about 230–250 million years", "spect": "A1V"},        # Sirius
+    91262: {"age": "about 450–700 million years"},                        # Vega
+    27989: {"age": "about 8–14 million years"},                           # Betelgeuse
     24436: {"age": "about 8 million years"},                              # Rigel
-    80763: {"age": "about 11 million years"},                             # Antares
+    80763: {"age": "about 11–15 million years"},                          # Antares
     69673: {"age": "about 7 billion years"},                              # Arcturus
     21421: {"age": "about 6.5 billion years"},                            # Aldebaran
-    11767: {"age": "roughly 50–70 million years"},                        # Polaris
+    11767: {"age": "roughly 45–70 million years"},                        # Polaris
     24608: {"age": "about 590 million years", "spect": "G3III"},          # Capella
     37279: {"age": "about 1.9 billion years"},                            # Procyon
     97649: {"age": "about 100 million years"},                            # Altair
@@ -82,6 +101,25 @@ _KNOWN: dict[int, dict[str, str]] = {
     65378: {"age": "about 400 million years, with the Ursa Major group"}, # Mizar
     8102: {"age": "several billion years, likely older than the Sun"},    # Tau Ceti
     16537: {"age": "about 400–800 million years"},                        # Ran (eps Eri)
+    # Added from the audit against published values (see tests/test_stars.py).
+    54061: {"age": "about 280 million years", "spect": "K0III"},          # Dubhe; HYG has its companion's F7V
+    7588: {"age": "about 60 million years", "spect": "B6Vpe"},            # Achernar; HYG's B3 runs 7,000 K hot
+    62956: {"age": "about 300 million years"},                            # Alioth
+    9884: {"age": "about 3.4 billion years"},                             # Hamal
+    46390: {"age": "about 420 million years"},                            # Alphard
+    72607: {"age": "about 3 billion years"},                              # Kochab
+    86032: {"age": "about 770 million years"},                            # Rasalhague
+    87833: {"age": "about 1.3 billion years"},                            # Eltanin
+    25336: {"age": "about 25–30 million years"},                          # Bellatrix
+    15863: {"age": "about 40 million years"},                             # Mirfak
+    102098: {"age": "about 12 million years"},                            # Deneb
+    30438: {"age": "about 30 million years"},                             # Canopus
+    107315: {"age": "about 20 million years"},                            # Enif
+    36850: {"age": "about 290 million years"},                            # Castor
+    14576: {"age": "about 570 million years"},                            # Algol
+    # Older than a star its mass should live: it took mass from a companion,
+    # now a white dwarf. No single-star bound would hold.
+    49669: {"age": "at least 1 billion years, rejuvenated by a companion"},  # Regulus
 }
 
 
@@ -144,9 +182,18 @@ def parse_spectral_type(spect: str) -> tuple[str, float, str | None] | None:
 
 
 def temperature_from_type(cls: str, sub: float) -> float:
-    hot, cool = _CLASS_TEMPS[cls]
-    # Interpolate in log T: the scale is closer to geometric than linear.
-    return math.exp(math.log(hot) + (math.log(cool) - math.log(hot)) * sub / 10)
+    """Main-sequence effective temperature for a type like ("B", 7)."""
+    x = "OBAFGKM".index(cls) * 10 + sub
+    return _interpolate(_MS_TEMPS, x)
+
+
+def _interpolate(points: list[tuple[float, float]], x: float) -> float:
+    if x <= points[0][0]:
+        return points[0][1]
+    for (x0, y0), (x1, y1) in zip(points, points[1:]):
+        if x <= x1:
+            return y0 + (y1 - y0) * (x - x0) / (x1 - x0)
+    return points[-1][1]
 
 
 def giant_temperature(cls: str, sub: float) -> float:
@@ -159,6 +206,33 @@ def giant_temperature(cls: str, sub: float) -> float:
         if x <= x1:
             return t0 + (t1 - t0) * (x - x0) / (x1 - x0)
     return pts[-1][1]
+
+
+def main_sequence_mv(cls: str, sub: float) -> float:
+    """Absolute V of a main-sequence star of this type, interpolated."""
+    x = _ORDER.index(cls) * 10 + sub
+    pts = [(_ORDER.index(c) * 10 + s, m) for c, s, m in _MS_MV]
+    if x <= pts[0][0]:
+        return pts[0][1]
+    for (x0, m0), (x1, m1) in zip(pts, pts[1:]):
+        if x <= x1:
+            return m0 + (m1 - m0) * (x - x0) / (x1 - x0)
+    return pts[-1][1]
+
+
+#: Main-sequence lifetime by type, as (position along O0..A9, years): the
+#: lifetime for the type's mass (Pecaut & Mamajek 2013 masses; Ekstrom et al.
+#: 2012 tracks), padded by half again, since type and mass scatter.
+_MS_LIFETIME = [(5, 15e6), (10, 20e6), (12, 50e6), (15, 150e6), (18, 400e6),
+                (20, 1e9), (25, 2e9)]
+
+
+def main_sequence_lifetime(cls: str, sub: float) -> float:
+    """Upper bound on a hot main-sequence star's age, by type, in years."""
+    x = "OBA".index(cls) * 10 + sub
+    # Geometric: lifetimes span two orders of magnitude across these types.
+    logs = [(px, math.log(y)) for px, y in _MS_LIFETIME]
+    return math.exp(_interpolate(logs, x))
 
 
 def temperature_from_colour(bv: float) -> float:
@@ -215,10 +289,20 @@ def star_profile(index: int) -> StarProfile:
 
     parsed = parse_spectral_type(spect) if spect else None
     cls, sub, lum = parsed if parsed else (None, None, None)
-    if cls in ("G", "K", "M") and lum in ("I", "II", "III"):
+    if lum is None and cls in ("G", "K", "M") and absmag and \
+            float(absmag) < main_sequence_mv(cls, sub) - 2.0:
+        lum = "III"                      # far too bright for a dwarf
+    if cls in ("F", "G") and lum != "I" and ci:
+        temp = temperature_from_colour(float(ci))
+    elif cls in ("G", "K", "M") and lum in ("I", "II", "III"):
         temp = giant_temperature(cls, sub)
-    elif cls in _CLASS_TEMPS:
+    elif cls in _COLOURS:
         temp = temperature_from_type(cls, sub)
+        if lum == "I" and cls in ("O", "B"):
+            # Hot supergiants run cooler than dwarfs of their type: ~18% at
+            # B0 (Alnilam, B0Ia, is ~26,000 K, not 31,400), fading to nothing
+            # by late B (Rigel, B8Ia, matches the dwarf scale).
+            temp *= 0.82 + 0.18 * min(1.0, ("OB".index(cls) * 10 + sub - 5) / 13)                 if cls == "B" else 0.85
     elif lum == "D":
         temp = None                      # white-dwarf temperatures need the subtype
     elif ci:
@@ -242,14 +326,18 @@ def star_profile(index: int) -> StarProfile:
     if known and "age" in known:
         age, basis = known["age"], "published"
     elif lum == "I":
-        # Supergiants start at 8-10 solar masses and live tens of millions of years.
-        age, basis = "under about 50 million years", "upper limit"
-    elif lum in ("V", "IV") and luminosity and cls in ("O", "B", "A"):
-        # Main-sequence lifetime ~ 10 Gyr (M/Msun)^-2.5 and L ~ M^3.5, so
-        # ~ 10 Gyr L^-0.71. Whatever its age, it is less than that.
-        life = 10e9 * luminosity ** (-2.5 / 3.5)
-        if life < 3e9:
-            age, basis = f"under about {_years(life)}", "upper limit"
+        # Supergiants start at 8-10 solar masses and live tens of millions of
+        # years; published ages run 5-45 Myr (Mirfak, the oldest checked, 41).
+        age, basis = "likely under about 60 million years", "upper limit"
+    elif lum in ("V", "IV") and cls in ("O", "B", "A") and             "OBA".index(cls) * 10 + sub <= 25:
+        # A hot main-sequence star can be no older than its type's lifetime.
+        # Taken from the type, which is measured, rather than the luminosity:
+        # a first version went through L and the mass-luminosity relation,
+        # which overestimates the mass of the most massive stars and put
+        # bounds under real ages (Achernar, Shaula). Stars that gained mass
+        # from a companion (Algol, Regulus) are older still; hence "likely".
+        life = main_sequence_lifetime(cls, sub)
+        age, basis = f"likely under about {_years(life)}", "upper limit"
 
     return StarProfile(
         index=index, hip=int(hip) if hip else None, name=label or None,
