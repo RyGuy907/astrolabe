@@ -26,6 +26,7 @@ import {
 } from "./api";
 import { AltitudeChart } from "./components/AltitudeChart";
 import { DashboardSkeleton } from "./components/DashboardSkeleton";
+import { SPLIT_DEFAULT, SPLIT_MAX, SPLIT_MIN, Splitter } from "./components/Splitter";
 import { EventAlert } from "./components/EventAlert";
 import { LocationManager } from "./components/LocationManager";
 import { LocationPicker } from "./components/LocationPicker";
@@ -130,6 +131,31 @@ export default function App() {
   // told apart from a move to a different night.
   const loadedSubject = useRef<string>("");
   const skyPanelRef = useRef<HTMLDivElement>(null);
+  const rowRef = useRef<HTMLDivElement>(null);
+
+  // The chart's share of the chart/lists row, as the divider between them
+  // leaves it. Remembered per browser, like night vision: a layout choice,
+  // not data, so localStorage is the right place, and every access is
+  // guarded because it can throw.
+  const [split, setSplit] = useState<number>(() => {
+    try {
+      const saved = Number(window.localStorage.getItem("astro:split"));
+      return saved >= SPLIT_MIN && saved <= SPLIT_MAX ? saved : SPLIT_DEFAULT;
+    } catch {
+      return SPLIT_DEFAULT;
+    }
+  });
+  useEffect(() => {
+    try {
+      window.localStorage.setItem("astro:split", String(split));
+    } catch {
+      /* a layout preference is not worth breaking the page over */
+    }
+  }, [split]);
+  const splitStyle = {
+    "--split-a": `${split}fr`,
+    "--split-b": `${1 - split}fr`,
+  } as React.CSSProperties;
 
   useEffect(() => {
     api
@@ -524,7 +550,7 @@ export default function App() {
           "Loading…" -- that collapsed the page and then snapped a full
           screen of dashboard in underneath it on every site or date change. */}
       {!error && pending.night && !night && locations.length > 0 && (
-        <DashboardSkeleton />
+        <DashboardSkeleton splitStyle={splitStyle} />
       )}
 
       {night && location && (
@@ -545,7 +571,7 @@ export default function App() {
             onSessionChange={setSession}
           />
 
-          <div className="dashboard-row">
+          <div className="dashboard-row resizable" ref={rowRef} style={splitStyle}>
             <section className="panel chart-panel">
               <div className="panel-head">
                 <h2>Altitude</h2>
@@ -573,6 +599,8 @@ export default function App() {
                 </p>
               )}
             </section>
+
+            <Splitter rowRef={rowRef} split={split} onChange={setSplit} />
 
             <div ref={skyPanelRef}>
               <SkyPanel

@@ -1958,3 +1958,45 @@ main#main, .dashboard-skeleton { display: flex; flex-direction: column; gap: 36p
 .controls .location-trigger { padding: 0 16px; }
 .controls .date-row input[type="date"] { padding: 0 16px; }
 .controls .date-row button { width: 40px; height: 40px; }
+
+/* --- the chart / lists divider ------------------------------------------
+   Three tracks: chart, a 12px handle, lists. The two content tracks are fr
+   shares set from the component as custom properties, so the stylesheet
+   can still collapse the row to one column on narrow screens -- an inline
+   grid-template would outrank any media query. The 12px and 16px here must
+   match HANDLE_PX and GAP_PX in Splitter.tsx. */
+.dashboard-row.resizable {
+  grid-template-columns:
+    minmax(0, var(--split-a, 1fr)) 12px minmax(0, var(--split-b, 1.15fr));
+  column-gap: 16px;
+}
+.splitter {
+  align-self: stretch;
+  display: flex;
+  justify-content: center;
+  cursor: col-resize;
+  touch-action: none;
+  border-radius: 6px;
+}
+.splitter-grip {
+  width: 1px;
+  height: 100%;
+  min-height: 120px;
+  background: var(--line);
+  transition: background 0.15s ease, width 0.15s ease;
+}
+.splitter:hover .splitter-grip,
+.splitter:focus-visible .splitter-grip,
+body.is-resizing .splitter-grip {
+  width: 3px;
+  border-radius: 2px;
+  background: var(--accent);
+}
+/* While dragging: the resize cursor everywhere, and no text selection as
+   the pointer sweeps over tables. */
+body.is-resizing { cursor: col-resize; user-select: none; }
+
+@media (max-width: 1180px) {
+  .dashboard-row.resizable { grid-template-columns: minmax(0, 1fr); }
+  .splitter { display: none; }
+}

@@ -19,7 +19,10 @@ function Bar({ width, height = 12 }: { width: string | number; height?: number }
   return <span className="skeleton-bar" style={{ width, height }} />;
 }
 
-export function DashboardSkeleton() {
+export function DashboardSkeleton({ splitStyle }: {
+  /** The same split the real row uses, so the two line up. */
+  splitStyle?: React.CSSProperties;
+}) {
   return (
     <main className="dashboard-skeleton" aria-busy="true" aria-label="Loading tonight's plan">
       <section className="panel score-panel">
@@ -51,7 +54,7 @@ export function DashboardSkeleton() {
         <Bar width={70} height={16} />
       </section>
 
-      <div className="dashboard-row">
+      <div className="dashboard-row resizable" style={splitStyle}>
         <section className="panel chart-panel">
           <div className="panel-head">
             <Bar width={80} height={16} />
@@ -67,6 +70,9 @@ export function DashboardSkeleton() {
             ))}
           </div>
         </section>
+        {/* Holds the divider's track, so the columns sit where the real
+            ones will. */}
+        <span className="splitter" aria-hidden="true" />
         <section className="panel sky-panel">
           <div className="panel-head">
             <Bar width={240} height={28} />
