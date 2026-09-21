@@ -200,15 +200,61 @@ def sampling_bounds(window: NightWindow, span: Interval) -> Interval:
 
     The whole night, so a target's reported window is its real window rather
     than one that stops dead at the hour the observer said they were going
-    home. Widened to include the requested span too, since a session may
-    legitimately start in twilight before the sun is fully down.
+    home -- but the night from nautical dusk to nautical dawn, not from sunset
+    to sunrise. At sunset only the Moon and a few planets show; by nautical
+    dusk (Sun 12 degrees down) stars to about magnitude 3-4 are out and the
+    constellations are recognisable, which is when anything here can be
+    found. Sampling from sunset gave every object already up at dusk a
+    window "from 19:27", half an hour before a single constellation could be
+    made out. Galaxies and extended nebulae are held to astronomical
+    darkness on top of this; see `_dark_masks`.
+
+    Where the Sun never gets 12 degrees down -- summer at high latitude --
+    sunset to sunrise is what there is, and is used. Widened to include the
+    requested span either way, so a session starting in twilight is sampled;
+    the darkness masks then decide what counts during it.
     """
     outer = _observing_window(window)
-    if window.sunset_utc and window.sunrise_utc:
+    if window.nautical_dusk_utc and window.nautical_dawn_utc:
+        outer = (window.nautical_dusk_utc, window.nautical_dawn_utc)
+    elif window.sunset_utc and window.sunrise_utc:
         outer = (window.sunset_utc, window.sunrise_utc)
     if outer is None:
         return span
     return (min(outer[0], span[0]), max(outer[1], span[1]))
+
+
+#: Types held to astronomical darkness rather than nautical: galaxies and
+#: extended nebulae, whose low surface brightness is lost against even a
+#: slightly lit sky. Planetary nebulae are small and bright -- nearer a star
+#: than a smudge in this respect -- and go with everything else.
+FULL_DARK_TYPES = {"G", "GPair", "GTrpl", "GGroup",
+                   "HII", "Neb", "EmN", "RfN", "DrkN", "SNR", "Cl+N"}
+
+
+def _dark_masks(window: NightWindow, times: list[datetime]
+                ) -> tuple[np.ndarray, np.ndarray]:
+    """Which samples are dark enough: (for most targets, for faint ones).
+
+    Nautical for the first, Sun below 12 degrees; astronomical for the
+    second, below 18. Where a level is never reached the looser one stands
+    in -- and failing that, every sample -- so a high-latitude summer night
+    still gets a list, flagged by its conditions, rather than an empty one.
+    """
+    stamps = np.array([t.timestamp() for t in times])
+    if window.nautical_dusk_utc and window.nautical_dawn_utc:
+        nautical = ((stamps >= window.nautical_dusk_utc.timestamp())
+                    & (stamps <= window.nautical_dawn_utc.timestamp()))
+    else:
+        nautical = np.ones(len(times), dtype=bool)
+    if window.astronomical_night:
+        astronomical = np.zeros(len(times), dtype=bool)
+        for start, end in window.astronomical_night:
+            astronomical |= ((stamps >= start.timestamp())
+                             & (stamps <= end.timestamp()))
+    else:
+        astronomical = nautical
+    return nautical, astronomical
 
 
 def uses_true_dark(window: NightWindow) -> bool:
@@ -533,6 +579,10 @@ def _assess_uncached(
     base_limit = telescopic_limiting_mag(scope, sky_sb, equipment.eye_pupil_mm)
 
     horizon = location.horizon
+    # How dark each sample is, so an object only counts as up when the sky is
+    # dark enough to find it: nautical for most, astronomical for galaxies
+    # and extended nebulae.
+    dark_nautical, dark_astronomical = _dark_masks(window, times)
     # None means "no log context, do not apply novelty at all"; an empty set
     # means "the log exists and is empty", so everything is genuinely novel.
     # Collapsing the two would silently inflate every score by the bonus.
@@ -553,7 +603,8 @@ def _assess_uncached(
                 min_altitude_deg,
                 np.array([horizon.min_altitude_at(a) for a in azimuths[:, j]]),
             )
-        above = column >= effective_floor
+        dark = dark_astronomical if obj.obj_type in FULL_DARK_TYPES else dark_nautical
+        above = (column >= effective_floor) & dark
         if above.sum() < min_samples:
             continue
 
@@ -569,7 +620,11 @@ def _assess_uncached(
         # falling inside the session, which is what the observer can actually
         # do with it and what the duration and transit terms score on.
         usable = above & in_session
-        usable_hours = float(usable.sum()) * step.total_seconds() / 3600.0
+        # Counting samples overstates by up to one step -- a span of length L
+        # holds up to L/step + 1 of them, depending on where the grid falls
+        # against the session -- so it is capped at the session itself.
+        usable_hours = min(float(usable.sum()) * step.total_seconds() / 3600.0,
+                           window_hours)
 
         # The peak the observer will actually see: during the session when
         # the object is up then, otherwise its best for the night, which for
@@ -577,7 +632,8 @@ def _assess_uncached(
         if usable.any():
             peak_index = int(np.argmax(np.where(usable, column, -np.inf)))
         else:
-            peak_index = int(np.argmax(column))
+            # Its best while the sky is dark enough, not its best in twilight.
+            peak_index = int(np.argmax(np.where(dark, column, -np.inf)))
         peak_alt = float(column[peak_index])
 
         # Moon separation only constrains when the moon is actually up, and

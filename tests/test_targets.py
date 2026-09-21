@@ -1053,3 +1053,35 @@ def test_dropping_distant_deflection_moves_nothing_that_matters(home):
         assert abs(a.peak_altitude_deg - b.peak_altitude_deg) < 1 / 3600
         assert a.score == pytest.approx(b.score, abs=1e-6)
         assert (a.too_faint, a.visible_late) == (b.too_faint, b.visible_late)
+
+
+@requires_ephemeris
+def test_windows_begin_when_the_sky_is_dark_enough_to_find_them(home):
+    """Nautical dusk for most targets, astronomical for faint ones.
+
+    Windows used to be sampled from sunset, so everything already up at
+    dusk got a window "from sunset" -- half an hour before a constellation
+    could be made out. Galaxies and extended nebulae need the full dark on
+    top of that.
+    """
+    from engine.session import default_session
+    from engine.targets import FULL_DARK_TYPES
+
+    kit = load_equipment()
+    window = night_window(REFERENCE_DATE, home)
+    assessments = assess_targets(window, kit, catalog=load_catalog(),
+                                 session=default_session(window),
+                                 include_too_faint=True)
+    nautical = window.nautical_dusk_utc
+    astronomical = window.astronomical_dusk_utc
+    faint_at_edge = bright_at_edge = 0
+    for a in assessments:
+        first = a.above_floor[0][0]
+        if a.obj.obj_type in FULL_DARK_TYPES:
+            assert first >= astronomical - timedelta(minutes=1), a.obj.name
+            faint_at_edge += first < astronomical + timedelta(minutes=16)
+        else:
+            assert first >= nautical - timedelta(minutes=1), a.obj.name
+            bright_at_edge += first < nautical + timedelta(minutes=16)
+    # Not vacuous: plenty of each kind are already up and start at the edge.
+    assert faint_at_edge > 5 and bright_at_edge > 5
