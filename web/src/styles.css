@@ -2000,3 +2000,80 @@ body.is-resizing { cursor: col-resize; user-select: none; }
   .dashboard-row.resizable { grid-template-columns: minmax(0, 1fr); }
   .splitter { display: none; }
 }
+
+/* --- finder charts ------------------------------------------------------ */
+/* The crosshair button beside each Deep Sky, planet and Moon name. */
+.finder-open {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  margin-left: 6px;
+  padding: 0;
+  vertical-align: middle;
+  border: none;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--muted-text);
+  cursor: pointer;
+}
+.finder-open svg { width: 13px; height: 13px; fill: none; stroke: currentColor; stroke-width: 1.4; }
+.finder-open:hover { background: var(--accent); color: #fff; }
+
+/* The chart area's head as two tabs while a finder is open. */
+.left-tabs { justify-content: flex-start; gap: 4px; align-items: center; }
+.left-tab {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--muted-text);
+  font-size: 0.85rem;
+  font-weight: 500;
+}
+button.left-tab, .left-tab > button {
+  background: none;
+  border: none;
+  color: inherit;
+  font: inherit;
+  padding: 6px 14px;
+  cursor: pointer;
+}
+button.left-tab { background: rgba(255, 255, 255, 0.05); border-radius: 999px; }
+.left-tab.on { background: rgba(255, 255, 255, 0.16); color: var(--text); }
+.left-tab > button:first-child { padding-right: 6px; max-width: 260px;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.left-tab-close { padding: 6px 12px 6px 4px !important; font-size: 1rem !important; line-height: 1; }
+.left-tab-close:hover { color: var(--bad); }
+
+.finder { display: flex; flex-direction: column; gap: 12px; }
+.finder-controls { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+.finder-time { display: inline-flex; align-items: center; gap: 6px; font-variant-numeric: tabular-nums; }
+.finder-time button {
+  width: 30px; height: 30px; border-radius: 50%; border: none;
+  background: rgba(255, 255, 255, 0.07); color: var(--text); cursor: pointer;
+}
+.finder-time button:hover { background: rgba(255, 255, 255, 0.14); }
+.finder-figure { margin: 0; }
+.finder-figure svg { width: 100%; height: auto; display: block; }
+.finder-caption { margin: 0; }
+
+.finder-sky { fill: #05070d; }
+.finder-ground { fill: rgba(60, 45, 30, 0.55); }
+.finder-horizon { fill: none; stroke: rgba(200, 170, 130, 0.7); }
+.finder-line { fill: none; stroke: rgba(110, 150, 255, 0.35); }
+.finder-star { fill: #f2f4ff; }
+.finder-star-label { fill: var(--muted-text); }
+.finder-object { fill: none; stroke: #7fd6a0; }
+.finder-object-label { fill: #9adfb4; }
+.finder-telrad { fill: none; stroke: rgba(255, 90, 80, 0.55); }
+.finder-target line { stroke: #ff6a5c; }
+.finder-direction { fill: rgba(220, 200, 160, 0.9); font-weight: 600; }
+
+/* Night vision: the chart is an image of light on dark, so it goes red the
+   same way the altitude chart does -- a filter that keeps relative
+   lightness, so bright stars still read as bright. */
+:root[data-night-vision="on"] .finder-figure svg {
+  filter: grayscale(1) sepia(1) hue-rotate(-28deg) saturate(4) brightness(0.9);
+}

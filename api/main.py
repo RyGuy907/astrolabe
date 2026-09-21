@@ -74,6 +74,8 @@ from .schemas import (
     SkyMarkModel,
     NightResponse,
     NightWindowModel,
+    ChartPointModel,
+    FinderChartModel,
     MoonFactsModel,
     MoonModel,
     PlanetFactsModel,
@@ -1028,6 +1030,75 @@ def horizon_marks(lat: float = Query(..., ge=-90.0, le=90.0),
                             altitude_deg=m.altitude_deg,
                             azimuth_deg=m.azimuth_deg)
                for m in marks],
+    )
+
+
+@app.get("/api/finder", response_model=FinderChartModel, tags=["targets"])
+def get_finder(location: str | None = None,
+               target: str | None = Query(
+                   None, description="Catalogue id or name, e.g. NGC6205 or M13."),
+               body: str | None = Query(
+                   None, description="moon or a planet, instead of a target."),
+               at: str = Query(..., description="ISO-8601 UTC instant to draw the sky at."),
+               radius: float = Query(10.0, ge=1.0, le=45.0,
+                                     description="Half-width of the field, degrees."),
+               orientation: str = Query("sky", pattern="^(sky|north)$"),
+               ) -> FinderChartModel:
+    """A finder chart around a target or body, for star hopping.
+
+    The engine lays it out -- `engine.starchart` -- in chart units; this only
+    resolves what was asked for and passes the result through.
+    """
+    from engine.starchart import body_position, finder_chart
+
+    site = _resolve_location(location)
+    try:
+        when = datetime.fromisoformat(at.replace("Z", "+00:00"))
+    except ValueError:
+        raise HTTPException(status_code=422, detail=f"{at!r} is not an ISO-8601 datetime")
+    if when.tzinfo is None:
+        raise HTTPException(status_code=422,
+                            detail="`at` must carry a timezone; this API is UTC-only")
+
+    catalog = load_catalog()
+    if body:
+        name = body.strip().lower()
+        if name not in ("moon", *ALL_PLANETS):
+            raise HTTPException(status_code=404, detail=f"No body called {body!r}")
+        ra, dec = body_position(name, when)
+        subject, exclude = name.capitalize(), name
+    elif target:
+        obj = find_object(target, catalog)
+        if obj is None:
+            raise HTTPException(status_code=404, detail=f"No catalogue object {target!r}")
+        ra, dec = obj.ra_deg, obj.dec_deg
+        subject, exclude = obj.display_name, None
+    else:
+        raise HTTPException(status_code=422, detail="Give a `target` or a `body`")
+
+    # The showpieces are the neighbours worth marking: the ones a hop might
+    # pass, or that could be mistaken for the target. The engine keeps
+    # those that fall in the frame.
+    ids = showpiece_ids(catalog)
+    nearby = [(o.ra_deg, o.dec_deg,
+               f"M{o.messier}" if o.messier else o.display_name, o.group)
+              for o in catalog if o.name in ids and (target is None or o.name != obj.name)]
+
+    chart = finder_chart(ra, dec, site, when, radius_deg=radius,
+                         orientation=orientation, nearby_positions=nearby,
+                         exclude_body=exclude)
+    point = lambda p: ChartPointModel(x=p.x, y=p.y, label=p.label, mag=p.mag, kind=p.kind)
+    return FinderChartModel(
+        target=subject,
+        center_ra_deg=chart.center_ra_deg, center_dec_deg=chart.center_dec_deg,
+        at=chart.at_utc, orientation=chart.orientation, radius_deg=chart.radius_deg,
+        limiting_mag=chart.limiting_mag,
+        center_alt_deg=chart.center_alt_deg, center_az_deg=chart.center_az_deg,
+        stars=[point(p) for p in chart.stars],
+        lines=chart.lines,
+        objects=[point(p) for p in chart.objects],
+        horizon=chart.horizon,
+        directions=[point(p) for p in chart.directions],
     )
 
 

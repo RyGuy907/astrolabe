@@ -966,3 +966,30 @@ def test_named_double_stars_reach_the_wire(client):
     # Parallax-derived and trustworthy for a nearby star, unlike the
     # catalogue's parallax column for galaxies.
     assert 300 <= albireo["distance_ly"] <= 420
+
+
+@requires_ephemeris
+def test_finder_chart_for_a_target_and_a_body(client):
+    at = "2026-09-16T04:00:00Z"
+    target = client.get(f"/api/finder?location=home&target=M13&at={at}")
+    assert target.status_code == 200
+    body = target.json()
+    assert body["target"].startswith("M13")
+    assert body["orientation"] == "sky" and body["stars"]
+    assert _is_utc_iso(body["at"])
+
+    planet = client.get(f"/api/finder?location=home&body=saturn&at={at}&orientation=north")
+    assert planet.status_code == 200
+    assert planet.json()["target"] == "Saturn"
+    assert planet.json()["horizon"] == []          # north-up draws no horizon
+
+
+@pytest.mark.parametrize("query, status", [
+    ("target=nothing&at=2026-09-16T04:00:00Z", 404),
+    ("body=pluto&at=2026-09-16T04:00:00Z", 404),
+    ("target=M13&at=2026-09-16T04:00:00", 422),      # naive time
+    ("at=2026-09-16T04:00:00Z", 422),                # neither target nor body
+    ("target=M13&at=2026-09-16T04:00:00Z&orientation=up", 422),
+])
+def test_finder_chart_rejects_what_it_cannot_draw(client, query, status):
+    assert client.get(f"/api/finder?location=home&{query}").status_code == status

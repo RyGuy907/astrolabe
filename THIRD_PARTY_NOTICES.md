@@ -90,6 +90,26 @@ use or large-scale redistribution.
   runtime dependency on a third-party CDN for unchanging bytes is a thing that
   breaks quietly later.
 
+### Finder-chart stars and constellation figures
+
+- **Files:** `engine/catalog/data/stars.csv` (41,411 stars to magnitude 8,
+  ~1 MB) and `engine/catalog/data/constellation_lines.json` (the stick
+  figures, 18 KB).
+- **Source:** [d3-celestial](https://github.com/ofrohn/d3-celestial) by
+  **Olaf Frohn**, files `stars.8.json`, `starnames.json` and
+  `constellations.lines.json`. Retrieved 2026-09-21 by
+  `scripts/fetch_star_chart_data.py`, which rebuilds both files.
+- **Licence:** d3-celestial is BSD 3-clause, copyright (c) 2015 Olaf Frohn.
+  Its star positions and names derive from the
+  [HYG database](https://github.com/astronexus/HYG-Database) by
+  **David Nash** (compiled from Hipparcos, the Yale Bright Star Catalogue and
+  Gliese), which is CC BY-SA; the derived `stars.csv` is distributed under
+  the same terms.
+- **Modifications:** the GeoJSON is reduced to right ascension (converted
+  from -180..180 to 0..360), declination, magnitude and a single label per
+  star -- the proper name where there is one, otherwise the Bayer letter and
+  constellation. Positions and magnitudes are unaltered.
+
 ### Full Moon photograph
 
 - **File:** `web/public/planets/moon.jpg` — 480 x 480, 36 KB.

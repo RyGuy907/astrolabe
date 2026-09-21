@@ -362,6 +362,36 @@ class PlanetModel(BaseModel):
     notes: list[str]
 
 
+class ChartPointModel(BaseModel):
+    """Something drawn on a finder chart, in chart units: degrees on the
+    tangent plane, target at the origin, +x right and +y up."""
+
+    x: float
+    y: float
+    label: str
+    mag: float | None = None
+    kind: str = "star"
+
+
+class FinderChartModel(BaseModel):
+    """A finder chart, laid out by the engine; the client only scales it."""
+
+    target: str
+    center_ra_deg: float
+    center_dec_deg: float
+    at: datetime
+    orientation: str = Field(description="sky (as seen from the site) or north")
+    radius_deg: float
+    limiting_mag: float
+    center_alt_deg: float
+    center_az_deg: float
+    stars: list[ChartPointModel]
+    lines: list[list[tuple[float, float]]]
+    objects: list[ChartPointModel]
+    horizon: list[tuple[float, float]]
+    directions: list[ChartPointModel]
+
+
 class MoonFactsModel(BaseModel):
     """Constants about the Moon, from engine/reference.py."""
 

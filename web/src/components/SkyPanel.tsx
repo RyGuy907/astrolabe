@@ -15,6 +15,7 @@
  */
 
 import { useDeferredValue, useMemo, useState } from "react";
+import type { FinderSubject } from "./FinderChart";
 import { PlanetImage } from "./PlanetImage";
 import { TargetImage } from "./TargetImage";
 import {
@@ -64,9 +65,25 @@ interface Props {
   /** True while /api/targets is in flight. It is much slower than the other
    *  calls, so the tab needs to say so rather than looking empty. */
   targetsPending: boolean;
+  /** Opens a finder chart over the altitude chart. */
+  onOpenFinder?: (subject: FinderSubject) => void;
 }
 
 const EVENT_HORIZONS = [30, 90, 365];
+
+/** Opens this row's finder chart over the altitude chart. */
+function FinderButton({ label, onClick }: { label: string; onClick: () => void }) {
+  return (
+    <button className="finder-open" onClick={onClick}
+            title="Finder chart for star hopping"
+            aria-label={`Finder chart for ${label}`}>
+      <svg viewBox="0 0 16 16" aria-hidden="true">
+        <circle cx="8" cy="8" r="5.2" />
+        <path d="M8 0.8v3.6M8 11.6v3.6M0.8 8h3.6M11.6 8h3.6" />
+      </svg>
+    </button>
+  );
+}
 
 // Search expands every matching group at once, so both of these are render
 // bounds rather than result limits: the counts shown are always the true
@@ -104,10 +121,11 @@ const CONSTELLATION_MEANING: Record<string, string> = {
   none: "Never clears the horizon tonight",
 };
 
-function TargetRow({ target, timeZone, showAll }: {
+function TargetRow({ target, timeZone, showAll, onFinder }: {
   target: TargetModel;
   timeZone: string;
   showAll: boolean;
+  onFinder?: () => void;
 }) {
   // Per row, and closed by default. The image is only requested once a row is
   // opened, so browsing a 270-row list costs nothing.
@@ -137,6 +155,7 @@ function TargetRow({ target, timeZone, showAll }: {
           <span className="caret">{open ? "▾" : "▸"}</span>
           <strong>{target.display_name}</strong>
         </button>
+        {onFinder && <FinderButton label={target.display_name} onClick={onFinder} />}
         <span className="muted"> · {target.object_type}</span>
         {/* "visible late" is the badge that changes plans, so it shows in
             both modes. "visible tonight" only earns space in the unfiltered
@@ -261,12 +280,13 @@ function TargetRow({ target, timeZone, showAll }: {
  * table. Unlike a target there is nothing to fetch — the disc is drawn from
  * numbers already in the response, so opening one costs nothing.
  */
-function PlanetRow({ planet, charted, onToggleChart, minAltitude }: {
+function PlanetRow({ planet, charted, onToggleChart, minAltitude, onFinder }: {
   planet: PlanetModel;
   charted: string[];
   onToggleChart: (id: string, label: string,
                   kind: "body" | "constellation") => void;
   minAltitude: number;
+  onFinder?: () => void;
 }) {
   const [open, setOpen] = useState(false);
   const onChart = charted.includes(planet.name);
@@ -300,6 +320,7 @@ function PlanetRow({ planet, charted, onToggleChart, minAltitude }: {
             <span className="caret">{open ? "▾" : "▸"}</span>
             <strong>{titleCase(planet.name)}</strong>
           </button>
+          {onFinder && <FinderButton label={titleCase(planet.name)} onClick={onFinder} />}
           {planet.ring_tilt_deg !== null && (
             <div className="target-notes">
               rings {planet.ring_tilt_deg.toFixed(1)}°
@@ -408,13 +429,14 @@ function formatLightSeconds(km: number): string {
  * decides whether it is tonight's target or the thing washing out every
  * other target. Times are the site's clock, formatted here and nowhere else.
  */
-function MoonRow({ moon, charted, onToggleChart, minAltitude, timeZone }: {
+function MoonRow({ moon, charted, onToggleChart, minAltitude, timeZone, onFinder }: {
   moon: MoonModel;
   charted: string[];
   onToggleChart: (id: string, label: string,
                   kind: "body" | "constellation") => void;
   minAltitude: number;
   timeZone: string;
+  onFinder?: () => void;
 }) {
   const [open, setOpen] = useState(false);
   const onChart = charted.includes("moon");
@@ -445,6 +467,7 @@ function MoonRow({ moon, charted, onToggleChart, minAltitude, timeZone }: {
             <span className="caret">{open ? "▾" : "▸"}</span>
             <strong>Moon</strong>
           </button>
+          {onFinder && <FinderButton label="the Moon" onClick={onFinder} />}
           <div className="target-notes">
             {(moon.illuminated_fraction * 100).toFixed(0)}% lit
           </div>
@@ -537,7 +560,7 @@ function MoonRow({ moon, charted, onToggleChart, minAltitude, timeZone }: {
 export function SkyPanel({
   targets, planets, events, timeZone, charted, onToggleChart,
   eventDays, onEventDaysChange, showAll, onShowAllChange,
-  popularOnly, onPopularOnlyChange, targetsPending,
+  popularOnly, onPopularOnlyChange, targetsPending, onOpenFinder,
 }: Props) {
   const [tab, setTab] = useState<Tab>("targets");
   const [openGroups, setOpenGroups] = useState<Record<string, boolean>>({});
@@ -895,6 +918,14 @@ export function SkyPanel({
                               target={target}
                               timeZone={timeZone}
                               showAll={showAll}
+                              onFinder={onOpenFinder && (() => onOpenFinder({
+                                kind: "target", id: target.name,
+                                label: target.display_name,
+                                // Its best time tonight; for something not up
+                                // during the session, the session's start.
+                                at: target.peak_time ?? targets?.session?.start
+                                    ?? new Date().toISOString(),
+                              }))}
                             />
                           ))}
                         </tbody>
@@ -942,6 +973,10 @@ export function SkyPanel({
                     onToggleChart={onToggleChart}
                     minAltitude={planets.min_altitude_deg}
                     timeZone={timeZone}
+                    onFinder={onOpenFinder && (() => onOpenFinder({
+                      kind: "body", id: "moon", label: "Moon",
+                      at: planets.moon!.peak_time ?? new Date().toISOString(),
+                    }))}
                   />
                 </tbody>
               )}
@@ -964,6 +999,10 @@ export function SkyPanel({
                       charted={charted}
                       onToggleChart={onToggleChart}
                       minAltitude={planets.min_altitude_deg}
+                      onFinder={onOpenFinder && (() => onOpenFinder({
+                        kind: "body", id: planet.name, label: titleCase(planet.name),
+                        at: planet.peak_time ?? new Date().toISOString(),
+                      }))}
                     />
                 ))}
               </tbody>

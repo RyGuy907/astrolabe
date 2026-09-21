@@ -298,6 +298,33 @@ export interface PlanetModel {
   notes: string[];
 }
 
+/** A point on a finder chart, in chart units: degrees on the tangent plane,
+ *  target at the origin, +x right and +y up. */
+export interface ChartPointModel {
+  x: number;
+  y: number;
+  label: string;
+  mag: number | null;
+  kind: string;
+}
+
+export interface FinderChartModel {
+  target: string;
+  center_ra_deg: number;
+  center_dec_deg: number;
+  at: string;
+  orientation: "sky" | "north";
+  radius_deg: number;
+  limiting_mag: number;
+  center_alt_deg: number;
+  center_az_deg: number;
+  stars: ChartPointModel[];
+  lines: [number, number][][];
+  objects: ChartPointModel[];
+  horizon: [number, number][];
+  directions: ChartPointModel[];
+}
+
 export interface MoonFactsModel {
   diameter_km: number;
   sidereal_month_days: number;
@@ -573,6 +600,15 @@ export const api = {
     get<AltitudeResponse>(
       `/api/altitude${query({ date, location, bodies, objects, constellations,
                               min_altitude: minAltitude })}`,
+    ),
+
+  finder: (location: string, subject: { target?: string; body?: string },
+           at: string, radius: number, orientation: "sky" | "north",
+           signal?: AbortSignal) =>
+    get<FinderChartModel>(
+      `/api/finder${query({ location, target: subject.target, body: subject.body,
+                            at, radius, orientation })}`,
+      signal,
     ),
 
   // --- observation log ---

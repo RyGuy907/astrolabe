@@ -44,7 +44,7 @@ const PLOT_HEIGHT = HEIGHT - MARGIN.top - MARGIN.bottom;
 //: pictured as. Jupiter was a brown-orange first, which still read as a
 //: darker Saturn (dE 29); beige puts them at 42 and keeps every other pair
 //: at 28 or more.
-const BODY_COLORS: Record<string, string> = {
+export const BODY_COLORS: Record<string, string> = {
   moon: "#f7f7f9",
   sun: "#ffd60a",
   mercury: "#7f8791",

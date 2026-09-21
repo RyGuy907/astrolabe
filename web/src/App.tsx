@@ -26,6 +26,7 @@ import {
 } from "./api";
 import { AltitudeChart } from "./components/AltitudeChart";
 import { DashboardSkeleton } from "./components/DashboardSkeleton";
+import { FinderChart, type FinderSubject } from "./components/FinderChart";
 import { SPLIT_DEFAULT, SPLIT_MAX, SPLIT_MIN, Splitter } from "./components/Splitter";
 import { EventAlert } from "./components/EventAlert";
 import { LocationManager } from "./components/LocationManager";
@@ -132,6 +133,25 @@ export default function App() {
   const loadedSubject = useRef<string>("");
   const skyPanelRef = useRef<HTMLDivElement>(null);
   const rowRef = useRef<HTMLDivElement>(null);
+
+  // The finder chart open over the altitude chart, if any, and which of the
+  // two tabs is showing. Kept apart so flipping back to the altitude chart
+  // does not lose the finder.
+  const [finder, setFinder] = useState<FinderSubject | null>(null);
+  const [leftTab, setLeftTab] = useState<"altitude" | "finder">("altitude");
+  function openFinder(subject: FinderSubject) {
+    setFinder(subject);
+    setLeftTab("finder");
+  }
+  function closeFinder() {
+    setFinder(null);
+    setLeftTab("altitude");
+  }
+  // A finder drawn for one night's best time means nothing on another night
+  // or from another site.
+  useEffect(() => {
+    closeFinder();
+  }, [date, locationKey]);
 
   // The chart's share of the chart/lists row, as the divider between them
   // leaves it. Remembered per browser, like night vision: a layout choice,
@@ -612,13 +632,43 @@ export default function App() {
 
           <div className="dashboard-row resizable" ref={rowRef} style={splitStyle}>
             <section className="panel chart-panel">
-              <div className="panel-head">
-                <h2>Altitude</h2>
-                <span className="muted small">
-                  {visibleCount} of {series.length} shown
-                </span>
-              </div>
-              {altitude ? (
+              {finder ? (
+                // A finder open: the head becomes a pair of tabs, and the
+                // finder covers the altitude chart until it is closed.
+                <div className="panel-head left-tabs" role="tablist">
+                  <button role="tab" aria-selected={leftTab === "altitude"}
+                          className={`left-tab ${leftTab === "altitude" ? "on" : ""}`}
+                          onClick={() => setLeftTab("altitude")}>
+                    Altitude
+                  </button>
+                  <span className={`left-tab ${leftTab === "finder" ? "on" : ""}`}>
+                    <button role="tab" aria-selected={leftTab === "finder"}
+                            onClick={() => setLeftTab("finder")}>
+                      {finder.label}
+                    </button>
+                    <button className="left-tab-close" onClick={closeFinder}
+                            aria-label="Close the finder chart">
+                      ×
+                    </button>
+                  </span>
+                </div>
+              ) : (
+                <div className="panel-head">
+                  <h2>Altitude</h2>
+                  <span className="muted small">
+                    {visibleCount} of {series.length} shown
+                  </span>
+                </div>
+              )}
+              {finder && leftTab === "finder" ? (
+                <FinderChart
+                  subject={finder}
+                  location={locationKey}
+                  timeZone={location.timezone}
+                  nightStart={night.window.sunset}
+                  nightEnd={night.window.sunrise}
+                />
+              ) : altitude ? (
                 <AltitudeChart
                   data={altitude}
                   timeZone={location.timezone}
@@ -656,6 +706,7 @@ export default function App() {
                 popularOnly={popularOnly}
                 onPopularOnlyChange={setPopularOnly}
                 targetsPending={pending.targets}
+                onOpenFinder={openFinder}
               />
             </div>
           </div>
