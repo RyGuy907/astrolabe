@@ -2078,7 +2078,7 @@ button.left-tab { background: rgba(255, 255, 255, 0.05); border-radius: 999px; }
   filter: grayscale(1) sepia(1) hue-rotate(-28deg) saturate(4) brightness(0.9);
 }
 
-/* Finder layers and density. */
+/* Finder layers. */
 .finder-layers { gap: 6px; }
 .finder-layer {
   border: none;
@@ -2091,15 +2091,6 @@ button.left-tab { background: rgba(255, 255, 255, 0.05); border-radius: 999px; }
   cursor: pointer;
 }
 .finder-layer.on { background: rgba(255, 255, 255, 0.14); color: var(--text); }
-.finder-density {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  margin-left: auto;
-  font-size: 0.72rem;
-  color: var(--muted-text);
-}
-.finder-density input { width: 130px; accent-color: var(--accent); }
 .finder-leader { stroke: rgba(160, 170, 200, 0.45); stroke-width: 0.8; }
 .finder-target-label { fill: #ff8a7e; font-weight: 600; }
 .finder-constellation-label {
@@ -2126,3 +2117,60 @@ button.left-tab { background: rgba(255, 255, 255, 0.05); border-radius: 999px; }
 }
 /* A row brought into view from the chart, briefly marked so the eye finds it. */
 tr.revealed > td { background: var(--accent-soft, rgba(10, 132, 255, 0.14)); transition: background 0.4s ease; }
+
+/* A clicked star's card, over the sky chart. */
+.star-card {
+  position: absolute;
+  z-index: 3;
+  padding: 12px 14px 10px;
+  background: rgba(12, 14, 20, 0.94);
+  border: 1px solid var(--line-strong, var(--line));
+  border-radius: var(--radius-sm, 10px);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+  backdrop-filter: blur(8px);
+  font-size: 0.8rem;
+  color: var(--text);
+}
+.star-card h4 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 22px 2px 0;
+  font-size: 0.95rem;
+  font-weight: 600;
+  /* Star names keep their case: "ε Psc", not "Ε PSC". */
+  text-transform: none;
+  letter-spacing: normal;
+  color: var(--text);
+}
+.star-swatch {
+  flex: none;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  box-shadow: 0 0 8px currentColor;
+}
+.star-kind { margin: 0 0 8px; color: var(--text); }
+.star-card dl {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 4px 12px;
+  margin: 0;
+}
+.star-card dt { color: var(--muted-text); }
+.star-card dd { margin: 0; }
+.star-card-close {
+  position: absolute;
+  top: 6px;
+  right: 8px;
+  border: 0;
+  background: none;
+  color: var(--muted-text);
+  font-size: 1.1rem;
+  line-height: 1;
+  cursor: pointer;
+}
+.star-card-close:hover { color: var(--text); }
+:root[data-night-vision="on"] .star-card {
+  filter: grayscale(1) sepia(1) hue-rotate(-28deg) saturate(4) brightness(0.9);
+}

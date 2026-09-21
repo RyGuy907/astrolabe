@@ -18,6 +18,9 @@
  * placed without overlaps (see `labels.ts`) once the view settles; while it
  * is being dragged only the target and the planets are named.
  *
+ * Clicking an object, a planet or either's label goes to it; clicking a star
+ * or its name opens a card saying what the star is (`StarCard`).
+ *
  * Stereographic throughout: it keeps shapes true from a 2-degree finder
  * field to the whole sky, and at finder scales it is indistinguishable from
  * the gnomonic projection printed charts use.
@@ -28,6 +31,7 @@ import { api, ApiError, type SkyCatalog, type SkyFrame } from "../api";
 import { formatTime } from "../format";
 import { BODY_COLORS } from "./AltitudeChart";
 import { placeLabels, type LabelRequest } from "./labels";
+import { StarCard } from "./StarCard";
 import {
   apply, applyT, DEG, limitFor, makeView, norm, panned, placeAt, unit, zoomed,
   type Vec, type View,
@@ -104,8 +108,30 @@ function compass(az: number): string {
   return names[Math.round((((az % 360) + 360) % 360) / 22.5) % 16];
 }
 
-/** Something on screen that a click can land on. */
-interface Hit { x: number; y: number; subject: FinderSubject }
+/** What a click can pick: an object or body to go to, or a star to describe. */
+type Pick = { kind: "go"; subject: FinderSubject } | { kind: "star"; index: number };
+const pickKey = (p: Pick) => p.kind === "go" ? `${p.subject.kind}:${p.subject.id}` : `star:${p.index}`;
+
+/** Something on screen that a click can land on: a mark (within `reach` of
+ *  its point) or a label (inside its box). Lower `rank` wins a tie, so an
+ *  object beats the star it sits beside. */
+interface Hit {
+  x: number; y: number; reach: number; rank: number; pick: Pick;
+  box?: { x0: number; y0: number; x1: number; y1: number };
+}
+
+/** The best hit at a pixel, or null. */
+function hitAt(hits: Hit[], px: number, py: number): Hit | null {
+  let best: Hit | null = null, bestScore = Infinity;
+  for (const h of hits) {
+    const inBox = h.box && px >= h.box.x0 && px <= h.box.x1 && py >= h.box.y0 && py <= h.box.y1;
+    const d = Math.hypot(h.x - px, h.y - py);
+    if (!inBox && d > h.reach) continue;
+    const score = h.rank * 1000 + (inBox ? 0 : d);
+    if (score < bestScore) { best = h; bestScore = score; }
+  }
+  return best;
+}
 
 export function FinderChart({ subject, location, timeZone, nightStart, nightEnd,
                               onSelect }: Props) {
@@ -116,12 +142,10 @@ export function FinderChart({ subject, location, timeZone, nightStart, nightEnd,
   const [at, setAt] = useState(subject.at);
   const [layers, setLayers] = useState<Record<Layer, boolean>>(() =>
     stored("astro:finder-layers", { constellations: true, names: true, objects: true }));
-  const [density, setDensity] = useState<number>(() => stored("astro:finder-density", 0));
   //: Shown under the chart; the live value is in `fov`.
   const [fovShown, setFovShown] = useState(20);
 
   useEffect(() => store("astro:finder-layers", layers), [layers]);
-  useEffect(() => store("astro:finder-density", density), [density]);
 
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const wrapRef = useRef<HTMLDivElement>(null);
@@ -130,6 +154,12 @@ export function FinderChart({ subject, location, timeZone, nightStart, nightEnd,
   const fov = useRef(20);                          // field width, degrees
   const settled = useRef(true);                    // not mid-drag: full labels
   const hits = useRef<Hit[]>([]);
+  // Under the pointer, by pick key: highlighted rather than changing the
+  // cursor, which would jump between hand shapes.
+  const hovered = useRef<string | null>(null);
+  // A clicked star's card, where it was clicked.
+  const [card, setCard] = useState<{ index: number; x: number; y: number } | null>(null);
+  const cardKey = card ? `star:${card.index}` : null;
   const frameRequest = useRef(0);
   const settleTimer = useRef(0);
 
@@ -162,6 +192,7 @@ export function FinderChart({ subject, location, timeZone, nightStart, nightEnd,
   // A new subject re-centres on it; a click on the chart keeps the time,
   // a pick from the list starts at the subject's own best time.
   useEffect(() => setAt(subject.at), [subject.at]);
+  useEffect(() => setCard(null), [at, orientation, subject.id]);
   const centred = useRef<string>("");
   useEffect(() => {
     if (!subjectEq || centred.current === subject.id) return;
@@ -227,6 +258,7 @@ export function FinderChart({ subject, location, timeZone, nightStart, nightEnd,
   };
   /** Mark the view as moving: cheap labels now, full ones once it stops. */
   const moving = () => {
+    setCard(null);
     settled.current = false;
     window.clearTimeout(settleTimer.current);
     settleTimer.current = window.setTimeout(() => { settled.current = true; schedule(); }, 150);
@@ -247,8 +279,11 @@ export function FinderChart({ subject, location, timeZone, nightStart, nightEnd,
     const v = view();
     const { w, h, project } = v;
     const f = fov.current;
-    const limit = Math.max(2, Math.min(8, limitFor(f) + density));
+    const limit = limitFor(f);
     const newHits: Hit[] = [];
+    // Picks for labels, by the tag each label carries.
+    const tagged: Pick[] = [];
+    const tag = (pick: Pick) => tagged.push(pick) - 1;
 
     ctx.fillStyle = "#05070d";
     ctx.fillRect(0, 0, w, h);
@@ -300,7 +335,9 @@ export function FinderChart({ subject, location, timeZone, nightStart, nightEnd,
     ctx.fillStyle = "#f2f4ff";
     const starLabels: LabelRequest[] = [];
     const bright: { x: number; y: number; r: number }[] = [];
-    const nameLimit = limit - 2.5;
+    // Names for the brighter stars in view: only the very brightest on the
+    // whole sky, down to magnitude 5.5 in a finder field.
+    const nameLimit = Math.max(1, limit - 2.5);
     for (let i = 0; i < sky.n; i++) {
       const m = sky.mag[i];
       if (m > limit) break;
@@ -311,10 +348,13 @@ export function FinderChart({ subject, location, timeZone, nightStart, nightEnd,
       ctx.arc(p[0], p[1], r, 0, 2 * Math.PI);
       ctx.fill();
       if (r >= 2.4) bright.push({ x: p[0], y: p[1], r: r + 1 });
+      const pick: Pick = { kind: "star", index: i };
+      newHits.push({ x: p[0], y: p[1], reach: Math.max(6, r + 3), rank: 2, pick });
       const label = sky.labels[String(i)];
       if (label && layers.names && m <= nameLimit) {
         starLabels.push({ text: label, x: p[0], y: p[1], r, size: 10,
-                          priority: 10 + m, className: "#8a94ad", optional: true });
+                          priority: 10 + m, className: "#8a94ad", optional: true,
+                          tag: tag(pick) });
       }
     }
 
@@ -329,11 +369,12 @@ export function FinderChart({ subject, location, timeZone, nightStart, nightEnd,
         const p = project(toWork(o.v));
         if (!p || p[0] < 0 || p[1] < 0 || p[0] > w || p[1] > h) continue;
         drawObject(ctx, o.group, p[0], p[1]);
-        newHits.push({ x: p[0], y: p[1], subject: {
-          kind: "target", id: o.id, label: o.name, at, ra: o.ra, dec: o.dec } });
+        const pick: Pick = { kind: "go", subject: {
+          kind: "target", id: o.id, label: o.name, at, ra: o.ra, dec: o.dec } };
+        newHits.push({ x: p[0], y: p[1], reach: 12, rank: 0, pick });
         if (f <= 45) {
           labels.push({ text: o.label, x: p[0], y: p[1], r: 6, size: 10, priority: 3,
-                        className: "#9adfb4", optional: true });
+                        className: "#9adfb4", optional: true, tag: tag(pick) });
         }
       }
     }
@@ -349,9 +390,10 @@ export function FinderChart({ subject, location, timeZone, nightStart, nightEnd,
         ctx.arc(p[0], p[1], b.name === "moon" ? 7 : 4.5, 0, 2 * Math.PI);
         ctx.fill();
         const name = b.name[0].toUpperCase() + b.name.slice(1);
-        newHits.push({ x: p[0], y: p[1], subject: { kind: "body", id: b.name, label: name, at } });
+        const pick: Pick = { kind: "go", subject: { kind: "body", id: b.name, label: name, at } };
+        newHits.push({ x: p[0], y: p[1], reach: 12, rank: 0, pick });
         labels.push({ text: name, x: p[0], y: p[1], r: 6, size: 10, priority: 1,
-                      className: "#d8dcff", optional: false });
+                      className: "#d8dcff", optional: false, tag: tag(pick) });
       }
     }
 
@@ -425,9 +467,32 @@ export function FinderChart({ subject, location, timeZone, nightStart, nightEnd,
       }
       const [style, colour] = l.className.includes(":") ? l.className.split(":") : ["", l.className];
       ctx.font = `${style === "bold" ? "600 " : style === "italic" ? "italic " : ""}${l.size}px system-ui, sans-serif`;
-      ctx.fillStyle = colour;
-      ctx.textAlign = "center";
+      const pick = l.tag !== undefined ? tagged[l.tag] : undefined;
+      const lit = pick && (pickKey(pick) === hovered.current || pickKey(pick) === cardKey);
+      ctx.fillStyle = lit ? "#ffffff" : colour;
+      ctx.textAlign = l.anchor === "start" ? "left" : l.anchor === "end" ? "right" : "center";
       ctx.fillText(l.text, l.lx, l.ly);
+      if (pick) {
+        // The label's own box, measured now it is drawn, is clickable too.
+        const tw = ctx.measureText(l.text).width;
+        const x0 = l.anchor === "start" ? l.lx : l.anchor === "end" ? l.lx - tw : l.lx - tw / 2;
+        newHits.push({ x: l.x, y: l.y, reach: 0, rank: pick.kind === "go" ? 1 : 3, pick,
+                       box: { x0: x0 - 3, y0: l.ly - l.size - 2, x1: x0 + tw + 3, y1: l.ly + 4 } });
+      }
+    }
+
+    // What is under the pointer, and the star whose card is open: a ring
+    // round the mark, whether the mark or its label is what was pointed at.
+    for (const [key, colour] of [[hovered.current, "rgba(255,255,255,0.75)"],
+                                 [cardKey, "rgba(255,214,120,0.95)"]] as const) {
+      if (!key) continue;
+      const mark = newHits.find((hh) => !hh.box && pickKey(hh.pick) === key);
+      if (!mark) continue;
+      ctx.strokeStyle = colour;
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.arc(mark.x, mark.y, Math.max(8, mark.reach + 2), 0, 2 * Math.PI);
+      ctx.stroke();
     }
 
     hits.current = newHits;
@@ -489,9 +554,10 @@ export function FinderChart({ subject, location, timeZone, nightStart, nightEnd,
     const p = local(e);
     const last = pointers.current.get(e.pointerId);
     if (!last) {
-      // Hover: a hand over anything clickable.
-      const near = hits.current.some((h) => Math.hypot(h.x - p.x, h.y - p.y) < 12);
-      e.currentTarget.style.cursor = near ? "pointer" : "grab";
+      // Hover: ring whatever a click would pick. The cursor stays as it is.
+      const hit = hitAt(hits.current, p.x, p.y);
+      const key = hit ? pickKey(hit.pick) : null;
+      if (key !== hovered.current) { hovered.current = key; schedule(); }
       return;
     }
     pointers.current.set(e.pointerId, p);
@@ -511,20 +577,22 @@ export function FinderChart({ subject, location, timeZone, nightStart, nightEnd,
       moving();
     }
   };
+  const onPointerLeave = () => {
+    if (hovered.current) { hovered.current = null; schedule(); }
+  };
   const onPointerUp = (e: React.PointerEvent<HTMLCanvasElement>) => {
     const from = dragFrom.current;
     pointers.current.delete(e.pointerId);
     if (pointers.current.size < 2) pinch.current = null;
     e.currentTarget.style.cursor = "grab";
-    if (from && !from.moved && onSelect) {
-      // A click, not a drag: the nearest object or planet under it.
+    if (from && !from.moved) {
+      // A click, not a drag: go to an object or planet, describe a star, or
+      // on empty sky put any card away.
       const p = local(e);
-      let best: Hit | null = null, bestD = 12;
-      for (const h of hits.current) {
-        const d = Math.hypot(h.x - p.x, h.y - p.y);
-        if (d < bestD) { best = h; bestD = d; }
-      }
-      if (best) onSelect(best.subject);
+      const hit = hitAt(hits.current, p.x, p.y);
+      if (hit?.pick.kind === "go") { setCard(null); onSelect?.(hit.pick.subject); }
+      else if (hit?.pick.kind === "star") setCard({ index: hit.pick.index, x: p.x, y: p.y });
+      else setCard(null);
     }
     dragFrom.current = null;
   };
@@ -543,6 +611,7 @@ export function FinderChart({ subject, location, timeZone, nightStart, nightEnd,
   });
 
   const onKeyDown = (e: React.KeyboardEvent<HTMLCanvasElement>) => {
+    if (e.key === "Escape" && card) { setCard(null); return; }
     const v = view();
     const stepPx = v.w * 0.1;
     const moves: Record<string, () => void> = {
@@ -616,13 +685,6 @@ export function FinderChart({ subject, location, timeZone, nightStart, nightEnd,
             {l.label}
           </button>
         ))}
-        <label className="finder-density" title="Fewer or more faint stars than the zoom suggests">
-          <span>Fewer</span>
-          <input type="range" min={-2} max={1.5} step={0.1} value={density}
-                 onChange={(e) => setDensity(Number(e.target.value))}
-                 aria-label="Star density" />
-          <span>More</span>
-        </label>
       </div>
 
       {error && <p className="warning">{error}</p>}
@@ -638,9 +700,16 @@ export function FinderChart({ subject, location, timeZone, nightStart, nightEnd,
           onPointerMove={onPointerMove}
           onPointerUp={onPointerUp}
           onPointerCancel={onPointerUp}
+          onPointerLeave={onPointerLeave}
           onKeyDown={onKeyDown}
         />
         {!catalog && !error && <p className="finder-loading muted small">Loading the sky…</p>}
+        {card && (
+          <StarCard index={card.index} x={card.x} y={card.y}
+                    width={canvasRef.current?.clientWidth ?? 560}
+                    height={canvasRef.current?.clientHeight ?? 560}
+                    onClose={() => { setCard(null); canvasRef.current?.focus(); }} />
+        )}
       </div>
 
       <p className="finder-caption muted small">
@@ -649,7 +718,7 @@ export function FinderChart({ subject, location, timeZone, nightStart, nightEnd,
           ? <> · below the horizon at {formatTime(at, timeZone)}</>
           : <> · {Math.round(place.alt)}° up in the {compass(place.az)} at {formatTime(at, timeZone)}</>)}
         {orientation === "north" && <> · north up, east left</>}
-        {" "}· {fovShown}° wide · drag to pan, scroll to zoom, click an object to go to it
+        {" "}· {fovShown}° wide · drag to pan, scroll to zoom, click an object to go to it or a star to learn about it
         {" "}<button className="link-button" onClick={() => recentre(20)}>re-centre</button>
       </p>
     </div>

@@ -93,22 +93,27 @@ use or large-scale redistribution.
 ### Finder-chart stars and constellation figures
 
 - **Files:** `engine/catalog/data/stars.csv` (41,411 stars to magnitude 8,
-  ~1 MB) and `engine/catalog/data/constellation_lines.json` (the stick
+  ~2 MB) and `engine/catalog/data/constellation_lines.json` (the stick
   figures, 18 KB).
 - **Source:** [d3-celestial](https://github.com/ofrohn/d3-celestial) by
   **Olaf Frohn**, files `stars.8.json`, `starnames.json` and
-  `constellations.lines.json`. Retrieved 2026-09-21 by
+  `constellations.lines.json`; and the
+  [HYG database](https://github.com/astronexus/HYG-Database) v4.1 itself,
+  `hyg/CURRENT/hygdata_v41.csv`, for the star cards. Retrieved 2026-09-21 by
   `scripts/fetch_star_chart_data.py`, which rebuilds both files.
 - **Licence:** d3-celestial is BSD 3-clause, copyright (c) 2015 Olaf Frohn.
   Its star positions and names derive from the
   [HYG database](https://github.com/astronexus/HYG-Database) by
   **David Nash** (compiled from Hipparcos, the Yale Bright Star Catalogue and
-  Gliese), which is CC BY-SA; the derived `stars.csv` is distributed under
-  the same terms.
+  Gliese), which is CC BY-SA 4.0; the derived `stars.csv` is distributed
+  under the same terms.
 - **Modifications:** the GeoJSON is reduced to right ascension (converted
   from -180..180 to 0..360), declination, magnitude and a single label per
   star -- the proper name where there is one, otherwise the Bayer letter and
-  constellation. Positions and magnitudes are unaltered.
+  constellation. Positions and magnitudes are unaltered. Joined to that, by
+  Hipparcos number, HYG's distance, spectral type, B-V colour index and
+  absolute magnitude, unaltered except for rounding; HYG's 100,000 pc
+  "unknown distance" placeholder is left blank.
 
 ### Full Moon photograph
 

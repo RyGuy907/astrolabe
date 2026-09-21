@@ -11,9 +11,13 @@ the HYG database (David Nash, CC BY-SA), itself built from Hipparcos, the
 Yale Bright Star Catalogue and Gliese. The GeoJSON is trimmed to what a chart
 draws:
 
-* `engine/catalog/data/stars.csv` -- `ra;dec;mag;label` for 41,411 stars.
-  `label` is the proper name where there is one, otherwise the Bayer letter
-  with its constellation ("α Lyr"), otherwise empty.
+* `engine/catalog/data/stars.csv` -- `ra;dec;mag;label;hip;dist_pc;spect;ci;absmag`
+  for 41,411 stars. `label` is the proper name where there is one, otherwise
+  the Bayer letter with its constellation ("α Lyr"), otherwise empty. The
+  last five, for the chart's star card, come from HYG itself, joined on the
+  Hipparcos number (d3-celestial's star id): distance in parsecs, spectral
+  type, B-V colour index and absolute visual magnitude. Empty where HYG has
+  nothing -- or, for distance, where it has only its 100,000 pc "unknown".
 * `engine/catalog/data/constellation_lines.json` -- per constellation, its
   name, d3-celestial's rank (1 the most prominent 22, 2 the next 24, 3 the
   faint rest), a label position, and its stick figure as polylines of
@@ -35,12 +39,31 @@ import urllib.request
 from pathlib import Path
 
 SOURCE = "https://raw.githubusercontent.com/ofrohn/d3-celestial/master/data/"
+HYG = ("https://raw.githubusercontent.com/astronexus/HYG-Database/main/"
+       "hyg/CURRENT/hygdata_v41.csv")
 OUT = Path(__file__).resolve().parent.parent / "engine" / "catalog" / "data"
 
 
 def fetch(name: str):
     with urllib.request.urlopen(SOURCE + name, timeout=120) as response:
         return json.loads(response.read().decode("utf-8"))
+
+
+def fetch_hyg() -> dict[int, tuple[str, str, str, str]]:
+    """HIP number -> (distance pc, spectral type, B-V, absolute magnitude)."""
+    import io
+    with urllib.request.urlopen(HYG, timeout=600) as response:
+        text = io.TextIOWrapper(response, encoding="utf-8")
+        out = {}
+        for row in csv.DictReader(text):
+            if not row["hip"]:
+                continue
+            dist = row["dist"]
+            # HYG's placeholder for "no usable parallax".
+            if not dist or float(dist) >= 100000:
+                dist = ""
+            out[int(row["hip"])] = (dist, row["spect"].strip(), row["ci"], row["absmag"])
+        return out
 
 
 def ra_of(longitude: float) -> float:
@@ -52,6 +75,7 @@ def main() -> int:
     names = fetch("starnames.json")
     lines = fetch("constellations.lines.json")["features"]
     meta = {f["id"]: f for f in fetch("constellations.json")["features"]}
+    hyg = fetch_hyg()
 
     rows = []
     for star in stars:
@@ -60,13 +84,19 @@ def main() -> int:
         label = entry.get("name") or (
             f"{entry['bayer']} {entry['c']}" if entry.get("bayer") and entry.get("c")
             else "")
-        rows.append((ra_of(lon), round(dec, 4), star["properties"]["mag"], label))
+        hip = int(star["id"])
+        dist, spect, ci, absmag = hyg.get(hip, ("", "", "", ""))
+        rows.append((ra_of(lon), round(dec, 4), star["properties"]["mag"], label,
+                     hip if hip in hyg else "",
+                     f"{float(dist):.2f}" if dist else "", spect,
+                     f"{float(ci):.3f}" if ci else "",
+                     f"{float(absmag):.2f}" if absmag and dist else ""))
     rows.sort(key=lambda r: r[2])     # brightest first: the chart draws in order
 
     OUT.mkdir(parents=True, exist_ok=True)
     with open(OUT / "stars.csv", "w", encoding="utf-8", newline="") as fh:
         writer = csv.writer(fh, delimiter=";")
-        writer.writerow(["ra", "dec", "mag", "label"])
+        writer.writerow(["ra", "dec", "mag", "label", "hip", "dist_pc", "spect", "ci", "absmag"])
         writer.writerows(rows)
 
     figures = {}
@@ -85,7 +115,8 @@ def main() -> int:
         json.dump(figures, fh, separators=(",", ":"), ensure_ascii=False)
 
     named = sum(1 for r in rows if r[3])
-    print(f"stars.csv: {len(rows)} stars, {named} labelled")
+    joined = sum(1 for r in rows if r[4] != "")
+    print(f"stars.csv: {len(rows)} stars, {named} labelled, {joined} matched in HYG")
     print(f"constellation_lines.json: {len(figures)} constellations")
     return 0
 

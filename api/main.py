@@ -1134,6 +1134,23 @@ def get_sky_catalog() -> JSONResponse:
                         headers={"Cache-Control": "public, max-age=86400"})
 
 
+@app.get("/api/sky/star/{index}", tags=["targets"])
+def get_star(index: int) -> dict:
+    """What a star on the chart is: type, distance, estimated size and age.
+
+    `index` is the star's position in `/api/sky/catalog`. Derived in
+    `engine.stars`, which also says how far each figure can be trusted.
+    """
+    from dataclasses import asdict
+
+    from engine.stars import star_profile
+
+    try:
+        return asdict(star_profile(index))
+    except IndexError:
+        raise HTTPException(status_code=404, detail=f"No star {index}")
+
+
 @app.get("/api/sky/frame", tags=["targets"])
 def get_sky_frame(location: str | None = None,
                   at: str = Query(..., description="ISO-8601 UTC instant.")) -> dict:

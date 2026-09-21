@@ -115,9 +115,12 @@ for (const factor of [0.5, 1.8]) {
 }
 
 // --- detail follows zoom ----------------------------------------------------
-check("finder field shows to magnitude 8", limitFor(5) === 8);
-check("each doubling of the field drops a magnitude", close(limitFor(10), 7, 1e-9) && close(limitFor(20), 6, 1e-9));
-check("the whole sky never drops below 3.5", limitFor(180) === 3.5);
+check("finder field shows to magnitude 8", limitFor(5) === 8 && limitFor(2) === 8);
+check("each doubling of the field drops about a magnitude",
+      close(limitFor(10), 7.05, 1e-9) && close(limitFor(20), 6.1, 1e-9));
+check("the whole sky shows only the major stars", close(limitFor(180), 3.09, 0.01));
+check("detail only ever grows as you zoom in",
+      [180, 120, 60, 30, 10, 5, 2].every((f, i, a) => i === 0 || limitFor(f) >= limitFor(a[i - 1])));
 
 console.log(failures ? `\n${failures} failed` : "\nall passed");
 process.exit(failures ? 1 : 0);

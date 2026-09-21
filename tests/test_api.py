@@ -1019,3 +1019,13 @@ def test_sky_frame_returns_a_rotation_and_the_bodies(client):
 @pytest.mark.parametrize("at", ["2026-09-16T04:00:00", "yesterday"])
 def test_sky_frame_rejects_a_time_it_cannot_place(client, at):
     assert client.get(f"/api/sky/frame?location=home&at={at}").status_code == 422
+
+
+def test_star_card_for_a_named_star(client):
+    catalog = client.get("/api/sky/catalog").json()
+    betelgeuse = next(int(i) for i, n in catalog["labels"].items() if n == "Betelgeuse")
+    card = client.get(f"/api/sky/star/{betelgeuse}").json()
+    assert card["kind"] == "Red supergiant"
+    assert 400 <= card["distance_ly"] <= 700
+    assert card["age_basis"] == "published"
+    assert client.get("/api/sky/star/99999999").status_code == 404

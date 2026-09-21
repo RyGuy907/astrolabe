@@ -41,10 +41,12 @@ export const applyT = (m: number[][], v: Vec): Vec => [
 export const FOV_MIN = 2;
 export const FOV_MAX = 180;
 
-/** Faintest star shown at a field width: 8 at 5 degrees, a magnitude
- *  brighter for each doubling of the field, never brighter than 3.5. */
+/** Faintest star shown at a field width: magnitude 8 -- a finder scope's
+ *  worth -- at 5 degrees and closer, just under a magnitude brighter for each
+ *  doubling of the field, down to 3 on the whole sky: the ~170 stars that
+ *  make the constellations' shapes. */
 export const limitFor = (fov: number) =>
-  Math.max(3.5, Math.min(8, 8 - Math.log2(fov / 5)));
+  Math.max(3, Math.min(8, 8 - 0.95 * Math.log2(fov / 5)));
 
 export interface View {
   w: number;

@@ -319,6 +319,25 @@ export interface SkyCatalog {
 }
 
 /** One moment at one site: the J2000-to-horizon rotation, and the bodies. */
+/** What a star on the sky chart is. Size, output and age are estimates;
+ *  `distance_quality` and `age_basis` say how far to trust them. */
+export interface StarProfile {
+  index: number;
+  hip: number | null;
+  name: string | null;
+  magnitude: number;
+  spectral_type: string | null;
+  kind: string;
+  colour: string | null;
+  temperature_k: number | null;
+  distance_ly: number | null;
+  distance_quality: "precise" | "approximate" | "rough" | null;
+  luminosity_sun: number | null;
+  radius_sun: number | null;
+  age: string | null;
+  age_basis: "published" | "upper limit" | null;
+}
+
 export interface SkyFrame {
   at: string;
   /** Maps a J2000 unit vector to (east, north, up). */
@@ -650,6 +669,9 @@ export const api = {
 
   skyFrame: (location: string, at: string, signal?: AbortSignal) =>
     get<SkyFrame>(`/api/sky/frame${query({ location, at })}`, signal),
+
+  star: (index: number, signal?: AbortSignal) =>
+    get<StarProfile>(`/api/sky/star/${index}`, signal),
 
   // --- observation log ---
   logPrefill: (date: string, location: string, limit = 6) =>

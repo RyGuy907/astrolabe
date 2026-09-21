@@ -32,6 +32,9 @@ export interface LabelRequest {
   className: string;
   /** May be dropped when there is no room. Targets and bodies may not. */
   optional: boolean;
+  /** The caller's handle for what the label names, carried through so a
+   *  click on the label can find it. */
+  tag?: number;
 }
 
 export interface PlacedLabel extends LabelRequest {
