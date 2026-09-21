@@ -78,6 +78,14 @@ function seriesColors(series: { label: string }[]): string[] {
       SERIES_COLORS[other++ % SERIES_COLORS.length]);
 }
 
+/** Charted by default but drawn thin and faded. Uranus and Neptune are
+ *  telescope objects -- worth knowing where they are, not worth two full-
+ *  weight curves competing with the planets you can see by eye. */
+const FAINT_BODIES = new Set(["uranus", "neptune"]);
+
+/** How near the pointer must be to a curve, in screen pixels, to label it. */
+const HOVER_RADIUS_PX = 14;
+
 /** Legend groupings, in display order. Anything unmatched falls into Other. */
 const LEGEND_SECTIONS = [
   { label: "Solar system", kinds: ["moon", "sun", "planet"] },
@@ -109,6 +117,11 @@ export function AltitudeChart({
 }: Props) {
   const svgRef = useRef<SVGSVGElement>(null);
   const [hoverX, setHoverX] = useState<number | null>(null);
+  //: Pointer position: `y` in plot units, for finding the nearest curve, and
+  //: `left`/`top` in CSS pixels within the figure, for placing the label.
+  const [pointer, setPointer] =
+    useState<{ y: number; left: number; top: number; unitsPerPx: number;
+               width: number } | null>(null);
 
   const startMs = new Date(data.start).getTime();
   const endMs = new Date(data.end).getTime();
@@ -182,6 +195,26 @@ export function AltitudeChart({
     });
   }, [hoverTime, data, hidden]);
 
+  // The curve under the pointer, for the hover label: whichever visible
+  // series is vertically closest at the pointer's time, if it is within
+  // HOVER_RADIUS_PX on screen. Measured in screen pixels, so "close" means
+  // the same thing however wide the chart is drawn.
+  const nearest = useMemo(() => {
+    if (!pointer || readouts.length === 0) return null;
+    let best: (typeof readouts)[number] | null = null;
+    let bestPx = Infinity;
+    for (const r of readouts) {
+      const px = Math.abs(yOf(r.altitude) - pointer.y) / pointer.unitsPerPx;
+      if (px < bestPx) {
+        best = r;
+        bestPx = px;
+      }
+    }
+    return bestPx <= HOVER_RADIUS_PX ? best : null;
+    // yOf is a pure function of constants.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pointer, readouts]);
+
   function renderChip(path: { label: string; color: string }) {
     const off = hidden.includes(path.label);
     return (
@@ -220,7 +253,17 @@ export function AltitudeChart({
     const rect = svg.getBoundingClientRect();
     const scale = WIDTH / rect.width;
     const x = (event.clientX - rect.left) * scale - MARGIN.left;
-    setHoverX(x >= 0 && x <= PLOT_WIDTH ? x : null);
+    const inside = x >= 0 && x <= PLOT_WIDTH;
+    setHoverX(inside ? x : null);
+    setPointer(inside ? {
+      y: (event.clientY - rect.top) * scale - MARGIN.top,
+      // The figure is the label's positioning parent, and the SVG is its
+      // first child, so SVG-relative pixels are figure-relative too.
+      left: event.clientX - rect.left,
+      top: event.clientY - rect.top,
+      unitsPerPx: scale,
+      width: rect.width,
+    } : null);
   }
 
   return (
@@ -231,7 +274,7 @@ export function AltitudeChart({
         role="img"
         aria-label="Altitude versus time for the selected objects"
         onMouseMove={onMove}
-        onMouseLeave={() => setHoverX(null)}
+        onMouseLeave={() => { setHoverX(null); setPointer(null); }}
       >
         <g transform={`translate(${MARGIN.left},${MARGIN.top})`}>
           {/* Sky background, then progressively darker bands for astronomical
@@ -338,7 +381,8 @@ export function AltitudeChart({
               <path
                 key={path.label}
                 d={path.d}
-                className={`chart-line chart-line-${path.kind}`}
+                className={`chart-line chart-line-${path.kind}${
+                  FAINT_BODIES.has(path.label.toLowerCase()) ? " chart-line-faint" : ""}`}
                 style={{ stroke: path.color }}
               />
             ))}
@@ -349,6 +393,20 @@ export function AltitudeChart({
 
         </g>
       </svg>
+
+      {nearest && pointer && (
+        <div
+          // Right of the pointer, or left of it near the chart's right edge
+          // so it never spills out of the panel. aria-hidden: the readout
+          // under the chart already says the same, for every curve.
+          className={`chart-tip${pointer.left > pointer.width - 160 ? " flip" : ""}`}
+          style={{ left: pointer.left, top: pointer.top }}
+          aria-hidden="true"
+        >
+          <i style={{ background: nearest.color }} />
+          {nearest.label} <span>{nearest.altitude.toFixed(0)}°</span>
+        </div>
+      )}
 
       {/* Legend as chips rather than SVG text, so each carries its own remove
           control and the plot can use the full width. Split by kind: solar

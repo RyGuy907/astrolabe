@@ -52,11 +52,13 @@ interface ChartSeries {
 const PLANET_CHART_FLOOR_DEG = 8;
 
 /**
- * Naked-eye planets only. Uranus and Neptune are computed and listed in the
- * Planets tab, but they are telescope-only objects and charting them by
- * default just adds two curves nobody is planning around.
+ * Every planet goes on the chart by default. Uranus and Neptune used to be
+ * left off as telescope-only objects; they are on now, but the chart draws
+ * them thin and faded so they do not compete with the planets you can see
+ * by eye.
  */
-const NAKED_EYE_PLANETS = ["mercury", "venus", "mars", "jupiter", "saturn"];
+const CHARTED_PLANETS = ["mercury", "venus", "mars", "jupiter", "saturn",
+                         "uranus", "neptune"];
 
 export default function App() {
   const [locations, setLocations] = useState<LocationModel[]>([]);
@@ -249,7 +251,7 @@ export default function App() {
     ];
 
     for (const planet of planets.planets) {
-      if (!NAKED_EYE_PLANETS.includes(planet.name)) continue;
+      if (!CHARTED_PLANETS.includes(planet.name)) continue;
       if (planet.peak_altitude_deg < PLANET_CHART_FLOOR_DEG) continue;
       auto.push({ kind: "body", id: planet.name, label: planet.name,
                   visible: true });

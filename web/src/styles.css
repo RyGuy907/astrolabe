@@ -413,7 +413,35 @@ button.secondary:not(:disabled):hover { border-color: var(--accent); }
 /* --- chart --- */
 /* A <figure> carries a 40px side margin by default, which cost the chart
    80px of an already narrow column. */
-.chart { margin: 0; }
+.chart { margin: 0; position: relative; }
+
+/* Uranus and Neptune: on the chart, but thinner and faded behind the
+   planets you can see by eye. Two classes, so it outranks the theme's
+   .chart-line stroke width. */
+.chart-line.chart-line-faint { stroke-width: 1; opacity: 0.5; }
+
+/* The label that follows the pointer when it is near a curve. */
+.chart-tip {
+  position: absolute;
+  transform: translate(14px, -130%);
+  pointer-events: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 9px;
+  border-radius: 8px;
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.45);
+  color: var(--text);
+  font-size: 0.78rem;
+  font-weight: 500;
+  white-space: nowrap;
+  z-index: 5;
+}
+.chart-tip.flip { transform: translate(calc(-100% - 14px), -130%); }
+.chart-tip i { width: 9px; height: 9px; border-radius: 50%; flex: none; }
+.chart-tip span { color: var(--muted-text); font-variant-numeric: tabular-nums; }
 .chart svg { width: 100%; height: auto; display: block; }
 .chart-sky { fill: #10141d; }
 .chart-band-night { fill: rgba(90, 130, 200, 0.09); }
