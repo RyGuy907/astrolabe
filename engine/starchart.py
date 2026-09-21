@@ -310,11 +310,11 @@ def finder_chart(center_ra_deg: float, center_dec_deg: float,
                                           y=round(float(oy[k]), 4),
                                           label=label, kind=kind))
     eph = load_ephemeris()
-    earth = eph.kernel["earth"]
+    here = _observer(eph, location).at(proj._t)
     for body in CHARTED_BODIES:
         if body == exclude_body:
             continue
-        b_ra, b_dec, _ = earth.at(proj._t).observe(eph.target(body)).radec()
+        b_ra, b_dec, _ = here.observe(eph.target(body)).radec()
         bx, by, bvis = proj.project([b_ra._degrees], [b_dec.degrees])
         if in_frame(bx, by, bvis)[0]:
             objects.append(ChartPoint(x=round(float(bx[0]), 4),
@@ -351,13 +351,105 @@ def finder_chart(center_ra_deg: float, center_dec_deg: float,
     )
 
 
-def body_position(body: str, when: datetime) -> tuple[float, float]:
-    """A solar-system body's J2000 RA and Dec in degrees at `when`.
+def body_position(body: str, location: Location, when: datetime) -> tuple[float, float]:
+    """A solar-system body's J2000 RA and Dec in degrees, seen from `location`.
 
-    Astrometric, in the same frame as the star catalogue, so the planet sits
-    among the chart's stars exactly where it is.
+    Astrometric, in the same frame as the star catalogue, so the body sits
+    among the chart's stars exactly where it is. From the site, not the
+    Earth's centre: for the Moon the difference is up to a degree.
     """
     eph = load_ephemeris()
     t = eph.timescale.from_datetime(ensure_utc(when, field="when"))
-    ra, dec, _ = eph.kernel["earth"].at(t).observe(eph.target(body)).radec()
+    ra, dec, _ = _observer(eph, location).at(t).observe(eph.target(body)).radec()
     return float(ra._degrees), float(dec.degrees)
+
+
+# --- the interactive chart ----------------------------------------------------
+#
+# The zoomable chart draws on the client, so the client needs the whole
+# static catalogue once and, per moment, only what depends on the moment.
+# That second part is small: the rotation from the catalogue's frame to the
+# observer's horizon, the same for every star, plus where the Moon and
+# planets are. The astronomy -- precession, nutation, the Earth's rotation,
+# the site's latitude -- is all inside that rotation, so it stays here and
+# the client only multiplies.
+
+
+@dataclass(frozen=True)
+class SkyFrame:
+    """What the interactive chart needs for one moment at one site.
+
+    `matrix` maps a J2000 unit vector (x towards RA 0h, z to the north
+    celestial pole) to the horizon frame: x east, y north, z up. So for a
+    star, h = M v gives altitude asin(h_z) and azimuth atan2(h_x, h_y).
+    """
+
+    at_utc: datetime
+    matrix: tuple[tuple[float, float, float], ...]
+    #: The Moon and planets: (name, ra_deg, dec_deg), J2000 like the stars.
+    bodies: tuple[tuple[str, float, float], ...]
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "at_utc", ensure_utc(self.at_utc, field="at_utc"))
+
+
+def sky_frame(location: Location, when: datetime) -> SkyFrame:
+    """The J2000-to-horizon rotation and the bodies' positions at `when`.
+
+    Built by asking Skyfield for the apparent altitude and azimuth of the
+    three J2000 axes, which folds in precession, nutation and aberration,
+    and then orthonormalising: aberration is not a rotation, so the three
+    come back up to 20" from mutually perpendicular. What remains is at
+    most that 20" of aberration -- a hundredth of a degree, far inside a
+    star dot at any zoom this chart offers.
+    """
+    when = ensure_utc(when, field="when")
+    eph = load_ephemeris()
+    observer = _observer(eph, location)
+    t = eph.timescale.from_datetime(when)
+
+    axes = Star(ra_hours=np.array([0.0, 6.0, 0.0]),
+                dec_degrees=np.array([0.0, 0.0, 90.0]))
+    alt, az, _ = observer.at(t).observe(axes).apparent(FIXED_TARGET_DEFLECTORS).altaz()
+    alt, az = np.radians(alt.degrees), np.radians(az.degrees)
+    columns = np.stack([np.cos(alt) * np.sin(az),       # east
+                        np.cos(alt) * np.cos(az),       # north
+                        np.sin(alt)])                   # up
+    # Nearest proper rotation to the measured one.
+    u, _, vt = np.linalg.svd(columns)
+    rotation = u @ vt
+
+    # From the site: the Moon's parallax moves it up to a degree against the
+    # stars, which the rotation (built for infinitely distant stars) can't know.
+    here = observer.at(t)
+    bodies = []
+    for body in CHARTED_BODIES:
+        ra, dec, _ = here.observe(eph.target(body)).radec()
+        bodies.append((body, round(float(ra._degrees), 5), round(float(dec.degrees), 5)))
+
+    return SkyFrame(
+        at_utc=when,
+        matrix=tuple(tuple(round(float(v), 9) for v in row) for row in rotation),
+        bodies=tuple(bodies),
+    )
+
+
+@functools.lru_cache(maxsize=1)
+def sky_catalog() -> dict:
+    """Every star and constellation figure, for the client to draw from.
+
+    Static -- it is the vendored data, reshaped -- so it is built once and
+    the API can let the browser cache it indefinitely. Stars come brightest
+    first, as parallel arrays, so the client can take "everything down to
+    magnitude m" as a prefix.
+    """
+    ra, dec, mag, labels = _stars()
+    order = np.argsort(mag, kind="stable")
+    return {
+        "ra": [round(float(v), 4) for v in ra[order]],
+        "dec": [round(float(v), 4) for v in dec[order]],
+        "mag": [round(float(v), 2) for v in mag[order]],
+        # Sparse: most stars have no name, so only the indices that do.
+        "labels": {str(i): labels[j] for i, j in enumerate(order) if labels[j]},
+        "constellations": _figures(),
+    }

@@ -14,7 +14,7 @@
  * without scrolling.
  */
 
-import { useDeferredValue, useMemo, useState } from "react";
+import { useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import type { FinderSubject } from "./FinderChart";
 import { PlanetImage } from "./PlanetImage";
 import { TargetImage } from "./TargetImage";
@@ -67,6 +67,27 @@ interface Props {
   targetsPending: boolean;
   /** Opens a finder chart over the altitude chart. */
   onOpenFinder?: (subject: FinderSubject) => void;
+  /** Bring one row into view and open it -- an object clicked on the sky
+   *  chart. `seq` changes on every request, so the same object twice works. */
+  reveal?: { kind: "target" | "body"; id: string; seq: number } | null;
+}
+
+/** Opens a row, scrolls it into view and flashes it, when asked to. */
+function useReveal(seq: number | undefined, setOpen: (open: boolean) => void) {
+  const ref = useRef<HTMLTableRowElement>(null);
+  const [flash, setFlash] = useState(false);
+  useEffect(() => {
+    if (!seq) return;
+    setOpen(true);
+    setFlash(true);
+    // After the open row has rendered, so the scroll accounts for it.
+    const scroll = window.setTimeout(() =>
+      ref.current?.scrollIntoView({ block: "center", behavior: "smooth" }), 60);
+    const done = window.setTimeout(() => setFlash(false), 1600);
+    return () => { window.clearTimeout(scroll); window.clearTimeout(done); };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [seq]);
+  return { ref, flash };
 }
 
 const EVENT_HORIZONS = [30, 90, 365];
@@ -121,21 +142,25 @@ const CONSTELLATION_MEANING: Record<string, string> = {
   none: "Never clears the horizon tonight",
 };
 
-function TargetRow({ target, timeZone, showAll, onFinder }: {
+function TargetRow({ target, timeZone, showAll, onFinder, revealSeq }: {
   target: TargetModel;
   timeZone: string;
   showAll: boolean;
   onFinder?: () => void;
+  revealSeq?: number;
 }) {
   // Per row, and closed by default. The image is only requested once a row is
   // opened, so browsing a 270-row list costs nothing.
   const [open, setOpen] = useState(false);
+  const { ref, flash } = useReveal(revealSeq, setOpen);
   //: Component magnitudes are only set for the curated doubles, and a couple
   //: of the usual rows do not apply to a pair of stars.
   const isDouble = target.component_mags !== null;
   return (
     <>
-    <tr className={target.visible_tonight && !target.too_faint ? undefined : "dim"}>
+    <tr ref={ref}
+        className={[target.visible_tonight && !target.too_faint ? "" : "dim",
+                    flash ? "revealed" : ""].join(" ").trim() || undefined}>
       <td>
         {target.score === null ? (
           <span className="score-pill score-pill-none">—</span>
@@ -280,21 +305,25 @@ function TargetRow({ target, timeZone, showAll, onFinder }: {
  * table. Unlike a target there is nothing to fetch — the disc is drawn from
  * numbers already in the response, so opening one costs nothing.
  */
-function PlanetRow({ planet, charted, onToggleChart, minAltitude, onFinder }: {
+function PlanetRow({ planet, charted, onToggleChart, minAltitude, onFinder, revealSeq }: {
   planet: PlanetModel;
   charted: string[];
   onToggleChart: (id: string, label: string,
                   kind: "body" | "constellation") => void;
   minAltitude: number;
   onFinder?: () => void;
+  revealSeq?: number;
 }) {
   const [open, setOpen] = useState(false);
+  const { ref, flash } = useReveal(revealSeq, setOpen);
   const onChart = charted.includes(planet.name);
   const facts = planet.facts;
 
   return (
     <>
-      <tr className={planet.observable ? undefined : "dim"}>
+      <tr ref={ref}
+          className={[planet.observable ? "" : "dim", flash ? "revealed" : ""]
+            .join(" ").trim() || undefined}>
         <td>
           <button
             className={`chip ${onChart ? "chip-on" : ""}`}
@@ -429,7 +458,7 @@ function formatLightSeconds(km: number): string {
  * decides whether it is tonight's target or the thing washing out every
  * other target. Times are the site's clock, formatted here and nowhere else.
  */
-function MoonRow({ moon, charted, onToggleChart, minAltitude, timeZone, onFinder }: {
+function MoonRow({ moon, charted, onToggleChart, minAltitude, timeZone, onFinder, revealSeq }: {
   moon: MoonModel;
   charted: string[];
   onToggleChart: (id: string, label: string,
@@ -437,15 +466,19 @@ function MoonRow({ moon, charted, onToggleChart, minAltitude, timeZone, onFinder
   minAltitude: number;
   timeZone: string;
   onFinder?: () => void;
+  revealSeq?: number;
 }) {
   const [open, setOpen] = useState(false);
+  const { ref, flash } = useReveal(revealSeq, setOpen);
   const onChart = charted.includes("moon");
   const phase = moonPhaseName(moon.illuminated_fraction, moon.waxing);
   const facts = moon.facts;
 
   return (
     <>
-      <tr className={moon.observable ? undefined : "dim"}>
+      <tr ref={ref}
+          className={[moon.observable ? "" : "dim", flash ? "revealed" : ""]
+            .join(" ").trim() || undefined}>
         <td>
           <button
             className={`chip ${onChart ? "chip-on" : ""}`}
@@ -560,7 +593,7 @@ function MoonRow({ moon, charted, onToggleChart, minAltitude, timeZone, onFinder
 export function SkyPanel({
   targets, planets, events, timeZone, charted, onToggleChart,
   eventDays, onEventDaysChange, showAll, onShowAllChange,
-  popularOnly, onPopularOnlyChange, targetsPending, onOpenFinder,
+  popularOnly, onPopularOnlyChange, targetsPending, onOpenFinder, reveal,
 }: Props) {
   const [tab, setTab] = useState<Tab>("targets");
   const [openGroups, setOpenGroups] = useState<Record<string, boolean>>({});
@@ -671,6 +704,30 @@ export function SkyPanel({
   // -- was always open, and it is no more likely to be the one you want.
   const isGroupOpen = (name: string) =>
     openGroups[name] ?? Boolean(query);
+
+  // An object clicked on the sky chart: its tab, its group open, and the
+  // filters loosened if they are what is hiding it.
+  useEffect(() => {
+    if (!reveal) return;
+    if (reveal.kind === "body") {
+      setTab("planets");
+      setSearch("");
+      return;
+    }
+    setTab("targets");
+    setSearch("");
+    const entry = Object.entries(targets?.groups ?? {})
+      .find(([, rows]) => rows.some((t) => t.name === reveal.id));
+    if (!entry) return;
+    const [group, rows] = entry;
+    const row = rows.find((t) => t.name === reveal.id)!;
+    if (!showAll && !row.visible_tonight) onShowAllChange(true);
+    if (popularOnly && !row.showpiece) onPopularOnlyChange(false);
+    setOpenGroups((current) => ({ ...current, [group]: true }));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [reveal?.seq]);
+  const revealSeqFor = (kind: "target" | "body", id: string) =>
+    reveal && reveal.kind === kind && reveal.id === id ? reveal.seq : undefined;
 
   const eventCount = events
     ? events.showers.length + events.lunar_eclipses.length + events.conjunctions.length
@@ -918,9 +975,11 @@ export function SkyPanel({
                               target={target}
                               timeZone={timeZone}
                               showAll={showAll}
+                              revealSeq={revealSeqFor("target", target.name)}
                               onFinder={onOpenFinder && (() => onOpenFinder({
                                 kind: "target", id: target.name,
                                 label: target.display_name,
+                                ra: target.ra_deg, dec: target.dec_deg,
                                 // Its best time tonight; for something not up
                                 // during the session, the session's start.
                                 at: target.peak_time ?? targets?.session?.start
@@ -973,6 +1032,7 @@ export function SkyPanel({
                     onToggleChart={onToggleChart}
                     minAltitude={planets.min_altitude_deg}
                     timeZone={timeZone}
+                    revealSeq={revealSeqFor("body", "moon")}
                     onFinder={onOpenFinder && (() => onOpenFinder({
                       kind: "body", id: "moon", label: "Moon",
                       at: planets.moon!.peak_time ?? new Date().toISOString(),
@@ -999,6 +1059,7 @@ export function SkyPanel({
                       charted={charted}
                       onToggleChart={onToggleChart}
                       minAltitude={planets.min_altitude_deg}
+                      revealSeq={revealSeqFor("body", planet.name)}
                       onFinder={onOpenFinder && (() => onOpenFinder({
                         kind: "body", id: planet.name, label: titleCase(planet.name),
                         at: planet.peak_time ?? new Date().toISOString(),

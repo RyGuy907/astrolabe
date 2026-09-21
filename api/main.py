@@ -17,6 +17,7 @@ from contextlib import asynccontextmanager
 from datetime import date, datetime, timedelta
 
 from fastapi import FastAPI, HTTPException, Query
+from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
 
@@ -1069,7 +1070,7 @@ def get_finder(location: str | None = None,
         name = body.strip().lower()
         if name not in ("moon", *ALL_PLANETS):
             raise HTTPException(status_code=404, detail=f"No body called {body!r}")
-        ra, dec = body_position(name, when)
+        ra, dec = body_position(name, site, when)
         subject, exclude = name.capitalize(), name
     elif target:
         obj = find_object(target, catalog)
@@ -1106,6 +1107,57 @@ def get_finder(location: str | None = None,
         directions=[point(p) for p in chart.directions],
         constellations=[point(p) for p in chart.constellations],
     )
+
+
+@app.get("/api/sky/catalog", tags=["targets"])
+def get_sky_catalog() -> JSONResponse:
+    """Every star to magnitude 8, the constellation figures, and the showpieces.
+
+    Static: the vendored catalogue, reshaped by `engine.starchart.sky_catalog`,
+    for the interactive chart to draw from without asking again as it pans.
+    Returned without a response model -- validating 41,000-entry arrays on
+    every request would cost more than the request -- and marked cacheable,
+    so a browser fetches it once.
+    """
+    from engine.starchart import sky_catalog
+
+    catalog = load_catalog()
+    ids = showpiece_ids(catalog)
+    objects = [
+        {"id": o.name,
+         "label": f"M{o.messier}" if o.messier else o.display_name.split(" (")[0],
+         "name": o.display_name, "ra": round(o.ra_deg, 4), "dec": round(o.dec_deg, 4),
+         "group": o.group, "constellation": o.constellation}
+        for o in catalog if o.name in ids
+    ]
+    return JSONResponse({**sky_catalog(), "objects": objects},
+                        headers={"Cache-Control": "public, max-age=86400"})
+
+
+@app.get("/api/sky/frame", tags=["targets"])
+def get_sky_frame(location: str | None = None,
+                  at: str = Query(..., description="ISO-8601 UTC instant.")) -> dict:
+    """The J2000-to-horizon rotation for this site and moment, and the bodies.
+
+    `matrix` maps a J2000 unit vector to (east, north, up); the chart applies
+    it to every star. The astronomy is inside it -- `engine.starchart.sky_frame`.
+    """
+    from engine.starchart import sky_frame
+
+    site = _resolve_location(location)
+    try:
+        when = datetime.fromisoformat(at.replace("Z", "+00:00"))
+    except ValueError:
+        raise HTTPException(status_code=422, detail=f"{at!r} is not an ISO-8601 datetime")
+    if when.tzinfo is None:
+        raise HTTPException(status_code=422,
+                            detail="`at` must carry a timezone; this API is UTC-only")
+    frame = sky_frame(site, when)
+    return {
+        "at": frame.at_utc,
+        "matrix": frame.matrix,
+        "bodies": [{"name": n, "ra": ra, "dec": dec} for n, ra, dec in frame.bodies],
+    }
 
 
 @app.get("/api/health", tags=["meta"])

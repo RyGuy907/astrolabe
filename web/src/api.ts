@@ -298,6 +298,34 @@ export interface PlanetModel {
   notes: string[];
 }
 
+/** The static sky, for the interactive chart. Stars are brightest first, as
+ *  parallel arrays, so "everything to magnitude m" is a prefix. */
+export interface SkyCatalog {
+  ra: number[];
+  dec: number[];
+  mag: number[];
+  /** Star index -> name, for the stars that have one. */
+  labels: Record<string, string>;
+  constellations: Record<string, {
+    name: string;
+    rank: number;
+    label: [number, number] | null;
+    lines: [number, number][][];
+  }>;
+  objects: {
+    id: string; label: string; name: string; ra: number; dec: number;
+    group: string; constellation: string | null;
+  }[];
+}
+
+/** One moment at one site: the J2000-to-horizon rotation, and the bodies. */
+export interface SkyFrame {
+  at: string;
+  /** Maps a J2000 unit vector to (east, north, up). */
+  matrix: [number, number, number][];
+  bodies: { name: string; ra: number; dec: number }[];
+}
+
 /** A point on a finder chart, in chart units: degrees on the tangent plane,
  *  target at the origin, +x right and +y up. */
 export interface ChartPointModel {
@@ -617,6 +645,11 @@ export const api = {
                             at, radius, orientation })}`,
       signal,
     ),
+
+  skyCatalog: () => get<SkyCatalog>("/api/sky/catalog"),
+
+  skyFrame: (location: string, at: string, signal?: AbortSignal) =>
+    get<SkyFrame>(`/api/sky/frame${query({ location, at })}`, signal),
 
   // --- observation log ---
   logPrefill: (date: string, location: string, limit = 6) =>

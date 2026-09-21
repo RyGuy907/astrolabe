@@ -2107,3 +2107,22 @@ button.left-tab { background: rgba(255, 255, 255, 0.05); border-radius: 999px; }
   font-style: italic;
   letter-spacing: 0.04em;
 }
+
+/* The interactive sky chart. */
+.finder-figure { position: relative; }
+.finder-canvas {
+  display: block;
+  width: 100%;
+  aspect-ratio: 1 / 1;
+  max-height: 72vh;
+  border-radius: 10px;
+  cursor: grab;
+  touch-action: none;           /* the chart handles drag and pinch itself */
+  outline-offset: 2px;
+}
+.finder-loading { position: absolute; top: 50%; left: 0; right: 0; text-align: center; }
+:root[data-night-vision="on"] .finder-canvas {
+  filter: grayscale(1) sepia(1) hue-rotate(-28deg) saturate(4) brightness(0.9);
+}
+/* A row brought into view from the chart, briefly marked so the eye finds it. */
+tr.revealed > td { background: var(--accent-soft, rgba(10, 132, 255, 0.14)); transition: background 0.4s ease; }

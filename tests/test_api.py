@@ -993,3 +993,29 @@ def test_finder_chart_for_a_target_and_a_body(client):
 ])
 def test_finder_chart_rejects_what_it_cannot_draw(client, query, status):
     assert client.get(f"/api/finder?location=home&{query}").status_code == status
+
+
+def test_sky_catalog_is_served_once_and_cached(client):
+    resp = client.get("/api/sky/catalog")
+    assert resp.status_code == 200
+    assert "max-age" in resp.headers["cache-control"]
+    body = resp.json()
+    assert len(body["ra"]) == len(body["dec"]) == len(body["mag"]) > 30_000
+    # The showpieces the chart can snap to, each with a position.
+    m13 = next(o for o in body["objects"] if o["label"] == "M13")
+    assert m13["ra"] == pytest.approx(250.42, abs=0.05) and m13["group"]
+
+
+@requires_ephemeris
+def test_sky_frame_returns_a_rotation_and_the_bodies(client):
+    resp = client.get("/api/sky/frame?location=home&at=2026-09-16T04:00:00Z")
+    assert resp.status_code == 200
+    body = resp.json()
+    assert _is_utc_iso(body["at"])
+    assert len(body["matrix"]) == 3 and all(len(row) == 3 for row in body["matrix"])
+    assert {b["name"] for b in body["bodies"]} >= {"moon", "saturn", "jupiter"}
+
+
+@pytest.mark.parametrize("at", ["2026-09-16T04:00:00", "yesterday"])
+def test_sky_frame_rejects_a_time_it_cannot_place(client, at):
+    assert client.get(f"/api/sky/frame?location=home&at={at}").status_code == 422

@@ -147,6 +147,15 @@ export default function App() {
     setFinder(null);
     setLeftTab("altitude");
   }
+  // An object clicked on the sky chart: the chart moves to it, and its row
+  // opens in the lists beside it.
+  const [reveal, setReveal] =
+    useState<{ kind: "target" | "body"; id: string; seq: number } | null>(null);
+  function selectOnChart(subject: FinderSubject) {
+    setFinder(subject);
+    setReveal((current) => ({ kind: subject.kind, id: subject.id,
+                              seq: (current?.seq ?? 0) + 1 }));
+  }
   // A finder drawn for one night's best time means nothing on another night
   // or from another site.
   useEffect(() => {
@@ -667,6 +676,7 @@ export default function App() {
                   timeZone={location.timezone}
                   nightStart={night.window.sunset}
                   nightEnd={night.window.sunrise}
+                  onSelect={selectOnChart}
                 />
               ) : altitude ? (
                 <AltitudeChart
@@ -707,6 +717,7 @@ export default function App() {
                 onPopularOnlyChange={setPopularOnly}
                 targetsPending={pending.targets}
                 onOpenFinder={openFinder}
+                reveal={reveal}
               />
             </div>
           </div>
