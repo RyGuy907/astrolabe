@@ -239,13 +239,21 @@ def moon_factor(illumination: float, moon_altitude_deg: float, *,
 
 
 def seeing_factor(quality: float | None, *, deep_sky: bool) -> float:
-    """Mild for deep sky, dominant for planets (PLAN.md §3.2)."""
+    """Mild for deep sky, dominant for planets (PLAN.md §3.2).
+
+    For planets the factor *is* the quality, with no exponent. The quality is
+    already on a perceptual scale -- the share of planetary detail the air
+    lets through, see `weather.seeing_arcsec_to_quality` -- so raising it to
+    a power on top counted the same penalty twice. It used to be `q ** 1.5`
+    over a linear class scale, which together turned a 1-1.25" forecast, a
+    good planetary night, into a factor of 0.43.
+    """
     if quality is None:
         return 1.0 if deep_sky else 0.85
     clamped = max(0.0, min(quality, 1.0))
     if deep_sky:
         return 0.85 + 0.15 * clamped
-    return clamped ** 1.5
+    return clamped
 
 
 def wind_factor(gust_kmh: float | None) -> float:

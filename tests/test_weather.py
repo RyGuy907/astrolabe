@@ -24,6 +24,7 @@ from engine.weather import (
     get_forecast,
     parse_7timer,
     parse_open_meteo,
+    seeing_arcsec_to_quality,
     seeing_index_to_quality,
     transparency_index_to_quality,
     unavailable,
@@ -68,9 +69,35 @@ def test_seeing_index_1_is_the_best_possible():
     assert seeing_index_to_quality(1) == pytest.approx(1.0)
 
 
-def test_seeing_index_8_is_the_worst_possible():
-    """Index 8 means over 2.5 arcsec — the worst there is."""
-    assert seeing_index_to_quality(8) == pytest.approx(0.0)
+def test_seeing_index_8_is_the_worst_but_not_worthless():
+    """Index 8 means over 2.5 arcsec -- the worst class 7Timer forecasts.
+
+    It is the lowest quality on the scale, but it is not zero. This asserted
+    0.0 until the scale was recalibrated: >2.5" is an ordinary night at most
+    backyard sites, and scoring it as worthless sent the planetary score to
+    nothing on nights when Jupiter's belts are plainly visible.
+    """
+    worst = seeing_index_to_quality(8)
+    assert worst == min(seeing_index_to_quality(i) for i in range(1, 9))
+    assert 0.3 < worst < 0.6
+
+
+def test_good_planetary_seeing_scores_near_full_marks():
+    """Class 4, 1 to 1.25", is a good night for a backyard telescope.
+
+    The old linear scale put it at 0.57, which the planetary score then
+    raised to the power 1.5 -- a factor of 0.43 on a night worth observing.
+    """
+    assert seeing_index_to_quality(4) > 0.9
+
+
+def test_seeing_quality_passes_through_its_arcsecond_anchors():
+    assert seeing_arcsec_to_quality(0.8) == pytest.approx(1.0)
+    assert seeing_arcsec_to_quality(1.0) == pytest.approx(1.0)
+    assert seeing_arcsec_to_quality(2.0) == pytest.approx(0.7)
+    assert seeing_arcsec_to_quality(3.0) == pytest.approx(0.4)
+    # Terrible, but never zero.
+    assert seeing_arcsec_to_quality(10.0) == pytest.approx(0.15)
 
 
 def test_seeing_quality_decreases_as_the_index_rises():
@@ -96,7 +123,7 @@ def test_cloudcover_index_1_is_clear_and_9_is_overcast():
 def test_indices_are_clamped_not_extrapolated():
     """Out-of-range indices clamp rather than producing negative quality."""
     assert seeing_index_to_quality(0) == pytest.approx(1.0)
-    assert seeing_index_to_quality(99) == pytest.approx(0.0)
+    assert seeing_index_to_quality(99) == pytest.approx(seeing_index_to_quality(8))
     assert cloudcover_index_to_percent(-3) == pytest.approx(0.0)
 
 

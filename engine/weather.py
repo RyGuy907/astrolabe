@@ -158,9 +158,67 @@ def _index_to_quality(index: float | None, worst: int) -> float | None:
     return (worst - clamped) / (worst - 1.0)
 
 
+#: 7Timer's eight seeing classes as a representative FWHM in arcseconds: the
+#: middle of each documented band, and for the open-ended ends a value just
+#: past the edge. From the 7Timer ASTRO product documentation:
+#: 1 <0.5", 2 0.5-0.75", 3 0.75-1", 4 1-1.25", 5 1.25-1.5", 6 1.5-2",
+#: 7 2-2.5", 8 >2.5".
+SEEING_CLASS_ARCSEC = (0.4, 0.625, 0.875, 1.125, 1.375, 1.75, 2.25, 2.75)
+
+#: Seeing at or better than this is as good as a backyard telescope can use.
+#: An 8-inch aperture resolves about 0.6", but the eye at the eyepiece stops
+#: gaining anything well before the air gets that steady.
+SEEING_FULL_MARKS_ARCSEC = 1.0
+#: Where the quality line passes through: 2" is an ordinary decent night,
+#: 3" a soft one where the planets still show their main features.
+SEEING_AT_2_ARCSEC = 0.7
+SEEING_AT_3_ARCSEC = 0.4
+#: Nothing is ever worth zero. A night of 4"+ seeing still shows Saturn's
+#: rings and Jupiter's two main belts; it just shows nothing finer.
+SEEING_FLOOR = 0.15
+
+
+def seeing_arcsec_to_quality(arcsec: float | None) -> float | None:
+    """Seeing FWHM in arcseconds -> 0..1, the share of planetary detail usable.
+
+    Piecewise linear through (1", 1.0), (2", 0.7), (3", 0.4), falling to a
+    floor past that. This replaced a straight line across 7Timer's eight
+    classes, which scored them as if they were evenly spaced from perfect to
+    useless: it put class 4 -- 1 to 1.25", a genuinely good planetary night --
+    at 0.57, and class 8 at exactly zero, when >2.5" is an ordinary night at
+    most backyard sites. Squared-ish on top of that by the planetary scoring,
+    it made a good night score 43 and an ordinary one about 5.
+    """
+    if arcsec is None:
+        return None
+    a = max(0.0, float(arcsec))
+    if a <= SEEING_FULL_MARKS_ARCSEC:
+        return 1.0
+    if a <= 2.0:
+        return 1.0 - (a - 1.0) * (1.0 - SEEING_AT_2_ARCSEC)
+    if a <= 3.0:
+        return SEEING_AT_2_ARCSEC - (a - 2.0) * (SEEING_AT_2_ARCSEC - SEEING_AT_3_ARCSEC)
+    return max(SEEING_FLOOR, SEEING_AT_3_ARCSEC - (a - 3.0) * 0.25)
+
+
 def seeing_index_to_quality(index: float | None) -> float | None:
-    """7Timer `seeing`: 1 = under 0.5 arcsec, 8 = over 2.5 arcsec."""
-    return _index_to_quality(index, 8)
+    """7Timer `seeing` class (1 = under 0.5", 8 = over 2.5") -> quality 0..1.
+
+    Through the class's arcsecond value rather than straight across the class
+    numbers: the classes are not evenly spaced in anything that matters, and
+    see `seeing_arcsec_to_quality` for what that got wrong. The inversion
+    (lower index = better) still happens here and nowhere else. Fractional
+    indices interpolate between neighbouring classes; out-of-range ones clamp.
+    """
+    if index is None:
+        return None
+    clamped = max(1.0, min(float(index), 8.0))
+    lower = int(clamped)
+    upper = min(lower + 1, 8)
+    frac = clamped - lower
+    arcsec = (SEEING_CLASS_ARCSEC[lower - 1] * (1.0 - frac)
+              + SEEING_CLASS_ARCSEC[upper - 1] * frac)
+    return seeing_arcsec_to_quality(arcsec)
 
 
 def transparency_index_to_quality(index: float | None) -> float | None:

@@ -1385,6 +1385,21 @@ footer { text-align: center; padding-top: 8px; }
   --radius: 18px;
   --radius-sm: 12px;
   --pill: 980px;
+
+  /* Tells the browser its own widgets -- the option list a select opens,
+     the date picker's calendar, scrollbars -- sit on a dark page. Without it
+     they are drawn light, and a select's option list came up as #f5f5f7 text
+     on white. */
+  color-scheme: dark;
+}
+
+/* Belt and braces for the option list itself. A select here has a
+   translucent fill, and the native popup cannot draw translucency, so on
+   Windows it fell back to white under the theme's near-white text. Opaque
+   colours from the palette, for every browser that honours them. */
+option {
+  background: var(--panel-2);
+  color: var(--text);
 }
 
 body {

@@ -94,8 +94,12 @@ def test_seeing_dominates_planetary_and_barely_touches_deep_sky():
     bad_planetary = seeing_factor(0.2, deep_sky=False)
     bad_deep_sky = seeing_factor(0.2, deep_sky=True)
 
-    assert bad_planetary < 0.15          # dominant
+    # Dominant: poor air costs planets the full shortfall. This used to demand
+    # under 0.15 from the old `q ** 1.5`; the quality scale now carries the
+    # perceptual weighting itself, so the factor is the quality, unexponented.
+    assert bad_planetary == pytest.approx(0.2)
     assert bad_deep_sky > 0.85           # mild
+    assert bad_planetary < bad_deep_sky / 4
 
 
 def test_perfect_seeing_is_full_marks_for_both():
