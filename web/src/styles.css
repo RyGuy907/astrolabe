@@ -2055,6 +2055,17 @@ button.left-tab { background: rgba(255, 255, 255, 0.05); border-radius: 999px; }
   background: rgba(255, 255, 255, 0.07); color: var(--text); cursor: pointer;
 }
 .finder-time button:hover { background: rgba(255, 255, 255, 0.14); }
+.finder-recenter {
+  height: 30px;
+  padding: 0 14px;
+  border: none;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.07);
+  color: var(--text);
+  font-size: 0.8rem;
+  cursor: pointer;
+}
+.finder-recenter:hover { background: rgba(255, 255, 255, 0.14); }
 .finder-figure { margin: 0; }
 .finder-figure svg { width: 100%; height: auto; display: block; }
 .finder-caption { margin: 0; }

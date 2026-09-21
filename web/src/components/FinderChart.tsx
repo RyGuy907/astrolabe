@@ -69,15 +69,13 @@ const LAYERS: { key: Layer; label: string }[] = [
   { key: "names", label: "Star names" },
   { key: "objects", label: "Other objects" },
 ];
-/** Quick zooms, re-centring on the subject. */
-const PRESETS: { fov: number; label: string }[] = [
-  { fov: 10, label: "10°" },
-  { fov: 20, label: "20°" },
-  { fov: 40, label: "40°" },
-  { fov: 120, label: "Sky" },
-];
 const STEP_MS = 30 * 60_000;
+/** The field the chart opens at, and goes back to on "Recenter". */
+const DEFAULT_FOV = 20;
+/** A Telrad's three circles, by diameter in degrees. */
 const TELRAD_RINGS = [0.5, 2, 4];
+/** The true field of a standard 7x50 finder scope, diameter in degrees. */
+const FINDER_FIELD = 7;
 
 /** The catalogue, fetched once per page load and shared by every chart. */
 let catalogPromise: Promise<SkyCatalog> | null = null;
@@ -143,7 +141,7 @@ export function FinderChart({ subject, location, timeZone, nightStart, nightEnd,
   const [layers, setLayers] = useState<Record<Layer, boolean>>(() =>
     stored("astro:finder-layers", { constellations: true, names: true, objects: true }));
   //: Shown under the chart; the live value is in `fov`.
-  const [fovShown, setFovShown] = useState(20);
+  const [fovShown, setFovShown] = useState(DEFAULT_FOV);
 
   useEffect(() => store("astro:finder-layers", layers), [layers]);
 
@@ -151,7 +149,7 @@ export function FinderChart({ subject, location, timeZone, nightStart, nightEnd,
   const wrapRef = useRef<HTMLDivElement>(null);
   // The view, in refs so a drag redraws without a React render per frame.
   const centerEq = useRef<Vec>([1, 0, 0]);        // J2000 unit vector
-  const fov = useRef(20);                          // field width, degrees
+  const fov = useRef(DEFAULT_FOV);                          // field width, degrees
   const settled = useRef(true);                    // not mid-drag: full labels
   const hits = useRef<Hit[]>([]);
   // Under the pointer, by pick key: highlighted rather than changing the
@@ -189,7 +187,7 @@ export function FinderChart({ subject, location, timeZone, nightStart, nightEnd,
     return body ? unit(body.ra, body.dec) : null;
   }, [subject, frame]);
 
-  // A new subject re-centres on it; a click on the chart keeps the time,
+  // A new subject recenters on it; a click on the chart keeps the time,
   // a pick from the list starts at the subject's own best time.
   useEffect(() => setAt(subject.at), [subject.at]);
   useEffect(() => setCard(null), [at, orientation, subject.id]);
@@ -408,7 +406,9 @@ export function FinderChart({ subject, location, timeZone, nightStart, nightEnd,
       }
     }
 
-    // The subject: crosshair, and Telrad rings where they are big enough to
+    // The subject: crosshair, the Telrad's circles in red, and a 7x50
+    // finder's field in amber, dashed -- the view to expect once the Telrad
+    // has put the finder on the spot. Each only where it is big enough to
     // mean something.
     if (subjectEq) {
       const p = project(toWork(subjectEq));
@@ -418,10 +418,26 @@ export function FinderChart({ subject, location, timeZone, nightStart, nightEnd,
           ctx.strokeStyle = "rgba(255, 90, 80, 0.55)";
           ctx.lineWidth = 1.2;
           for (const ring of TELRAD_RINGS) {
-            if (ring * k < 4) continue;
+            const radius = (ring / 2) * k;
+            if (radius < 4) continue;
             ctx.beginPath();
-            ctx.arc(p[0], p[1], ring * k, 0, 2 * Math.PI);
+            ctx.arc(p[0], p[1], radius, 0, 2 * Math.PI);
             ctx.stroke();
+          }
+          const finder = (FINDER_FIELD / 2) * k;
+          if (finder >= 12) {
+            ctx.strokeStyle = "rgba(244, 201, 93, 0.7)";
+            ctx.setLineDash([6, 4]);
+            ctx.beginPath();
+            ctx.arc(p[0], p[1], finder, 0, 2 * Math.PI);
+            ctx.stroke();
+            ctx.setLineDash([]);
+            if (finder > 40) {
+              ctx.font = "10px system-ui, sans-serif";
+              ctx.textAlign = "center";
+              ctx.fillStyle = "rgba(244, 201, 93, 0.85)";
+              ctx.fillText("7×50 finder", p[0], p[1] - finder - 5);
+            }
           }
         }
         ctx.strokeStyle = "#ff6a5c";
@@ -626,9 +642,11 @@ export function FinderChart({ subject, location, timeZone, nightStart, nightEnd,
     moving();
   };
 
-  const recentre = (width?: number) => {
+  /** Back to the view the chart opened with: the subject, 20 degrees wide. */
+  const recenter = () => {
     if (subjectEq) centerEq.current = subjectEq;
-    if (width) { fov.current = width; setFovShown(width); }
+    fov.current = DEFAULT_FOV;
+    setFovShown(DEFAULT_FOV);
     moving();
   };
 
@@ -661,15 +679,10 @@ export function FinderChart({ subject, location, timeZone, nightStart, nightEnd,
             North up
           </button>
         </div>
-        <div className="segmented" role="group" aria-label="Zoom to">
-          {PRESETS.map((p) => (
-            <button key={p.fov} className={fovShown === p.fov ? "on" : ""}
-                    onClick={() => recentre(p.fov)}
-                    title={`Centre on ${subject.label} at ${p.fov}° wide`}>
-              {p.label}
-            </button>
-          ))}
-        </div>
+        <button className="finder-recenter" onClick={recenter}
+                title={`Back to ${subject.label}, ${DEFAULT_FOV}° wide`}>
+          Recenter
+        </button>
         <div className="finder-time">
           <button onClick={() => step(-1)} aria-label="Half an hour earlier">‹</button>
           <span>{formatTime(at, timeZone)}</span>
@@ -718,8 +731,7 @@ export function FinderChart({ subject, location, timeZone, nightStart, nightEnd,
           ? <> · below the horizon at {formatTime(at, timeZone)}</>
           : <> · {Math.round(place.alt)}° up in the {compass(place.az)} at {formatTime(at, timeZone)}</>)}
         {orientation === "north" && <> · north up, east left</>}
-        {" "}· {fovShown}° wide · drag to pan, scroll to zoom, click an object to go to it or a star to learn about it
-        {" "}<button className="link-button" onClick={() => recentre(20)}>re-centre</button>
+        {" "}· {fovShown}° wide
       </p>
     </div>
   );
