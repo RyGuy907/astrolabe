@@ -1118,6 +1118,9 @@ table.targets tr.charted { background: rgba(244, 201, 93, 0.06); }
 .target-image-side figcaption { margin-top: auto; }
 .target-image figcaption { max-width: 42ch; line-height: 1.5; }
 .target-image figcaption strong { color: var(--text); display: block; margin-bottom: 4px; }
+/* While loading, the placeholder is the image's size, so the dropdown
+   doesn't grow under a row that was just scrolled to fit it. */
+.target-image-failed.target-image-loading { min-height: 320px; }
 .target-image-failed {
   width: 320px;
   min-height: 120px;
@@ -1138,6 +1141,7 @@ table.targets tr.charted { background: rgba(244, 201, 93, 0.06); }
 @media (max-width: 700px) {
   .target-image { flex-direction: column; }
   .target-image img, .target-image-failed { width: 100%; height: auto; aspect-ratio: 1; }
+  .target-image-failed.target-image-loading { min-height: 0; }
 }
 
 /* Night-lights overlay. `screen` lets the glow sit over the dark basemap the

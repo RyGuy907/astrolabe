@@ -133,7 +133,7 @@ export function TargetImage({ name, raDeg, decDeg, sizeArcmin,
   return (
     <figure className="target-image">
       {state === "loading" && (
-        <div className="target-image-failed" role="status">
+        <div className="target-image-failed target-image-loading" role="status">
           <p className="muted small">Loading survey image…</p>
         </div>
       )}

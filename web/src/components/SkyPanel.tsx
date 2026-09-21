@@ -72,22 +72,121 @@ interface Props {
   reveal?: { kind: "target" | "body"; id: string; seq: number } | null;
 }
 
-/** Opens a row, scrolls it into view and flashes it, when asked to. */
-function useReveal(seq: number | undefined, setOpen: (open: boolean) => void) {
+/** The nearest ancestor that scrolls vertically, or null when it is the page. */
+function scrollBox(el: HTMLElement): HTMLElement | null {
+  for (let p = el.parentElement; p; p = p.parentElement) {
+    const overflow = getComputedStyle(p).overflowY;
+    if ((overflow === "auto" || overflow === "scroll") && p.scrollHeight > p.clientHeight) {
+      return p;
+    }
+  }
+  return null;
+}
+
+/**
+ * Bring a row and its open dropdown into view together, scrolling only the
+ * list's own box. `scrollIntoView` would scroll every ancestor, the page
+ * included, dragging the chart on the left down with it.
+ *
+ * `center` puts the pair in the middle of the box -- for an object picked on
+ * the chart, which may be anywhere in the list. Otherwise it moves only as
+ * far as it must: opening a row you just clicked shouldn't throw it about.
+ * Either way, a pair taller than the box shows from its top.
+ */
+function bringIntoView(row: HTMLTableRowElement, center: boolean) {
+  const detail = row.nextElementSibling instanceof HTMLElement &&
+    row.nextElementSibling.classList.contains("target-detail")
+    ? row.nextElementSibling : null;
+  const top = row.getBoundingClientRect().top;
+  const bottom = (detail ?? row).getBoundingClientRect().bottom;
+  const box = scrollBox(row);
+  const view = box
+    ? box.getBoundingClientRect()
+    : { top: 0, bottom: window.innerHeight, height: window.innerHeight };
+  const margin = 12;
+  const room = view.bottom - view.top - 2 * margin;
+  let delta: number;
+  if (bottom - top > room) delta = top - (view.top + margin);
+  else if (center) delta = (top + bottom) / 2 - (view.top + view.bottom) / 2;
+  else if (top < view.top + margin) delta = top - (view.top + margin);
+  else if (bottom > view.bottom - margin) delta = bottom - (view.bottom - margin);
+  else return;
+  if (box) box.scrollBy({ top: delta, behavior: "smooth" });
+  else window.scrollBy({ top: delta, behavior: "smooth" });
+}
+
+/** Centre a revealed row, and keep it centred for a moment while its dropdown
+ *  settles (reference facts or an image arriving late) -- until the user
+ *  scrolls, which always wins. Returns a cleanup. */
+function centreWhileSettling(row: HTMLTableRowElement): () => void {
+  bringIntoView(row, true);
+  const detail = row.nextElementSibling;
+  const box = scrollBox(row) ?? window;
+  let last = detail?.getBoundingClientRect().height ?? 0;
+  const observer = new ResizeObserver(() => {
+    const now = detail?.getBoundingClientRect().height ?? 0;
+    if (Math.abs(now - last) > 2) { last = now; bringIntoView(row, true); }
+  });
+  if (detail) observer.observe(detail);
+  const stop = () => {
+    observer.disconnect();
+    window.clearTimeout(timer);
+    for (const type of ["wheel", "touchstart", "keydown", "pointerdown"]) {
+      box.removeEventListener(type, stop);
+    }
+  };
+  const timer = window.setTimeout(stop, 2500);
+  for (const type of ["wheel", "touchstart", "keydown", "pointerdown"]) {
+    box.addEventListener(type, stop, { passive: true });
+  }
+  return stop;
+}
+
+/** A row that opens into a dropdown: brings the pair into view when opened,
+ *  and when asked to reveal it (an object clicked on the chart) opens it,
+ *  centres it and flashes it. */
+function useRowOpen(seq: number | undefined) {
   const ref = useRef<HTMLTableRowElement>(null);
+  const [open, setOpenState] = useState(false);
   const [flash, setFlash] = useState(false);
+  // Set on opening, consumed once the dropdown has rendered.
+  const pending = useRef<"center" | "nearest" | null>(null);
+  const settling = useRef<(() => void) | null>(null);
+
+  const setOpen = (next: boolean) => {
+    if (next && !open) pending.current = "nearest";
+    setOpenState(next);
+  };
+
   useEffect(() => {
     if (!seq) return;
-    setOpen(true);
+    pending.current = "center";
+    setOpenState(true);
     setFlash(true);
-    // After the open row has rendered, so the scroll accounts for it.
-    const scroll = window.setTimeout(() =>
-      ref.current?.scrollIntoView({ block: "center", behavior: "smooth" }), 60);
     const done = window.setTimeout(() => setFlash(false), 1600);
-    return () => { window.clearTimeout(scroll); window.clearTimeout(done); };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    return () => window.clearTimeout(done);
   }, [seq]);
-  return { ref, flash };
+
+  // After the render that drew the dropdown, so its height counts. The tab
+  // switch and group expansion that a reveal causes land in the same commit.
+  useEffect(() => {
+    const how = pending.current;
+    if (!how || !ref.current) return;
+    pending.current = null;
+    const row = ref.current;
+    // Not cancelled by the next render: this effect runs after every one,
+    // and the flash fading must not stop a scroll that is under way.
+    requestAnimationFrame(() => {
+      if (!row.isConnected) return;
+      settling.current?.();
+      settling.current = null;
+      if (how === "center") settling.current = centreWhileSettling(row);
+      else bringIntoView(row, false);
+    });
+  });
+  useEffect(() => () => settling.current?.(), []);
+
+  return { ref, open, setOpen, flash };
 }
 
 const EVENT_HORIZONS = [30, 90, 365];
@@ -151,8 +250,7 @@ function TargetRow({ target, timeZone, showAll, onFinder, revealSeq }: {
 }) {
   // Per row, and closed by default. The image is only requested once a row is
   // opened, so browsing a 270-row list costs nothing.
-  const [open, setOpen] = useState(false);
-  const { ref, flash } = useReveal(revealSeq, setOpen);
+  const { ref, open, setOpen, flash } = useRowOpen(revealSeq);
   //: Component magnitudes are only set for the curated doubles, and a couple
   //: of the usual rows do not apply to a pair of stars.
   const isDouble = target.component_mags !== null;
@@ -314,8 +412,7 @@ function PlanetRow({ planet, charted, onToggleChart, minAltitude, onFinder, reve
   onFinder?: () => void;
   revealSeq?: number;
 }) {
-  const [open, setOpen] = useState(false);
-  const { ref, flash } = useReveal(revealSeq, setOpen);
+  const { ref, open, setOpen, flash } = useRowOpen(revealSeq);
   const onChart = charted.includes(planet.name);
   const facts = planet.facts;
 
@@ -468,8 +565,7 @@ function MoonRow({ moon, charted, onToggleChart, minAltitude, timeZone, onFinder
   onFinder?: () => void;
   revealSeq?: number;
 }) {
-  const [open, setOpen] = useState(false);
-  const { ref, flash } = useReveal(revealSeq, setOpen);
+  const { ref, open, setOpen, flash } = useRowOpen(revealSeq);
   const onChart = charted.includes("moon");
   const phase = moonPhaseName(moon.illuminated_fraction, moon.waxing);
   const facts = moon.facts;
