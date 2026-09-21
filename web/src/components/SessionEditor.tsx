@@ -157,18 +157,30 @@ export function SessionEditor({ session, timeZone, onChange }: Props) {
       return;
     }
 
-    // The session's own evening, as the site reads it.
-    const evening = zonedDateParts(new Date(session.start), timeZone);
-    const startUtc = zonedTimeToUtc(evening.year, evening.month, evening.day,
-                                    startClock.hours, startClock.minutes,
-                                    timeZone);
-    let endUtc = zonedTimeToUtc(evening.year, evening.month, evening.day,
-                                endClock.hours, endClock.minutes, timeZone);
-    // An end at or before the start means the small hours of the next
-    // morning. "21:00 to 01:00" is the ordinary case, not an error.
+    // The night's evening, as the site reads it. Taken twelve hours before
+    // the session start, not from the start's own date: a session that
+    // already begins after midnight -- 04:00 -- sits on the *next* calendar
+    // day, and reading the evening from it moved every later edit a further
+    // day ahead. Anything in a night, 18:00 to 06:00, minus twelve hours
+    // lands on that night's evening.
+    const evening = zonedDateParts(
+      new Date(new Date(session.start).getTime() - 12 * 3600_000), timeZone);
+
+    // A clock time before noon is the small hours of the following morning.
+    // Only the end used to roll over, and only when it came before the
+    // start, so "04:00 to 06:00" was read as the morning *before* the night
+    // -- outside it entirely -- and the server fell back to the default.
+    const atClock = (clock: { hours: number; minutes: number }) =>
+      zonedTimeToUtc(evening.year, evening.month,
+                     evening.day + (clock.hours < 12 ? 1 : 0),
+                     clock.hours, clock.minutes, timeZone);
+    const startUtc = atClock(startClock);
+    let endUtc = atClock(endClock);
+    // "21:00 to 01:00" is the ordinary case and is handled above. An end
+    // still at or before the start is an evening wrapping past a later
+    // evening time -- rare, but it means the next day, not an error.
     if (endUtc <= startUtc) {
-      endUtc = zonedTimeToUtc(evening.year, evening.month, evening.day + 1,
-                              endClock.hours, endClock.minutes, timeZone);
+      endUtc = new Date(endUtc.getTime() + 24 * 3600_000);
     }
 
     setError(null);

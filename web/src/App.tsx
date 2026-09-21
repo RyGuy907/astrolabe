@@ -263,28 +263,59 @@ export default function App() {
     };
   }, [date, locationKey, eventDays]);
 
-  // --- auto-fill the chart for each new night ---
-  // Just the Moon and the naked-eye planets that are actually up. Deep-sky
-  // regions are added deliberately from the Deep Sky tab rather than guessed at.
+  // --- auto-fill the chart: the bodies that are up while you are out ---
+  // The Moon and every planet that clears the floor at some point during the
+  // observing session -- not merely at some point in the night. A planet that
+  // sets before dusk or rises after you pack up is left off entirely; it can
+  // still be added from the Solar System tab. Decided from the candidates'
+  // curves before anything is charted, so nothing is drawn and then removed.
+  //
+  // A new night or site starts the chart afresh. New hours re-decide only the
+  // bodies, keeping any constellations that were added.
   useEffect(() => {
-    if (!planets) return;
-    const signature = `${date}|${locationKey}`;
+    const hours = night?.session;
+    if (!planets || !hours || !location) return;
+    const signature = `${date}|${locationKey}|${hours.start}|${hours.end}`;
     if (autoFilledFor.current === signature) return;
+    const sameNight = autoFilledFor.current.startsWith(`${date}|${locationKey}|`);
     autoFilledFor.current = signature;
 
-    const auto: ChartSeries[] = [
-      { kind: "body", id: "moon", label: "moon", visible: true },
-    ];
+    const candidates = ["moon", ...planets.planets
+      .filter((p) => CHARTED_PLANETS.includes(p.name) &&
+                     p.peak_altitude_deg >= PLANET_CHART_FLOOR_DEG)
+      .map((p) => p.name)];
+    const start = new Date(hours.start).getTime();
+    const end = new Date(hours.end).getTime();
+    const floor = Math.max(PLANET_CHART_FLOOR_DEG, location.horizon_max_deg);
 
-    for (const planet of planets.planets) {
-      if (!CHARTED_PLANETS.includes(planet.name)) continue;
-      if (planet.peak_altitude_deg < PLANET_CHART_FLOOR_DEG) continue;
-      auto.push({ kind: "body", id: planet.name, label: planet.name,
-                  visible: true });
-    }
-
-    setSeries(auto);
-  }, [planets, date, locationKey]);
+    let cancelled = false;
+    let settled = false;
+    api.altitude(date, locationKey, candidates.join(","), undefined, undefined, 0)
+      .then((data) => {
+        if (cancelled) return;
+        settled = true;
+        const up = data.series
+          .filter((s) => s.points.some((p) => {
+            const t = new Date(p.time).getTime();
+            return t >= start && t <= end && p.altitude_deg >= floor;
+          }))
+          .map((s): ChartSeries =>
+            ({ kind: "body", id: s.label, label: s.label, visible: true }));
+        setSeries((current) => sameNight
+          ? [...up, ...current.filter((s) => s.kind !== "body")]
+          : up);
+      })
+      // The chart is a convenience; failing to fill it is not an error to
+      // report over the rest of the dashboard. Allow a retry next render.
+      .catch(() => { if (!cancelled) autoFilledFor.current = ""; });
+    return () => {
+      cancelled = true;
+      // Torn down before the answer came -- a dependency changed without the
+      // night doing so. Un-mark it, or the rerun would skip and leave the
+      // chart empty.
+      if (!settled) autoFilledFor.current = "";
+    };
+  }, [planets, night?.session, date, locationKey, location]);
 
   // --- fetch the curves whenever what is charted changes ---
   // Keyed on membership, not on the series objects: showing or hiding a
@@ -318,41 +349,6 @@ export default function App() {
       cancelled = true;
     };
   }, [members, date, locationKey]);
-
-  // --- default visibility: what is actually up while you are out ---
-  // A body on the chart that stays below the floor for the whole observing
-  // session starts hidden -- its chip stays, greyed, one click from coming
-  // back. Decided again only when the night, the site or the hours change,
-  // so a curve the observer shows or hides by hand stays that way.
-  const visibilityDecidedFor = useRef("");
-  useEffect(() => {
-    const hours = night?.session;
-    if (!altitude || !hours || !location) return;
-    const signature = `${date}|${locationKey}|${hours.start}|${hours.end}`;
-    if (visibilityDecidedFor.current === signature) return;
-
-    const bodies = series.filter((s) => s.kind === "body");
-    const byLabel = new Map(altitude.series.map((s) => [s.label, s]));
-    // Wait for curves that match what is charted, not a stale response.
-    if (bodies.length === 0 || !bodies.every((s) => byLabel.has(s.label))) return;
-    visibilityDecidedFor.current = signature;
-
-    const start = new Date(hours.start).getTime();
-    const end = new Date(hours.end).getTime();
-    const floor = Math.max(PLANET_CHART_FLOOR_DEG, location.horizon_max_deg);
-    const upDuringSession = new Set(
-      bodies
-        .filter((s) => byLabel.get(s.label)!.points.some((p) => {
-          const t = new Date(p.time).getTime();
-          return t >= start && t <= end && p.altitude_deg >= floor;
-        }))
-        .map((s) => s.label),
-    );
-    setSeries((current) => current.map((s) =>
-      s.kind === "body" ? { ...s, visible: upDuringSession.has(s.label) } : s));
-  // `series` is read, not watched: a toggle must not re-decide the defaults.
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [altitude, night?.session, date, locationKey, location]);
 
   /** Reload the site list after an add or a delete.
    *
