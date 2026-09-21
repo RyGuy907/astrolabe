@@ -13,7 +13,7 @@
  * and every series can then be removed or added back.
  */
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   api,
   ApiError,
@@ -286,15 +286,23 @@ export default function App() {
     setSeries(auto);
   }, [planets, date, locationKey]);
 
-  // --- fetch the curves whenever the series list changes ---
+  // --- fetch the curves whenever what is charted changes ---
+  // Keyed on membership, not on the series objects: showing or hiding a
+  // curve does not change what needs fetching, and depending on the whole
+  // list refetched every curve on every toggle -- which, now that the app
+  // sets default visibility itself, would have fetched everything twice.
+  const members = useMemo(() => ({
+    bodies: series.filter((s) => s.kind === "body").map((s) => s.id),
+    constellations: series.filter((s) => s.kind === "constellation")
+      .map((s) => s.id),
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }), [series.map((s) => `${s.kind}:${s.id}`).join("|")]);
+
   useEffect(() => {
     if (!locationKey || !date) return;
     let cancelled = false;
 
-    const bodies = series.filter((s) => s.kind === "body").map((s) => s.id);
-    const constellations = series
-      .filter((s) => s.kind === "constellation")
-      .map((s) => s.id);
+    const { bodies, constellations } = members;
     if (bodies.length === 0 && constellations.length === 0) {
       setAltitude(null);
       return;
@@ -309,7 +317,42 @@ export default function App() {
     return () => {
       cancelled = true;
     };
-  }, [series, date, locationKey]);
+  }, [members, date, locationKey]);
+
+  // --- default visibility: what is actually up while you are out ---
+  // A body on the chart that stays below the floor for the whole observing
+  // session starts hidden -- its chip stays, greyed, one click from coming
+  // back. Decided again only when the night, the site or the hours change,
+  // so a curve the observer shows or hides by hand stays that way.
+  const visibilityDecidedFor = useRef("");
+  useEffect(() => {
+    const hours = night?.session;
+    if (!altitude || !hours || !location) return;
+    const signature = `${date}|${locationKey}|${hours.start}|${hours.end}`;
+    if (visibilityDecidedFor.current === signature) return;
+
+    const bodies = series.filter((s) => s.kind === "body");
+    const byLabel = new Map(altitude.series.map((s) => [s.label, s]));
+    // Wait for curves that match what is charted, not a stale response.
+    if (bodies.length === 0 || !bodies.every((s) => byLabel.has(s.label))) return;
+    visibilityDecidedFor.current = signature;
+
+    const start = new Date(hours.start).getTime();
+    const end = new Date(hours.end).getTime();
+    const floor = Math.max(PLANET_CHART_FLOOR_DEG, location.horizon_max_deg);
+    const upDuringSession = new Set(
+      bodies
+        .filter((s) => byLabel.get(s.label)!.points.some((p) => {
+          const t = new Date(p.time).getTime();
+          return t >= start && t <= end && p.altitude_deg >= floor;
+        }))
+        .map((s) => s.label),
+    );
+    setSeries((current) => current.map((s) =>
+      s.kind === "body" ? { ...s, visible: upDuringSession.has(s.label) } : s));
+  // `series` is read, not watched: a toggle must not re-decide the defaults.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [altitude, night?.session, date, locationKey, location]);
 
   /** Reload the site list after an add or a delete.
    *
