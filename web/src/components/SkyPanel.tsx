@@ -913,23 +913,9 @@ export function SkyPanel({
                   <th>Apparition</th>
                 </tr>
               </thead>
-              <tbody>
-                {planets.planets
-                  .filter((planet) =>
-                    !query || planet.name.toLowerCase().includes(query) ||
-                    planet.trend.toLowerCase().includes(query))
-                  .map((planet) => (
-                    <PlanetRow
-                      key={planet.name}
-                      planet={planet}
-                      charted={charted}
-                      onToggleChart={onToggleChart}
-                      minAltitude={planets.min_altitude_deg}
-                    />
-                ))}
-              </tbody>
-              {/* Its own tbody, headed, below every planet -- a second group
-                  in the same table so the columns stay aligned. */}
+              {/* The Moon first, in its own headed tbody: on most nights it
+                  is either the target or the reason nothing else is. A second
+                  group in the same table, so the columns stay aligned. */}
               {planets.moon && (!query || "moon".includes(query) ||
                 moonPhaseName(planets.moon.illuminated_fraction,
                               planets.moon.waxing).includes(query)) && (
@@ -946,6 +932,28 @@ export function SkyPanel({
                   />
                 </tbody>
               )}
+              <tbody>
+                {/* Headed only when the Moon is above it -- otherwise its
+                    rows would read as belonging to the Moon's heading. */}
+                {planets.moon && (
+                  <tr className="table-section">
+                    <th colSpan={6} scope="rowgroup">Planets</th>
+                  </tr>
+                )}
+                {planets.planets
+                  .filter((planet) =>
+                    !query || planet.name.toLowerCase().includes(query) ||
+                    planet.trend.toLowerCase().includes(query))
+                  .map((planet) => (
+                    <PlanetRow
+                      key={planet.name}
+                      planet={planet}
+                      charted={charted}
+                      onToggleChart={onToggleChart}
+                      minAltitude={planets.min_altitude_deg}
+                    />
+                ))}
+              </tbody>
             </table>
           </div>
         )}

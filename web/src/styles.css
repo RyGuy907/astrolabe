@@ -1222,15 +1222,19 @@ table.targets tr.charted { background: rgba(244, 201, 93, 0.06); }
   text-transform: uppercase;
   letter-spacing: 0.05em;
 }
-.session-fields input[type="time"] {
-  background: var(--panel-2);
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  color: var(--text);
-  padding: 7px 10px;
-  font: inherit;
+/* Outranks `.session-fields label > span` above, which styles the From/To
+   captions and would otherwise make the clock small, spaced and uppercase. */
+.session-fields label > .clock-field {
+  display: flex;
+  align-items: center;
+  gap: 3px;
   font-size: 0.9rem;
+  color: var(--muted-text);
+  text-transform: none;
+  letter-spacing: normal;
+  font-variant-numeric: tabular-nums;
 }
+.clock-field select { padding: 7px 6px; }
 .session-editor p { margin: 8px 0 0; }
 
 /* A required field with nothing chosen yet. Same treatment as a bad value,
