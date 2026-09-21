@@ -361,6 +361,13 @@ export default function App() {
     );
   }
 
+  /** Show or hide several curves at once, keeping their legend chips. */
+  function setVisibleByLabels(labels: string[], visible: boolean) {
+    setSeries((current) =>
+      current.map((s) => (labels.includes(s.label) ? { ...s, visible } : s)),
+    );
+  }
+
   /** Drop a curve entirely. */
   function removeByLabel(label: string) {
     setSeries((current) => current.filter((s) => s.label !== label));
@@ -553,6 +560,7 @@ export default function App() {
                   hidden={hiddenLabels}
                   onToggle={toggleVisibleByLabel}
                   onRemove={removeByLabel}
+                  onSetVisible={setVisibleByLabels}
                   session={night.session}
                   obstructionDeg={location.horizon_max_deg}
                   obstructionVaries={!location.horizon_is_generic}

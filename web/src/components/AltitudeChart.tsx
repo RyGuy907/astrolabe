@@ -102,6 +102,8 @@ interface Props {
   onToggle?: (label: string) => void;
   /** Drop a curve from the chart entirely. */
   onRemove?: (label: string) => void;
+  /** Show or hide a group of curves at once, for a legend section's toggle. */
+  onSetVisible?: (labels: string[], visible: boolean) => void;
   /** The observing session, drawn as the boundary of the planned night. */
   session?: ObservingWindow | null;
   /** The site's obstruction angle, which is the altitude floor now. Its peak
@@ -112,7 +114,7 @@ interface Props {
 }
 
 export function AltitudeChart({
-  data, timeZone, hidden = [], onToggle, onRemove, session = null,
+  data, timeZone, hidden = [], onToggle, onRemove, onSetVisible, session = null,
   obstructionDeg = 0, obstructionVaries = false,
 }: Props) {
   const svgRef = useRef<SVGSVGElement>(null);
@@ -424,7 +426,24 @@ export function AltitudeChart({
             if (chips.length === 0) return null;
             return (
               <div key={section.label} className="chart-legend-section">
-                <span className="chart-legend-label">{section.label}</span>
+                <div className="chart-legend-head">
+                  <span className="chart-legend-label">{section.label}</span>
+                  {/* One click for the whole group: "hide all" while any of
+                      it is showing, "show all" once none is. Hiding keeps
+                      the chips, as it does for one curve. */}
+                  {onSetVisible && (() => {
+                    const anyShown = chips.some((c) => !hidden.includes(c.label));
+                    return (
+                      <button
+                        className="legend-all"
+                        onClick={() => onSetVisible(chips.map((c) => c.label), !anyShown)}
+                        aria-label={`${anyShown ? "Hide" : "Show"} all ${section.label.toLowerCase()}`}
+                      >
+                        {anyShown ? "hide all" : "show all"}
+                      </button>
+                    );
+                  })()}
+                </div>
                 <div className="chart-legend-row">
                   {chips.map((path) => renderChip(path))}
                 </div>

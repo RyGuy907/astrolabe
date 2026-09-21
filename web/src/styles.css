@@ -460,6 +460,27 @@ button.secondary:not(:disabled):hover { border-color: var(--accent); }
 
 .chart-legend { display: flex; flex-direction: column; gap: 7px; margin-top: 10px; }
 .chart-legend-section { display: flex; align-items: baseline; gap: 10px; }
+/* Section label with its show/hide-all toggle tucked underneath. */
+.chart-legend-head {
+  flex: none;
+  width: 96px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 1px;
+}
+.chart-legend-head .chart-legend-label { width: auto; }
+.legend-all {
+  background: none;
+  border: none;
+  padding: 0;
+  color: var(--accent);
+  font: inherit;
+  font-size: 0.66rem;
+  cursor: pointer;
+  opacity: 0.85;
+}
+.legend-all:hover { opacity: 1; text-decoration: underline; }
 .chart-legend-label {
   flex: none;
   width: 96px;
@@ -1011,9 +1032,10 @@ table.targets tr.charted { background: rgba(244, 201, 93, 0.06); }
 .night-vision-toggle {
   display: inline-flex;
   align-items: center;
-  gap: 9px;
-  height: 36px;
-  padding: 0 14px 0 8px;
+  gap: 7px;
+  height: 28px;
+  padding: 0 11px 0 6px;
+  font-size: 0.78rem;
   background: rgba(255, 255, 255, 0.07);
   border: 1px solid transparent;
   border-radius: 999px;
@@ -1027,8 +1049,8 @@ table.targets tr.charted { background: rgba(244, 201, 93, 0.06); }
 .switch-track {
   position: relative;
   flex: none;
-  width: 34px;
-  height: 20px;
+  width: 26px;
+  height: 15px;
   border-radius: 999px;
   background: rgba(255, 255, 255, 0.18);
   transition: background 0.2s ease;
@@ -1037,15 +1059,15 @@ table.targets tr.charted { background: rgba(244, 201, 93, 0.06); }
   position: absolute;
   top: 2px;
   left: 2px;
-  width: 16px;
-  height: 16px;
+  width: 11px;
+  height: 11px;
   border-radius: 50%;
   background: var(--text);
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
   transition: transform 0.2s ease;
 }
 .night-vision-toggle[aria-checked="true"] .switch-track { background: var(--accent); }
-.night-vision-toggle[aria-checked="true"] .switch-thumb { transform: translateX(14px); }
+.night-vision-toggle[aria-checked="true"] .switch-thumb { transform: translateX(11px); }
 @media (prefers-reduced-motion: reduce) {
   .switch-track, .switch-thumb { transition: none; }
 }
@@ -1478,6 +1500,7 @@ footer { text-align: center; padding-top: 8px; }
   .chart svg { min-width: 720px; }
   .chart-legend-section { flex-direction: column; align-items: flex-start; gap: 3px; }
   .chart-legend-label { width: auto; text-align: left; }
+  .chart-legend-head { width: auto; flex-direction: row; align-items: baseline; gap: 8px; }
   table.targets { display: block; overflow-x: auto; }
 }
 
