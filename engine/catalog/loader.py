@@ -390,6 +390,27 @@ def load_catalog(path: Path | None = None, *, rebuild: bool = False
     if rebuild or not path.exists():
         build_database(path)
 
+    # The catalogue is vendored and static, so parse it once. Every API
+    # request used to re-read all 12,391 rows from SQLite -- 0.4 s, several
+    # times per targets request and once per horizon direction. Keyed on the
+    # file's mtime, so a rebuild is still picked up. A fresh list comes back
+    # each call: the objects are frozen, and a caller sorting its list in
+    # place must not reorder everyone else's.
+    key = (str(path), path.stat().st_mtime_ns)
+    cached = _PARSED.get(key)
+    if cached is None:
+        cached = _read_objects(path)
+        _PARSED.clear()
+        _PARSED[key] = cached
+    return list(cached)
+
+
+#: (path, mtime) -> parsed objects. One entry: there is one catalogue.
+_PARSED: dict[tuple[str, int], tuple] = {}
+
+
+def _read_objects(path: Path) -> tuple:
+    """Every row of the SQLite cache as a catalogue object."""
     connection = sqlite3.connect(path)
     connection.row_factory = sqlite3.Row
     try:
@@ -402,7 +423,7 @@ def load_catalog(path: Path | None = None, *, rebuild: bool = False
         rows = connection.execute("SELECT * FROM objects").fetchall()
     finally:
         connection.close()
-    return [_row_to_object(r) for r in rows]
+    return tuple(_row_to_object(r) for r in rows)
 
 
 def find_object(designation: str, catalog: list[DeepSkyObject] | None = None

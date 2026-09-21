@@ -429,3 +429,35 @@ def test_marks_require_an_aware_time(home, catalog):
     naive = MARKS_WHEN.replace(tzinfo=None)
     with pytest.raises(ValueError):
         marks_toward(0.0, home, naive, catalog)
+
+
+def test_one_pass_centroids_match_the_per_constellation_calculation():
+    """`centroids` groups the catalogue once instead of scanning it 89 times.
+
+    It exists for speed -- the horizon measurer spent 1.5 s per direction on
+    89 full scans -- so it must give exactly the answers it replaced.
+    """
+    from engine.catalog.loader import load_catalog
+    from engine.constellations import centroid, centroids
+
+    catalog = load_catalog()
+    table = centroids(catalog)
+    assert len(table) == 89
+    for key, position in table.items():
+        single = centroid(key, catalog)
+        assert single is not None
+        assert position.ra_deg == pytest.approx(single.ra_deg, abs=1e-9)
+        assert position.dec_deg == pytest.approx(single.dec_deg, abs=1e-9)
+        assert position.member_count == single.member_count
+
+
+def test_the_cached_catalogue_hands_each_caller_its_own_list():
+    """Parsed once, but a caller sorting its list must not reorder anyone
+    else's. The objects themselves are frozen, so sharing them is safe."""
+    from engine.catalog.loader import load_catalog
+
+    first, second = load_catalog(), load_catalog()
+    assert first is not second
+    assert first[0] is second[0]
+    first.sort(key=lambda o: o.name, reverse=True)
+    assert load_catalog()[0] is second[0]

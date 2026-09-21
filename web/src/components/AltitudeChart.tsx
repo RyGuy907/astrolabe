@@ -12,25 +12,71 @@ import { useMemo, useRef, useState } from "react";
 import type { AltitudeResponse, ObservingWindow } from "../api";
 import { formatTime } from "../format";
 
-const WIDTH = 1000;
-const HEIGHT = 420;
+/** Drawing units. The SVG scales to its column, so these set the shape and
+ *  how big text and lines come out relative to it. At 1000 wide the chart
+ *  rendered about half size in its ~590px column -- 11-unit axis labels at
+ *  6px -- and at 1000 x 420 it was a letterbox with the column's spare height
+ *  sitting empty under it. 700 x 460 draws text near its nominal size and
+ *  gives altitude room to read. */
+export const WIDTH = 700;
+export const HEIGHT = 460;
 const MARGIN = { top: 16, right: 18, bottom: 40, left: 48 };
 
 const PLOT_WIDTH = WIDTH - MARGIN.left - MARGIN.right;
 const PLOT_HEIGHT = HEIGHT - MARGIN.top - MARGIN.bottom;
 
-/** Cool-end palette, to match the theme the stylesheet sets.
+/** Colours for the bodies people already picture in a colour.
  *
- * The curves are the one place colour is load-bearing rather than decorative
- * -- eight of them can be on the chart at once and the legend chip is the
- * only key -- so they stay eight clearly distinct hues. What changes is the
- * temperature: the base sheet opens on amber and salmon, which fight a blue
- * accent on pure black. These are the same spacing around the wheel, shifted
- * cold and desaturated to sit on #000 without glowing. */
+ * Fixed per body rather than handed out in list order. In order, the same
+ * planet was blue one night and purple the next depending on what else was
+ * charted, and nothing about the colour said which curve was which. These
+ * follow the common picture of each: Mars red, Jupiter tan, Saturn gold,
+ * Uranus pale cyan and Neptune a deeper blue, Venus cream, Mercury grey, the
+ * Moon near-white. Night vision still maps the whole chart to red while
+ * keeping relative lightness, so they stay distinguishable there too.
+ */
+//: Picked by search within each body's familiar colour family, maximising
+//: the smallest CIELAB distance between any two. The first pass was right in
+//: hue and too close in practice: the Moon and Mercury were both pale greys
+//: (dE 27) and Venus, Jupiter and Saturn three pale yellow-tans (dE 22-28).
+//: Now the Moon is white and Mercury a mid slate grey, Venus a light yellow,
+//: Saturn a deeper amber and Jupiter beige -- the cream-and-tan it is usually
+//: pictured as. Jupiter was a brown-orange first, which still read as a
+//: darker Saturn (dE 29); beige puts them at 42 and keeps every other pair
+//: at 28 or more.
+const BODY_COLORS: Record<string, string> = {
+  moon: "#f7f7f9",
+  sun: "#ffd60a",
+  mercury: "#7f8791",
+  venus: "#f5e27a",
+  mars: "#e5533c",
+  jupiter: "#c9b28c",
+  saturn: "#d99a2b",
+  uranus: "#8fdcea",
+  neptune: "#4a78ff",
+};
+
+/** For everything else -- constellations and deep-sky objects -- in order.
+ *
+ * Chosen to stay clear of the planets' hues: no reds, tans, golds or blues
+ * that would make a constellation read as a planet. Greens, violets and
+ * pinks. */
 const SERIES_COLORS = [
-  "#0a84ff", "#64d2ff", "#bf5af2", "#30d158",
-  "#5e5ce6", "#ff9f0a", "#8e8e93", "#a0e8c0",
+  "#30d158", "#bf5af2", "#ff6fae", "#63e6be",
+  "#9a7bff", "#b5e853", "#ff9ecf", "#2fb8a0",
 ];
+
+/**
+ * One colour per series, by body where it has one and otherwise by its place
+ * among the series that do not. Indexed against the full list, so hiding a
+ * curve never recolours the others.
+ */
+function seriesColors(series: { label: string }[]): string[] {
+  let other = 0;
+  return series.map((s) =>
+    BODY_COLORS[s.label.toLowerCase()] ??
+      SERIES_COLORS[other++ % SERIES_COLORS.length]);
+}
 
 /** Legend groupings, in display order. Anything unmatched falls into Other. */
 const LEGEND_SECTIONS = [
@@ -75,6 +121,8 @@ export function AltitudeChart({
   const yOf = (altitude: number) =>
     PLOT_HEIGHT - ((altitude + 10) / 100) * PLOT_HEIGHT;
 
+  const colors = useMemo(() => seriesColors(data.series), [data]);
+
   const paths = useMemo(
     () =>
       data.series.map((series, index) => {
@@ -84,9 +132,7 @@ export function AltitudeChart({
         return {
           label: series.label,
           kind: series.kind,
-          // Indexed against the full list, so hiding one curve never
-          // recolours the others.
-          color: SERIES_COLORS[index % SERIES_COLORS.length],
+          color: colors[index],
           d: `M ${points}`,
         };
       }),
@@ -129,7 +175,7 @@ export function AltitudeChart({
       }
       return {
         label: series.label,
-        color: SERIES_COLORS[index % SERIES_COLORS.length],
+        color: colors[index],
         altitude: nearest.altitude_deg,
         azimuth: nearest.azimuth_deg,
       };

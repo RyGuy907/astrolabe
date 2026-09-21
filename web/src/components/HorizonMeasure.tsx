@@ -33,6 +33,9 @@ const DIRECTIONS: { azimuth: number; label: string }[] = [
   { azimuth: 270, label: "West" },
 ];
 
+/** How long the coordinates must sit still before asking what is up. */
+const SETTLE_MS = 350;
+
 /** Sentinel for "nothing is in the way at all". */
 const CLEAR = "clear";
 
@@ -78,7 +81,10 @@ export function HorizonMeasure({ lat, lon, onMeasured }: Props) {
       produced.current = false;
     }
 
-    Promise.all(
+    // Waits for the coordinates to settle. Typing a latitude changes it on
+    // every keystroke, and each change fired four requests -- the thing this
+    // project has a standing rule against.
+    const timer = window.setTimeout(() => Promise.all(
       DIRECTIONS.map((d) =>
         api.horizonMarks(lat, lon, d.azimuth, controller.signal)
           .then((response) => [d.azimuth, response] as const),
@@ -93,10 +99,11 @@ export function HorizonMeasure({ lat, lon, onMeasured }: Props) {
         if (cancelled || (error as Error)?.name === "AbortError") return;
         setFailed(true);
       })
-      .finally(() => !cancelled && setLoading(false));
+      .finally(() => !cancelled && setLoading(false)), SETTLE_MS);
 
     return () => {
       cancelled = true;
+      window.clearTimeout(timer);
       controller.abort();
     };
     // `onMeasured` is deliberately absent: it is a setState from the parent,

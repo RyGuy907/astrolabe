@@ -12,6 +12,8 @@
  * placeholder should not be able to throw.
  */
 
+import { HEIGHT as CHART_HEIGHT, WIDTH as CHART_WIDTH } from "./AltitudeChart";
+
 /** A grey bar standing in for a line of text or a number. */
 function Bar({ width, height = 12 }: { width: string | number; height?: number }) {
   return <span className="skeleton-bar" style={{ width, height }} />;
@@ -54,8 +56,10 @@ export function DashboardSkeleton() {
           <div className="panel-head">
             <Bar width={80} height={16} />
           </div>
-          {/* Same 1000:420 proportion as the chart's viewBox. */}
-          <span className="skeleton-block" style={{ aspectRatio: "1000 / 420" }} />
+          {/* The chart's own proportions, read from it, so the two cannot
+              drift apart when one of them changes. */}
+          <span className="skeleton-block"
+                style={{ aspectRatio: `${CHART_WIDTH} / ${CHART_HEIGHT}` }} />
           {/* The legend chips under the chart: two rows of them. */}
           <div className="skeleton-legend">
             {[72, 64, 70, 60, 66].map((w, i) => (

@@ -110,12 +110,20 @@ class Location:
         return 5 if sqm is None else bortle_from_sqm(sqm)
 
 
-@functools.lru_cache(maxsize=8)
-def _resolve_tz(lat: float, lon: float) -> str:
-    """Coordinates -> IANA zone. Cached; timezonefinder init is not cheap."""
+@functools.lru_cache(maxsize=1)
+def _timezone_finder():
+    """One TimezoneFinder for the process. Building one takes about a second,
+    and caching only the *answer* per coordinate meant every new coordinate
+    -- each site in the editor, each map click -- paid that again."""
     from timezonefinder import TimezoneFinder
 
-    tz = TimezoneFinder().timezone_at(lat=lat, lng=lon)
+    return TimezoneFinder()
+
+
+@functools.lru_cache(maxsize=256)
+def _resolve_tz(lat: float, lon: float) -> str:
+    """Coordinates -> IANA zone."""
+    tz = _timezone_finder().timezone_at(lat=lat, lng=lon)
     return tz or "UTC"
 
 

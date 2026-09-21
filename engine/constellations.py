@@ -96,9 +96,36 @@ def centroid(abbreviation: str, catalog) -> ConstellationPosition | None:
 
     Vector mean, so constellations straddling RA 0h (Pegasus, Pisces, Cassiopeia)
     land where they belong rather than halfway round the sky.
+
+    For more than one constellation, use `centroids`: this scans the whole
+    catalogue, and calling it once per constellation scans it 89 times.
     """
-    members = [o for o in catalog
-               if o.constellation.strip().lower() == abbreviation.strip().lower()]
+    key = abbreviation.strip().lower()
+    return _centroid_of([o for o in catalog
+                         if o.constellation.strip().lower() == key])
+
+
+def centroids(catalog) -> dict[str, ConstellationPosition]:
+    """Every constellation's centroid, keyed by lower-case abbreviation.
+
+    One pass over the catalogue to group it, then one mean per group. This is
+    what `marks_toward` and the targets list need, and doing it as 89 calls to
+    `centroid` -- 89 full scans, 2.2 million string operations -- was 99% of
+    the time the horizon measurer spent per direction: 1.5 s, four times over.
+    """
+    groups: dict[str, list] = {}
+    for obj in catalog:
+        groups.setdefault(obj.constellation.strip().lower(), []).append(obj)
+    out = {}
+    for key, members in groups.items():
+        position = _centroid_of(members)
+        if position is not None:
+            out[key] = position
+    return out
+
+
+def _centroid_of(members: list) -> ConstellationPosition | None:
+    """Vector-mean position of a list of catalogue objects, or None."""
     if not members:
         return None
 
@@ -293,8 +320,9 @@ def marks_toward(azimuth_deg: float,
     from .timeutil import ensure_utc
 
     when = ensure_utc(when, field="when")
+    table = centroids(catalog)
     positions = [p for p in
-                 (centroid(abbr, catalog) for abbr in CONSTELLATION_NAMES)
+                 (table.get(abbr.strip().lower()) for abbr in CONSTELLATION_NAMES)
                  if p is not None]
     if not positions:
         return []

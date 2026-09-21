@@ -260,8 +260,7 @@ export function ScorePanel({ score, window: night, session, onSessionChange }: {
       )}
       {score.seeing_estimated && (
         <p className="warning">
-          Seeing and transparency are <strong>estimated</strong> — this night is
-          past 7Timer's 72-hour horizon, so a humidity and wind proxy was used.
+          Past 72-hour horizon, seeing and transparency are estimated
         </p>
       )}
       <button className="link-button" onClick={() => setOpen(!open)}>

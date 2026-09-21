@@ -411,6 +411,9 @@ button.secondary:not(:disabled):hover { border-color: var(--accent); }
 .facts .highlight dd { color: var(--accent); font-weight: 600; }
 
 /* --- chart --- */
+/* A <figure> carries a 40px side margin by default, which cost the chart
+   80px of an already narrow column. */
+.chart { margin: 0; }
 .chart svg { width: 100%; height: auto; display: block; }
 .chart-sky { fill: #10141d; }
 .chart-band-night { fill: rgba(90, 130, 200, 0.09); }
@@ -1657,6 +1660,9 @@ select, input[type="date"] { height: 36px; padding: 0 14px; border-radius: var(-
   padding: 13px 17px;
 }
 .warning { background: rgba(255, 159, 10, 0.1); color: #ffcf84; }
+/* The notices under the dials -- no weather, estimated seeing -- sat 12px
+   under the facts and directly on top of the More info button. */
+.score-panel > .warning { margin: 22px 0 18px; }
 
 /* --- the hero ------------------------------------------------------------
    The score panel breaks out of the page gutter into a full-bleed band lit

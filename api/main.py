@@ -11,6 +11,9 @@ layer. The API never emits local times.
 
 from __future__ import annotations
 
+import threading
+from contextlib import asynccontextmanager
+
 from datetime import date, datetime, timedelta
 
 from fastapi import FastAPI, HTTPException, Query
@@ -31,7 +34,7 @@ from engine.events import (
     lunar_eclipses,
     showers_active_between,
 )
-from engine.constellations import (assess_constellations, centroid,
+from engine.constellations import (assess_constellations, centroid, centroids,
                                    constellation_name)
 from engine.horizon import build as build_horizon
 from engine.locations import Location, LocationError, atlas_sqm_for
@@ -84,10 +87,38 @@ from .schemas import (
     TargetsResponse,
 )
 
+def _warm_caches() -> None:
+    """Load the slow, static things once, before anyone asks for them.
+
+    The catalogue parse, the timezone finder and the ephemeris each cost
+    about a second the first time and nothing after. Without this, whoever
+    made the first request after a restart paid all of it -- the horizon
+    measurer's first open took 4 s where later ones took under 1 s. Nothing
+    is computed about any night; these are caches of vendored data.
+    """
+    from engine.ephem import load_ephemeris
+    from engine.locations import _timezone_finder
+
+    for warm in (load_catalog, _timezone_finder, load_ephemeris):
+        try:
+            warm()
+        except Exception:  # noqa: BLE001 -- a warm-up must never stop startup
+            pass
+
+
+@asynccontextmanager
+async def _lifespan(_app: FastAPI):
+    # A daemon thread, so the server takes requests immediately and a slow
+    # warm-up only ever makes an early request no slower than it was.
+    threading.Thread(target=_warm_caches, name="warm-caches", daemon=True).start()
+    yield
+
+
 app = FastAPI(
     title="Astrolabe",
     version="0.1.0",
     description="Is tonight worth going out, and what should I point at?",
+    lifespan=_lifespan,
 )
 
 # The unfiltered target list is ~7 MB of JSON; it compresses to a fraction of
@@ -506,8 +537,8 @@ def _group_info(grouped: dict, group_by: str, site=None, window=None,
     if group_by != "constellation":
         return {key: GroupInfo(key=key, label=key) for key in grouped}
 
-    catalog = load_catalog()
-    positions = {key: centroid(key, catalog) for key in grouped}
+    table = centroids(load_catalog())
+    positions = {key: table.get(key.strip().lower()) for key in grouped}
 
     visibility: dict[str, str] = {}
     if site is not None and window is not None:
