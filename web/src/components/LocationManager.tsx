@@ -647,7 +647,6 @@ export function LocationManager({ locations, editingKey, onClose, onCreated }: P
                 onChange={(e) => setHorizon(
                   e.target.value === "" ? null : Number(e.target.value))}
                 disabled={measuredHorizon !== null}
-                className={horizonChosen ? "" : "invalid"}
               >
                 <option value="">— choose —</option>
                 {OBSTRUCTION_ANGLES.map((deg) => (

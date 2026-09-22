@@ -1416,10 +1416,6 @@ table.targets tr.charted { background: rgba(244, 201, 93, 0.06); }
 .clock-field select { padding: 7px 6px; }
 .session-editor p { margin: 8px 0 0; }
 
-/* A required field with nothing chosen yet. Same treatment as a bad value,
-   because an empty obstruction angle is now an unanswered question rather
-   than a field left at its default. */
-.site-form select.invalid { border-color: var(--bad); }
 
 /* Where the observing session ends. Dashed and in the accent colour: it is a
    decision the observer made, not a fact about the sky like the horizon or

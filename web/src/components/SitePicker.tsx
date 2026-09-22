@@ -124,9 +124,8 @@ export function SitePicker({ lat, lon, onPick }: Props) {
     const instance = L.map(container.current, {
       center: hasPoint ? [lat, lon] : DEFAULT_CENTER,
       zoom: hasPoint ? PICKED_ZOOM : DEFAULT_ZOOM,
-      // The dialog is a scrolling column; swallowing the wheel inside it is
-      // hostile, so a plain scroll scrolls the dialog. A trackpad pinch (and
-      // Ctrl+wheel) zooms -- handled below -- and the +/- control always works.
+      // Wheel zoom is handled below rather than by Leaflet, to tune it for
+      // trackpads: a pinch and a two-finger scroll both zoom.
       scrollWheelZoom: false,
       worldCopyJump: true,
       // Fractional zoom, so a pinch follows the fingers smoothly instead of
@@ -135,18 +134,19 @@ export function SitePicker({ lat, lon, onPick }: Props) {
       zoomDelta: 1,
     });
 
-    // A trackpad pinch arrives as a wheel event with ctrlKey set (Chrome,
-    // Edge, Firefox and Safari all do this), as does Ctrl+wheel on a mouse.
-    // Left alone, the browser zooms the whole page. Here it zooms the map
-    // about the point between the fingers, like the sky chart does.
+    // Every wheel over the map zooms it, about the pointer, like the sky
+    // chart: a two-finger scroll, a mouse wheel, or a trackpad pinch (which
+    // arrives as a wheel event with ctrlKey set, and would otherwise zoom
+    // the whole page). The dialog still scrolls from anywhere off the map.
     const onWheel = (event: WheelEvent) => {
-      if (!event.ctrlKey) return;              // a plain scroll scrolls the dialog
       event.preventDefault();
       const pixels = event.deltaMode === 1 ? event.deltaY * 16 : event.deltaY;
-      // ~100 px per mouse-wheel notch is one zoom level; a pinch sends many
-      // small deltas, which add up to the same feel.
+      // A pinch sends small deltas, so a level per ~60 px; a two-finger
+      // scroll sends large ones and a mouse notch is ~100, so a level per
+      // ~200 px, which keeps a flick from shooting across a dozen levels.
+      const perLevel = event.ctrlKey ? 60 : 200;
       const zoom = Math.min(instance.getMaxZoom(), Math.max(instance.getMinZoom(),
-        instance.getZoom() - pixels / 100));
+        instance.getZoom() - pixels / perLevel));
       instance.setZoomAround(instance.mouseEventToContainerPoint(event), zoom,
                              { animate: false });
     };
