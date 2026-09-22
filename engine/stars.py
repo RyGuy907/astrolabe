@@ -1,10 +1,23 @@
 """What a star is: the card the sky chart shows when you click one.
 
-Everything here is derived from four catalogue numbers per star -- distance,
-spectral type, B-V colour and absolute magnitude, vendored from HYG into
-`stars.csv` by `scripts/fetch_star_chart_data.py` -- plus a short curated
-table for famous stars. Nothing is fetched and nothing depends on the site or
-the night, so a profile is a pure function of the star.
+Each figure comes from the best source that reaches the star, and the card
+says which:
+
+* **Measured**: an angular diameter from interferometry or a lunar
+  occultation (JMDC), which with a distance *is* the radius. ~1,000 stars,
+  mostly the bright ones people click.
+* **Gaia DR3**: parallax (when its fit is sound -- RUWE < 1.4 -- and the
+  parallax is five times its error or better), spectroscopic temperature,
+  and for F-M stars FLAME radius and luminosity. Both vendored into
+  `star_details.csv` by `scripts/fetch_star_details.py`.
+* **Estimated**, the fallback, from four HYG numbers per star -- distance,
+  spectral type, B-V colour, absolute magnitude, in `stars.csv` -- as below.
+
+Plus a short curated table for famous stars' ages. Nothing is fetched here
+and nothing depends on the site or the night, so a profile is a pure
+function of the star.
+
+The rest of this note is about the estimated path.
 
 How far each number can be trusted differs, and the card says so rather than
 printing every figure with the same confidence:
@@ -139,6 +152,12 @@ class StarProfile:
     radius_sun: float | None        # estimated
     age: str | None
     age_basis: str | None           # "published" / "upper limit" / None
+    # Where each figure came from: "measured", "gaia", "hipparcos" or
+    # "estimated" (temperature: "spectrum", "type" or "colour").
+    distance_source: str | None = None
+    radius_source: str | None = None
+    temperature_source: str | None = None
+    luminosity_source: str | None = None
 
 
 @functools.lru_cache(maxsize=1)
@@ -148,6 +167,23 @@ def _rows() -> tuple[tuple[str, ...], ...]:
         reader = csv.reader(fh, delimiter=";")
         next(reader)
         return tuple(tuple(r) for r in reader)
+
+
+@functools.lru_cache(maxsize=1)
+def _details() -> dict[int, dict[str, str]]:
+    """Gaia DR3 and measured diameters by Hipparcos number, where there are any."""
+    path = DATA / "star_details.csv"
+    if not path.exists():
+        return {}
+    with open(path, encoding="utf-8") as fh:
+        return {int(r["hip"]): r for r in csv.DictReader(fh, delimiter=";")}
+
+
+#: Solar radii per (AU): an angle in arcseconds times a distance in parsecs
+#: is a length in AU.
+RSUN_PER_AU = 215.032
+#: Gaia's astrometric fit is sound below this renormalised unit weight error.
+RUWE_LIMIT = 1.4
 
 
 def star_count() -> int:
@@ -292,35 +328,67 @@ def star_profile(index: int) -> StarProfile:
     if lum is None and cls in ("G", "K", "M") and absmag and \
             float(absmag) < main_sequence_mv(cls, sub) - 2.0:
         lum = "III"                      # far too bright for a dwarf
+    temp_source = "type"
     if cls in ("F", "G") and lum != "I" and ci:
-        temp = temperature_from_colour(float(ci))
+        temp, temp_source = temperature_from_colour(float(ci)), "colour"
     elif cls in ("G", "K", "M") and lum in ("I", "II", "III"):
         temp = giant_temperature(cls, sub)
     elif cls in _COLOURS:
         temp = temperature_from_type(cls, sub)
-        if lum == "I" and cls in ("O", "B"):
+        if lum == "I" and cls == "O":
+            temp *= 0.85
+        elif lum == "I" and cls == "B":
             # Hot supergiants run cooler than dwarfs of their type: ~18% at
             # B0 (Alnilam, B0Ia, is ~26,000 K, not 31,400), fading to nothing
             # by late B (Rigel, B8Ia, matches the dwarf scale).
-            temp *= 0.82 + 0.18 * min(1.0, ("OB".index(cls) * 10 + sub - 5) / 13)                 if cls == "B" else 0.85
+            temp *= 0.82 + 0.18 * min(1.0, sub / 8)
     elif lum == "D":
         temp = None                      # white-dwarf temperatures need the subtype
     elif ci:
-        temp = temperature_from_colour(float(ci))
+        temp, temp_source = temperature_from_colour(float(ci)), "colour"
     else:
         temp = None
 
-    distance_ly = quality = None
-    if dist_pc:
-        pc = float(dist_pc)
-        distance_ly = _round_sig(pc * LY_PER_PC, 3 if pc < 150 else 2)
+    extra = _details().get(int(hip), {}) if hip else {}
+    num = lambda k: float(extra[k]) if extra.get(k) else None
+    # Gaia's spectroscopic temperature, for the cool stars it covers well
+    # (its hot-star temperatures run thousands of kelvin low).
+    if num("teff_spec") and cls not in ("O", "B", "A"):
+        temp, temp_source = num("teff_spec"), "spectrum"
+
+    # Distance: Gaia where its astrometry is sound, else Hipparcos.
+    pc = quality = dist_source = None
+    plx, plx_err, ruwe = num("plx"), num("plx_err"), num("ruwe")
+    if plx and plx_err and plx > 0 and ruwe is not None and ruwe < RUWE_LIMIT \
+            and plx / plx_err >= 5:
+        pc, dist_source = 1000 / plx, "gaia"
+        quality = "precise" if plx / plx_err >= 20 else "approximate"
+    elif dist_pc:
+        pc, dist_source = float(dist_pc), "hipparcos"
         quality = "precise" if pc < 150 else "approximate" if pc < 500 else "rough"
+    distance_ly = _round_sig(pc * LY_PER_PC, 3 if pc < 150 else 2) if pc else None
+    # Absolute magnitude from the distance actually used.
+    if pc and mag:
+        absmag = str(float(mag) - 5 * math.log10(pc / 10))
 
     luminosity = radius = None
-    if absmag and temp and lum != "D":
+    radius_source = lum_source = None
+    if extra.get("diam_mas") and pc:
+        # Measured: half the angle (arcsec) times the distance (pc) is AU.
+        radius = num("diam_mas") / 2 / 1000 * pc * RSUN_PER_AU
+        radius_source = "measured"
+        if temp:
+            luminosity = radius ** 2 * (temp / SUN_TEMP_K) ** 4
+            lum_source = "measured"
+    elif num("radius_flame") and cls in ("F", "G", "K", "M") and dist_source == "gaia":
+        radius, radius_source = num("radius_flame"), "gaia"
+        if num("lum_flame"):
+            luminosity, lum_source = num("lum_flame"), "gaia"
+    if radius is None and absmag and temp and lum != "D":
         mbol = float(absmag) + bolometric_correction(temp)
         luminosity = 10 ** (-0.4 * (mbol - SUN_MBOL))
         radius = math.sqrt(luminosity) * (SUN_TEMP_K / temp) ** 2
+        radius_source = lum_source = "estimated"
 
     age = basis = None
     if known and "age" in known:
@@ -349,6 +417,10 @@ def star_profile(index: int) -> StarProfile:
         luminosity_sun=_round_sig(luminosity) if luminosity else None,
         radius_sun=_round_sig(radius) if radius else None,
         age=age, age_basis=basis,
+        distance_source=dist_source if distance_ly else None,
+        radius_source=radius_source if radius else None,
+        temperature_source=temp_source if temp else None,
+        luminosity_source=lum_source if luminosity else None,
     )
 
 

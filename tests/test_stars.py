@@ -84,10 +84,9 @@ LITERATURE = [
     ("Betelgeuse", None, 640, None, 14e6),
     ("Altair", 16.7, 2.01, 6780, 88e6),
     ("Aldebaran", 66.6, 45.1, 3900, 6.4e9),
-    # Antares: the audit's largest size miss, 460 against 680 -- a third low.
-    # Nothing physical to correct without special-casing it, so its radius
-    # stays out of the tolerance check and the miss stays on record here.
-    ("Antares", 553.7, None, 3660, 15e6),
+    # Antares was the audit's largest size miss when estimated -- 460 against
+    # 680, a third low. Its interferometric diameter puts it at ~730.
+    ("Antares", 553.7, 680, 3660, 15e6),
     ("Spica", 249.7, 7.47, 25300, 12.5e6),
     ("Fomalhaut", 25.1, 1.84, 8590, 440e6),
     ("Deneb", 1410, 117, 8525, 11.6e6),
@@ -139,3 +138,43 @@ def test_every_star_has_a_card():
     """No row in the vendored file makes the card fall over."""
     for i in range(0, len(_rows()), 7):
         star_profile(i)
+
+
+# --- which source each figure comes from --------------------------------------
+
+def test_a_measured_diameter_is_the_radius():
+    """Antares' size from interferometry, not from its (dust-dimmed, variable)
+    brightness: within 15% of the published 680 R_sun."""
+    antares = by_name("Antares")
+    assert antares.radius_source == "measured"
+    assert antares.radius_sun == pytest.approx(680, rel=0.15)
+    assert by_name("Sirius").radius_source == "measured"
+    assert by_name("Sirius").radius_sun == pytest.approx(1.71, rel=0.10)
+
+
+def test_a_measurement_blended_with_a_companion_is_not_used():
+    # JMDC's one Capella entry is the pair's light ("Capella is binary").
+    assert by_name("Capella").radius_source != "measured"
+
+
+def test_fainter_stars_take_gaia_distances_and_sizes():
+    from engine.stars import star_count
+    sample = [star_profile(i) for i in range(20000, star_count(), 97)]
+    gaia = [p for p in sample if p.distance_source == "gaia"]
+    assert len(gaia) > 0.6 * len(sample)
+    assert any(p.radius_source == "gaia" for p in sample)
+    # Gaia's radii are only taken for the cool stars its temperatures suit.
+    for p in sample:
+        if p.radius_source == "gaia":
+            assert p.spectral_type and p.spectral_type.lstrip("sd")[0] in "FGKM"
+
+
+def test_without_the_details_file_every_card_still_works(monkeypatch):
+    """The estimated path is the fallback for everything: with no Gaia or
+    measured data at all, cards still come out, marked as estimates."""
+    import engine.stars as stars
+    monkeypatch.setattr(stars, "_details", lambda: {})
+    betelgeuse = by_name("Betelgeuse")
+    assert betelgeuse.radius_source == "estimated"
+    assert betelgeuse.distance_source == "hipparcos"
+    assert 450 <= betelgeuse.radius_sun <= 1100

@@ -336,6 +336,11 @@ export interface StarProfile {
   radius_sun: number | null;
   age: string | null;
   age_basis: "published" | "upper limit" | null;
+  /** Where each figure came from. */
+  distance_source: "gaia" | "hipparcos" | null;
+  radius_source: "measured" | "gaia" | "estimated" | null;
+  temperature_source: "spectrum" | "type" | "colour" | null;
+  luminosity_source: "measured" | "gaia" | "estimated" | null;
 }
 
 export interface SkyFrame {

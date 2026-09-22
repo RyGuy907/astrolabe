@@ -115,6 +115,32 @@ use or large-scale redistribution.
   absolute magnitude, unaltered except for rounding; HYG's 100,000 pc
   "unknown distance" placeholder is left blank.
 
+### Star-card details: Gaia DR3 and measured diameters
+
+- **File:** `engine/catalog/data/star_details.csv`, rebuilt by
+  `scripts/fetch_star_details.py`. Retrieved 2026-09-21.
+- **Gaia DR3.** Parallax, parallax error and RUWE from `gaiadr3.gaia_source`,
+  and GSP-Spec temperature and FLAME radius and luminosity from
+  `gaiadr3.astrophysical_parameters`, for the chart's stars via Gaia's
+  `hipparcos2_best_neighbour` cross-match, from the ESA Gaia Archive.
+  This work has made use of data from the European Space Agency (ESA)
+  mission Gaia (https://www.cosmos.esa.int/gaia), processed by the Gaia Data
+  Processing and Analysis Consortium (DPAC,
+  https://www.cosmos.esa.int/web/gaia/dpac/consortium). Funding for the DPAC
+  has been provided by national institutions, in particular the institutions
+  participating in the Gaia Multilateral Agreement. Gaia data are released
+  under CC BY-SA 3.0 IGO; the derived columns are distributed under the same
+  terms.
+- **JMDC.** Angular diameters from the JMMC Measured stellar Diameters
+  Catalogue (Duvert 2016, VizieR II/345), obtained through the VizieR
+  catalogue access tool, CDS, Strasbourg. This research has made use of the
+  JMDC, available at CDS. Per star, the median of the limb-darkened
+  diameters that carry a published error, falling back to all limb-darkened
+  values, then to uniform-disk values scaled by 1.04; matched to the chart's
+  stars by position within 20".
+- **Modifications:** values rounded; nothing else altered. The radius the
+  card shows from a JMDC diameter is computed here (angle times distance).
+
 ### Full Moon photograph
 
 - **File:** `web/public/planets/moon.jpg` — 480 x 480, 36 KB.

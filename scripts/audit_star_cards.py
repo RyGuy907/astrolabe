@@ -10,6 +10,12 @@ temperature 93%; radius 73%. Before the fixes that audit led to -- giants
 recognised by brightness when the type doesn't say, B-V temperatures for
 F and G stars, per-subtype temperatures -- radius was 64% and temperature 90%.
 
+Since then most cards take Gaia's own distance and (for F-M stars) radius
+where Gaia has them -- see `scripts/fetch_star_details.py` -- so for those
+this compares Gaia with itself. What it still measures is the estimated
+path, the fallback for the ~27,600 stars with neither a Gaia radius nor a
+measured diameter.
+
 Usage:
     python scripts/audit_star_cards.py
 """

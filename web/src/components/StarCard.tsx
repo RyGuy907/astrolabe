@@ -32,6 +32,14 @@ function swatch(k: number | null): string {
   return (stops.find(([t]) => k <= t) ?? stops[stops.length - 1])[1];
 }
 
+/** How a size or output was arrived at, as a short note after it. */
+const HOW: Record<string, string> = {
+  measured: "measured", gaia: "Gaia estimate", estimated: "estimate",
+};
+const TEMP_HOW: Record<string, string> = {
+  spectrum: "from its spectrum", type: "from its type", colour: "from its colour",
+};
+
 /** "8.61", "1,400", "92,000": three significant figures at most. */
 const figure = (n: number) =>
   n.toLocaleString(undefined, { maximumSignificantDigits: n < 10 ? 2 : 3 });
@@ -85,21 +93,34 @@ export function StarCard({ index, x, y, width, height, onClose }: Props) {
             <dd>
               {star.distance_ly
                 ? <>{star.distance_quality === "precise" ? "" : "≈ "}{figure(star.distance_ly)} light-years
-                    {star.distance_quality !== "precise" &&
-                      <span className="muted"> ({star.distance_quality})</span>}</>
+                    <span className="muted">
+                      {" · "}{star.distance_source === "gaia" ? "Gaia" : "Hipparcos"}
+                      {star.distance_quality !== "precise" && `, ${star.distance_quality}`}
+                    </span></>
                 : <span className="muted">Not measured</span>}
             </dd>
             {star.radius_sun && (<>
               <dt>Size</dt>
-              <dd>≈ {figure(star.radius_sun)}× the Sun's width <span className="muted">(estimate)</span></dd>
+              <dd>
+                {star.radius_source === "measured" ? "" : "≈ "}{figure(star.radius_sun)}× the Sun's width
+                <span className="muted"> · {HOW[star.radius_source ?? "estimated"]}</span>
+              </dd>
             </>)}
             {star.luminosity_sun && (<>
               <dt>Output</dt>
-              <dd>≈ {figure(star.luminosity_sun)}× the Sun's light</dd>
+              <dd>
+                ≈ {figure(star.luminosity_sun)}× the Sun's light
+                {star.luminosity_source === "gaia" &&
+                  <span className="muted"> · Gaia estimate</span>}
+              </dd>
             </>)}
             {star.temperature_k && (<>
               <dt>Surface</dt>
-              <dd>{star.temperature_k.toLocaleString()} K</dd>
+              <dd>
+                {star.temperature_k.toLocaleString()} K
+                {star.temperature_source &&
+                  <span className="muted"> · {TEMP_HOW[star.temperature_source]}</span>}
+              </dd>
             </>)}
             <dt>Age</dt>
             <dd>
