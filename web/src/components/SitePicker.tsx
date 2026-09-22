@@ -76,6 +76,18 @@ const LIGHT_POLLUTION_ATTRIBUTION =
  *  honest here -- the underlying data really is about 500 m per pixel. */
 const LIGHT_POLLUTION_MAX_NATIVE_ZOOM = 8;
 
+/** The overlay's opacity at a zoom. Past its native zoom the night lights
+ *  are the same ~500 m pixels stretched -- every GIBS night-lights layer,
+ *  Black Marble and the daily VIIRS ones alike, stops at level 8, as the
+ *  sensor itself does -- while the street map underneath keeps sharpening.
+ *  So the overlay eases from 0.75 at level 8 to 0.4 by level 13: still a
+ *  glow saying where the light is, with the crisp roads showing through
+ *  instead of a soft blur over them. */
+function lightsOpacity(zoom: number): number {
+  const t = Math.min(1, Math.max(0, (zoom - LIGHT_POLLUTION_MAX_NATIVE_ZOOM) / 5));
+  return 0.75 - 0.35 * t;
+}
+
 /** Five decimal places is about a metre — far finer than any observing site
  *  needs, and enough that the number stops looking arbitrary. */
 const COORD_DP = 5;
@@ -220,9 +232,10 @@ export function SitePicker({ lat, lon, onPick }: Props) {
       attribution: LIGHT_POLLUTION_ATTRIBUTION,
       maxNativeZoom: LIGHT_POLLUTION_MAX_NATIVE_ZOOM,
       maxZoom: 19,
-      opacity: 0.75,
+      opacity: lightsOpacity(instance.getZoom()),
       className: "light-pollution-tiles",
     });
+    instance.on("zoom", () => lightsLayer.current?.setOpacity(lightsOpacity(instance.getZoom())));
 
     instance.on("click", (event: L.LeafletMouseEvent) => {
       pick.current(
