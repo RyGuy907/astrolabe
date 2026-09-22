@@ -158,21 +158,21 @@ export default function App() {
                               seq: (current?.seq ?? 0) + 1 }));
   }
 
-  // "Suggest a target": with nothing open, one of tonight's best; with a
-  // target open, a good one close to it. Either way it opens on the sky
-  // chart and in the list. The choosing is in suggest.ts.
+  // "Suggest a target": one of tonight's best, anywhere in the sky, opened
+  // on the sky chart and in the list -- only showpieces when the list is
+  // set to popular objects only. The choosing is in suggest.ts.
   const suggested = useRef<Set<string>>(new Set());
-  const nearSubject = finder && finder.kind === "target" &&
-    finder.ra !== undefined && finder.dec !== undefined
-    ? { id: finder.id, ra: finder.ra, dec: finder.dec } : null;
   const allTargets = useMemo(
     () => (targets ? Object.values(targets.groups).flat() : []), [targets]);
   function suggest() {
     const now = new Date().toISOString();
     const session = targets?.session;
     const inNight = !!session && session.start <= now && now <= session.end;
+    // The one open now is never the answer, even on a fresh round.
+    const openNow = finder?.kind === "target" ? finder.id : null;
     const ask = () => suggestTarget({
-      targets: allTargets, exclude: suggested.current, near: nearSubject,
+      targets: allTargets, popularOnly,
+      exclude: openNow ? new Set([...suggested.current, openNow]) : suggested.current,
       now: inNight ? now : undefined,
     });
     let pick = ask();
@@ -183,28 +183,26 @@ export default function App() {
     }
     if (!pick) return;
     suggested.current.add(pick.name);
-    if (nearSubject) suggested.current.add(nearSubject.id);
     selectOnChart({
       kind: "target", id: pick.name, label: pick.display_name,
       ra: pick.ra_deg, dec: pick.dec_deg,
-      // Nearby keeps the chart's moment; a fresh pick shows it now if the
-      // night is on, else at its best.
-      at: nearSubject ? finder!.at
-        : inNight ? now : pick.peak_time ?? session?.start ?? now,
+      // Now if the night is on, else at its best.
+      at: inNight ? now : pick.peak_time ?? session?.start ?? now,
     });
     setLeftTab("finder");
   }
   const canSuggest = !pending.targets && allTargets.some((t) =>
-    t.visible_tonight && !t.too_faint && !t.visible_late && t.score !== null);
+    t.visible_tonight && !t.too_faint && !t.visible_late && t.score !== null &&
+    (!popularOnly || t.showpiece));
   const suggestButton = (
     <button className="suggest-button" onClick={suggest} disabled={!canSuggest}
-            title={nearSubject
-              ? `A good target close to ${finder!.label}, for tonight`
+            title={popularOnly
+              ? "One of tonight's best well-known objects, opened on the sky chart"
               : "One of tonight's best targets, opened on the sky chart"}>
       <svg viewBox="0 0 16 16" aria-hidden="true">
         <path d="M8 1.5l1.7 4.1 4.3.3-3.3 2.8 1 4.3L8 10.7 4.3 13l1-4.3L2 5.9l4.3-.3z" />
       </svg>
-      {nearSubject ? "Suggest nearby" : "Suggest a target"}
+      Suggest a target
     </button>
   );
 
