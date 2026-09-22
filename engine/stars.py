@@ -27,13 +27,19 @@ printing every figure with the same confidence:
   its error a sizeable fraction of it, so beyond that it is marked rough.
 * **Type and temperature** come from the spectral type, which is measured.
   For F and G stars short of supergiants the B-V colour (Ballesteros 2012)
-  gives the temperature instead: checked against Gaia DR3 it is the closer of
-  the two there, while
-  for K stars and anything hotter than F the type wins (colour saturates for
-  hot stars). About a third of catalogue types carry no luminosity class
+  gives the temperature instead: checked against Gaia DR3 and PASTEL's
+  spectroscopic temperatures it is the closer of the two there. Not for A
+  stars: colour looked better against PASTEL's (mostly faint, distant) A
+  stars only because dust reddening cancelled the colour fit's ~6% hot bias;
+  on bright, unreddened A stars the type wins, 74% within 10% of published
+  values against 56%. The type doesn't depend on the dust. For K stars and
+  anything hotter than F the type wins too (colour saturates for hot stars).
+  About a third of catalogue types carry no luminosity class
   ("K0"); a G, K or M star of that kind shining more than two magnitudes
   above the main sequence for its type is taken to be a giant. Treating
   those as dwarfs made them too hot and a third too small against Gaia.
+  One within a magnitude of the main sequence is taken to be a dwarf; see
+  `_infer_class`.
 * **Size** is estimated: bolometric luminosity (absolute magnitude plus a
   temperature-dependent bolometric correction, Torres 2010) and temperature
   give the radius through L = 4 pi R^2 sigma T^4. Rounded, and shown as an
@@ -158,6 +164,8 @@ class StarProfile:
     radius_source: str | None = None
     temperature_source: str | None = None
     luminosity_source: str | None = None
+    # Set when the catalogue's spectral type was set aside (see below).
+    type_note: str | None = None
 
 
 @functools.lru_cache(maxsize=1)
@@ -232,6 +240,19 @@ def _interpolate(points: list[tuple[float, float]], x: float) -> float:
     return points[-1][1]
 
 
+def type_from_temperature(temp: float) -> tuple[str, float]:
+    """The main-sequence type whose temperature this is: (class, subclass)."""
+    pts = _MS_TEMPS
+    if temp >= pts[0][1]:
+        x = pts[0][0]
+    elif temp <= pts[-1][1]:
+        x = pts[-1][0]
+    else:
+        x = next(x0 + (x1 - x0) * (t0 - temp) / (t0 - t1)
+                 for (x0, t0), (x1, t1) in zip(pts, pts[1:]) if t1 <= temp <= t0)
+    return "OBAFGKM"[min(6, int(x // 10))], round(x % 10, 1)
+
+
 def giant_temperature(cls: str, sub: float) -> float:
     """Effective temperature of a G, K or M giant or supergiant by type."""
     x = {"G": 0, "K": 10, "M": 20}[cls] + sub
@@ -258,8 +279,11 @@ def main_sequence_mv(cls: str, sub: float) -> float:
 
 #: Main-sequence lifetime by type, as (position along O0..A9, years): the
 #: lifetime for the type's mass (Pecaut & Mamajek 2013 masses; Ekstrom et al.
-#: 2012 tracks), padded by half again, since type and mass scatter.
-_MS_LIFETIME = [(5, 15e6), (10, 20e6), (12, 50e6), (15, 150e6), (18, 400e6),
+#: 2012 tracks), padded by half again, since type and mass scatter -- and
+#: for mid and late B by a further third, since fast rotators, common among
+#: them, live about a quarter longer (Merope, B6IV, is published at 212 Myr
+#: against an unpadded ~150).
+_MS_LIFETIME = [(5, 15e6), (10, 20e6), (12, 60e6), (15, 200e6), (18, 500e6),
                 (20, 1e9), (25, 2e9)]
 
 
@@ -269,6 +293,28 @@ def main_sequence_lifetime(cls: str, sub: float) -> float:
     # Geometric: lifetimes span two orders of magnitude across these types.
     logs = [(px, math.log(y)) for px, y in _MS_LIFETIME]
     return math.exp(_interpolate(logs, x))
+
+
+def _infer_class(cls: str | None, sub: float | None, lum: str | None,
+                 absmag: str | None) -> str | None:
+    """A luminosity class for a type that doesn't give one, from how bright
+    the star really is against the main sequence for its type.
+
+    Two magnitudes or more above it is a giant (G, K and M only: hotter
+    stars' giants and dwarfs are too close in brightness to tell apart this
+    way). Within a magnitude of it is a main-sequence star -- the case that
+    left a third of real dwarfs, per PASTEL's surface gravities, described
+    as just "a yellow star". In between, subgiants and binaries, it stays
+    unsaid.
+    """
+    if lum is not None or not cls or cls not in _ORDER or not absmag:
+        return lum
+    above = main_sequence_mv(cls, sub) - float(absmag)
+    if above >= 2.0 and cls in ("G", "K", "M"):
+        return "III"
+    if abs(above) <= 1.0 and cls in ("A", "F", "G", "K", "M"):
+        return "V"
+    return None
 
 
 def temperature_from_colour(bv: float) -> float:
@@ -323,11 +369,39 @@ def star_profile(index: int) -> StarProfile:
     known = _KNOWN.get(int(hip)) if hip else None
     spect = (known or {}).get("spect", spect) or ""
 
+    extra = _details().get(int(hip), {}) if hip else {}
+    num = lambda k: float(extra[k]) if extra.get(k) else None
+
+    # Distance: Gaia where its astrometry is sound, else Hipparcos.
+    pc = quality = dist_source = None
+    plx, plx_err, ruwe = num("plx"), num("plx_err"), num("ruwe")
+    if plx and plx_err and plx > 0 and ruwe is not None and ruwe < RUWE_LIMIT \
+            and plx / plx_err >= 5:
+        pc, dist_source = 1000 / plx, "gaia"
+        quality = "precise" if plx / plx_err >= 20 else "approximate"
+    elif dist_pc:
+        pc, dist_source = float(dist_pc), "hipparcos"
+        quality = "precise" if pc < 150 else "approximate" if pc < 500 else "rough"
+    distance_ly = _round_sig(pc * LY_PER_PC, 3 if pc < 150 else 2) if pc else None
+    # Absolute magnitude from the distance actually used.
+    if pc and mag:
+        absmag = str(float(mag) - 5 * math.log10(pc / 10))
+
     parsed = parse_spectral_type(spect) if spect else None
     cls, sub, lum = parsed if parsed else (None, None, None)
-    if lum is None and cls in ("G", "K", "M") and absmag and \
-            float(absmag) < main_sequence_mv(cls, sub) - 2.0:
-        lum = "III"                      # far too bright for a dwarf
+    lum = _infer_class(cls, sub, lum, absmag)
+    # A hot type on a plainly orange or red star: the type is a companion's.
+    # Double stars are catalogued with one type, and sometimes it is the
+    # fainter, hotter partner's -- Almach, an orange giant with B-V 1.37,
+    # is listed B8V. The colour is the light actually seen, so it wins, and
+    # the type is re-derived from it. Not for supergiants and bright giants,
+    # which are distant enough that dust reddens genuinely hot stars.
+    type_note = None
+    if cls in ("O", "B", "A") and lum not in ("I", "II") and ci and float(ci) > 0.7:
+        type_note = (f"The catalogue's type, {spect}, doesn't match this star's "
+                     "colour; it likely belongs to a companion.")
+        cls, sub = type_from_temperature(temperature_from_colour(float(ci)))
+        lum = _infer_class(cls, sub, None, absmag)
     temp_source = "type"
     if cls in ("F", "G") and lum != "I" and ci:
         temp, temp_source = temperature_from_colour(float(ci)), "colour"
@@ -349,45 +423,45 @@ def star_profile(index: int) -> StarProfile:
     else:
         temp = None
 
-    extra = _details().get(int(hip), {}) if hip else {}
-    num = lambda k: float(extra[k]) if extra.get(k) else None
     # Gaia's spectroscopic temperature, for the cool stars it covers well
     # (its hot-star temperatures run thousands of kelvin low).
     if num("teff_spec") and cls not in ("O", "B", "A"):
         temp, temp_source = num("teff_spec"), "spectrum"
 
-    # Distance: Gaia where its astrometry is sound, else Hipparcos.
-    pc = quality = dist_source = None
-    plx, plx_err, ruwe = num("plx"), num("plx_err"), num("ruwe")
-    if plx and plx_err and plx > 0 and ruwe is not None and ruwe < RUWE_LIMIT \
-            and plx / plx_err >= 5:
-        pc, dist_source = 1000 / plx, "gaia"
-        quality = "precise" if plx / plx_err >= 20 else "approximate"
-    elif dist_pc:
-        pc, dist_source = float(dist_pc), "hipparcos"
-        quality = "precise" if pc < 150 else "approximate" if pc < 500 else "rough"
-    distance_ly = _round_sig(pc * LY_PER_PC, 3 if pc < 150 else 2) if pc else None
-    # Absolute magnitude from the distance actually used.
-    if pc and mag:
-        absmag = str(float(mag) - 5 * math.log10(pc / 10))
+
+    est_radius = est_lum = None
+    if absmag and temp and lum != "D":
+        mbol = float(absmag) + bolometric_correction(temp)
+        est_lum = 10 ** (-0.4 * (mbol - SUN_MBOL))
+        est_radius = math.sqrt(est_lum) * (SUN_TEMP_K / temp) ** 2
+    gaia_radius = num("radius_flame") if cls in ("F", "G", "K", "M") and \
+        dist_source == "gaia" else None
 
     luminosity = radius = None
     radius_source = lum_source = None
+    measured = None
     if extra.get("diam_mas") and pc:
-        # Measured: half the angle (arcsec) times the distance (pc) is AU.
-        radius = num("diam_mas") / 2 / 1000 * pc * RSUN_PER_AU
-        radius_source = "measured"
+        # Half the angle (arcsec) times the distance (pc) is a length in AU.
+        measured = num("diam_mas") / 2 / 1000 * pc * RSUN_PER_AU
+        # One measurement alone, far from every other route to the size, is
+        # more likely the odd one out: against Gaia, single diameters agree
+        # within 25% for 81% of stars, repeated ones for 92%; the wide audit
+        # found gamma Lib and Alcyone twice their published size on one each.
+        reference = gaia_radius or est_radius
+        if extra.get("diam_n") == "1" and reference and \
+                not 1 / 1.6 <= measured / reference <= 1.6:
+            measured = None
+    if measured:
+        radius, radius_source = measured, "measured"
         if temp:
             luminosity = radius ** 2 * (temp / SUN_TEMP_K) ** 4
             lum_source = "measured"
-    elif num("radius_flame") and cls in ("F", "G", "K", "M") and dist_source == "gaia":
-        radius, radius_source = num("radius_flame"), "gaia"
+    elif gaia_radius:
+        radius, radius_source = gaia_radius, "gaia"
         if num("lum_flame"):
             luminosity, lum_source = num("lum_flame"), "gaia"
-    if radius is None and absmag and temp and lum != "D":
-        mbol = float(absmag) + bolometric_correction(temp)
-        luminosity = 10 ** (-0.4 * (mbol - SUN_MBOL))
-        radius = math.sqrt(luminosity) * (SUN_TEMP_K / temp) ** 2
+    elif est_radius:
+        radius, luminosity = est_radius, est_lum
         radius_source = lum_source = "estimated"
 
     age = basis = None
@@ -397,7 +471,8 @@ def star_profile(index: int) -> StarProfile:
         # Supergiants start at 8-10 solar masses and live tens of millions of
         # years; published ages run 5-45 Myr (Mirfak, the oldest checked, 41).
         age, basis = "likely under about 60 million years", "upper limit"
-    elif lum in ("V", "IV") and cls in ("O", "B", "A") and             "OBA".index(cls) * 10 + sub <= 25:
+    elif lum in ("V", "IV") and cls in ("O", "B", "A") and \
+            "OBA".index(cls) * 10 + sub <= 25:
         # A hot main-sequence star can be no older than its type's lifetime.
         # Taken from the type, which is measured, rather than the luminosity:
         # a first version went through L and the mass-luminosity relation,
@@ -421,6 +496,7 @@ def star_profile(index: int) -> StarProfile:
         radius_source=radius_source if radius else None,
         temperature_source=temp_source if temp else None,
         luminosity_source=lum_source if luminosity else None,
+        type_note=type_note,
     )
 
 

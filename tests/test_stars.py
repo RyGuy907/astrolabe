@@ -82,7 +82,9 @@ LITERATURE = [
     ("Procyon", 11.5, 2.04, 6582, 1.87e9),
     ("Achernar", 139.4, 6.78, 12673, 63e6),
     ("Betelgeuse", None, 640, None, 14e6),
-    ("Altair", 16.7, 2.01, 6780, 88e6),
+    # Altair spins fast enough to run from ~6,860 K at its equator to 8,620 K
+    # at its poles; the midpoint, not the infobox's first (equatorial) figure.
+    ("Altair", 16.7, 2.01, 7740, 88e6),
     ("Aldebaran", 66.6, 45.1, 3900, 6.4e9),
     # Antares was the audit's largest size miss when estimated -- 460 against
     # 680, a third low. Its interferometric diameter puts it at ~730.
@@ -178,3 +180,35 @@ def test_without_the_details_file_every_card_still_works(monkeypatch):
     assert betelgeuse.radius_source == "estimated"
     assert betelgeuse.distance_source == "hipparcos"
     assert 450 <= betelgeuse.radius_sun <= 1100
+
+
+# --- found by the wide audit (~300 named stars against published values) -----
+
+def test_a_hot_type_on_an_orange_star_is_set_aside():
+    """Almach is catalogued B8V -- its companion's type. Its colour (B-V 1.37)
+    is an orange giant's, which is what the card must say."""
+    almach = by_name("Almach")
+    assert almach.kind == "Orange giant"
+    assert almach.temperature_k == pytest.approx(4248, rel=0.15)
+    assert almach.type_note and "B8V" in almach.type_note
+    # Reddened supergiants are genuinely hot, and keep their type.
+    assert by_name("Deneb").type_note is None
+
+
+def test_a_lone_diameter_far_from_every_other_estimate_is_not_used():
+    """gamma Lib's one JMDC diameter makes it 24 R_sun; published is 11."""
+    zubenelhakrabi = by_name("Zubenelhakrabi")
+    assert zubenelhakrabi.radius_source != "measured"
+    assert zubenelhakrabi.radius_sun == pytest.approx(11.14, rel=0.35)
+
+
+def test_names_follow_the_iau():
+    """Each IAU name on one star only, in the IAU spelling: the audit's worst
+    misses were the right numbers for a second star sharing a name."""
+    from collections import Counter
+    labels = Counter(row[3] for row in _rows() if row[3])
+    for name in ("Terebellum", "Propus", "Beemim", "Markab", "Tarazed", "Menkar"):
+        assert labels[name] == 1, name
+    assert labels["Schedar"] == 1 and labels["Shedar"] == 0
+    terebellum = next(row for row in _rows() if row[3] == "Terebellum")
+    assert terebellum[4] == "98066"           # omega Sgr, per the WGSN

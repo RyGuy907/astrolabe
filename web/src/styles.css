@@ -2166,6 +2166,7 @@ tr.revealed > td { background: var(--accent-soft, rgba(10, 132, 255, 0.14)); tra
   box-shadow: 0 0 8px currentColor;
 }
 .star-kind { margin: 0 0 8px; color: var(--text); }
+.star-note { margin: -4px 0 8px; line-height: 1.4; }
 .star-card dl {
   display: grid;
   grid-template-columns: auto 1fr;

@@ -341,6 +341,8 @@ export interface StarProfile {
   radius_source: "measured" | "gaia" | "estimated" | null;
   temperature_source: "spectrum" | "type" | "colour" | null;
   luminosity_source: "measured" | "gaia" | "estimated" | null;
+  /** Why the catalogue's spectral type was set aside, when it was. */
+  type_note: string | null;
 }
 
 export interface SkyFrame {

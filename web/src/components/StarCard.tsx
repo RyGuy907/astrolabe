@@ -86,8 +86,10 @@ export function StarCard({ index, x, y, width, height, onClose }: Props) {
         <>
           <p className="star-kind">
             {star.kind}
-            {star.spectral_type && <span className="muted"> · {star.spectral_type}</span>}
+            {star.spectral_type && !star.type_note &&
+              <span className="muted"> · {star.spectral_type}</span>}
           </p>
+          {star.type_note && <p className="star-note muted small">{star.type_note}</p>}
           <dl>
             <dt>Distance</dt>
             <dd>
