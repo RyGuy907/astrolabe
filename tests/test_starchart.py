@@ -38,7 +38,7 @@ def star(chart, label):
 def test_north_up_puts_north_up_and_east_left():
     chart = finder_chart(*M13, UTAH, EVENING, orientation=NORTH_UP)
     eta = star(chart, "η Her")          # 2.5 deg north, a hair east
-    eps = star(chart, "ε Her")          # south-east
+    eps = star(chart, "Khepdenreret")   # epsilon Her (IAU-named 2025), south-east
     assert eta.y == pytest.approx(2.46, abs=0.05) and abs(eta.x) < 0.5
     assert eps.x < 0 and eps.y < 0
 
@@ -50,7 +50,7 @@ def test_as_seen_puts_the_zenith_up():
     # Facing west-north-west, north is to the right...
     assert star(chart, "η Her").x > 0
     # ...and the south-eastern side sets later, so it stands higher.
-    eps = star(chart, "ε Her")
+    eps = star(chart, "Khepdenreret")   # epsilon Her, IAU-named 2025
     assert eps.x < 0 and eps.y > 0
 
 

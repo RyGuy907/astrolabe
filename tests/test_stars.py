@@ -212,3 +212,25 @@ def test_names_follow_the_iau():
     assert labels["Schedar"] == 1 and labels["Shedar"] == 0
     terebellum = next(row for row in _rows() if row[3] == "Terebellum")
     assert terebellum[4] == "98066"           # omega Sgr, per the WGSN
+
+
+
+def test_names_are_the_current_iau_ones():
+    """From the WGSN's live table, not the 2022 text file: lambda Aqr was
+    renamed Shatabhisha in 2025, Hydor moving to another star."""
+    by_hip = {row[4]: row[3] for row in _rows() if row[4]}
+    assert by_hip["112961"] == "Shatabhisha"       # lambda Aqr
+    assert by_hip["4427"] == "Tiansi"              # gamma Cas, once "Navi"
+    assert "Hydor" not in {row[3] for row in _rows() if row[4] != "301"}
+
+
+def test_a_hipparcos_distance_is_judged_by_its_own_error():
+    """"Precise" means under 5% error for that star -- not "within 150 pc",
+    which SIMBAD's modern parallaxes showed was often 10-25% out."""
+    from engine.stars import _details
+    for i in range(0, len(_rows()), 53):
+        p = star_profile(i)
+        if p.distance_source != "hipparcos" or p.distance_quality != "precise":
+            continue
+        e = _details()[p.hip]
+        assert float(e["hip_plx_err"]) / float(e["hip_plx"]) < 0.05

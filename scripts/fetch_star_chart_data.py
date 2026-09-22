@@ -22,7 +22,10 @@ draws:
   given to several stars at once (four Terebellums, three Propus), and a
   few spellings the IAU does not use. The IAU Working Group on Star Names
   now assigns each name to exactly one star, published with its Hipparcos
-  number (the WGSN list, maintained by E. Mamajek). So an IAU name goes on
+  number -- read from the WGSN's own current table (exopla.net), since the
+  plain-text IAU-CSN file stopped at April 2022 and ~190 names have been
+  adopted since, a few reassigning old ones (Hydor moved from lambda Aqr,
+  now Shatabhisha, to HIP 301). So an IAU name goes on
   its star alone, in the IAU spelling, and comes off any other star, which
   falls back to its Bayer letter; a traditional name the IAU has not
   adopted stays, on the brightest star carrying it only. An audit of the
@@ -49,7 +52,7 @@ import urllib.request
 from pathlib import Path
 
 SOURCE = "https://raw.githubusercontent.com/ofrohn/d3-celestial/master/data/"
-IAU_NAMES = "https://www.pas.rochester.edu/~emamajek/WGSN/IAU-CSN.txt"
+IAU_NAMES = "https://exopla.net/star-names/modern-iau-star-names/"
 HYG = ("https://raw.githubusercontent.com/astronexus/HYG-Database/main/"
        "hyg/CURRENT/hygdata_v41.csv")
 OUT = Path(__file__).resolve().parent.parent / "engine" / "catalog" / "data"
@@ -78,19 +81,36 @@ def fetch_hyg() -> dict[int, tuple[str, str, str, str]]:
 
 
 def fetch_iau_names() -> dict[int, str]:
-    """HIP number -> IAU-approved proper name (WGSN), for stars that have one."""
+    """HIP number -> IAU-approved proper name, from the WGSN's current table.
+
+    The table is an HTML page, so it is parsed by its column headings, and
+    checked: fewer than 450 names, or none from the last few years, means the
+    page has changed shape and the build stops rather than guess.
+    """
+    import html
+    import re
     with urllib.request.urlopen(IAU_NAMES, timeout=120) as response:
-        text = response.read().decode("utf-8")
-    out = {}
-    for line in text.splitlines():
-        if not line.strip() or line.startswith(("#", "$")):
+        page = response.read().decode("utf-8", errors="replace")
+    start = page.find("<table")
+    table = page[start:page.find("</table>", start)]
+    def cells(row: str) -> list[str]:
+        return [html.unescape(re.sub(r"<[^>]+>", "", c)).strip()
+                for c in re.findall(r"<t[dh][^>]*>(.*?)</t[dh]>", row, re.S)]
+    rows = [cells(r) for r in re.findall(r"<tr[^>]*>(.*?)</tr>", table, re.S)]
+    head = rows[0]
+    name_col, hip_col, date_col = (head.index("proper names"), head.index("HIP"),
+                                   head.index("Date of Adoption"))
+    out, latest = {}, ""
+    for row in rows[1:]:
+        if len(row) <= max(name_col, hip_col, date_col):
             continue
-        fields = line.rstrip().rstrip("*").split()
-        try:
-            hip = int(fields[-5])        # ... Vmag band HIP HD RA Dec date
-        except (ValueError, IndexError):
-            continue                     # "_": no Hipparcos number (exoplanet hosts)
-        out[hip] = line[18:36].strip()   # "Name/Diacritics": Bélénos, not Belenos
+        if row[hip_col].isdigit():               # exoplanet hosts have none
+            out[int(row[hip_col])] = row[name_col]
+        if re.fullmatch(r"\d{4}/\d{2}/\d{2}", row[date_col]):   # skip repeated headers
+            latest = max(latest, row[date_col])
+    if len(out) < 450 or latest < "2025":
+        raise SystemExit(f"WGSN table looks wrong: {len(out)} names, latest {latest!r}")
+    print(f"WGSN: {len(out)} names with a Hipparcos number, latest adopted {latest}")
     return out
 
 

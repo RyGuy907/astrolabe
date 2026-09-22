@@ -381,7 +381,16 @@ def star_profile(index: int) -> StarProfile:
         quality = "precise" if plx / plx_err >= 20 else "approximate"
     elif dist_pc:
         pc, dist_source = float(dist_pc), "hipparcos"
-        quality = "precise" if pc < 150 else "approximate" if pc < 500 else "rough"
+        hip_plx, hip_err = num("hip_plx"), num("hip_plx_err")
+        if hip_plx and hip_err and hip_plx > 0:
+            # By this star's own parallax error. The old rule, by distance
+            # alone ("precise" inside 150 pc), claimed 5% for stars SIMBAD's
+            # modern parallaxes put 10-25% away: Hipparcos errors run from
+            # 0.2 to over 1 mas, so 150 pc can mean anything from 3% to 20%.
+            frac = hip_err / hip_plx
+            quality = "precise" if frac < 0.05 else "approximate" if frac < 0.2 else "rough"
+        else:
+            quality = "precise" if pc < 50 else "approximate" if pc < 250 else "rough"
     distance_ly = _round_sig(pc * LY_PER_PC, 3 if pc < 150 else 2) if pc else None
     # Absolute magnitude from the distance actually used.
     if pc and mag:

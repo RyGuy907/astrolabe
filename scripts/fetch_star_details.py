@@ -26,9 +26,11 @@ better where they reach:
   Measurements noted as blended with a binary companion are left out.
 
 Output `engine/catalog/data/star_details.csv`, one row per star with any of:
-`hip;plx;plx_err;ruwe;teff_spec;radius_flame;lum_flame;diam_mas;diam_n`
-(parallax and error in mas; diameter the limb-darkened angular diameter in
-mas and the number of measurements behind it).
+`hip;plx;plx_err;ruwe;teff_spec;radius_flame;lum_flame;diam_mas;diam_n;hip_plx;hip_plx_err`
+(Gaia parallax and error in mas; diameter the limb-darkened angular diameter
+in mas and the number of measurements behind it; the Hipparcos new
+reduction's parallax and error in mas, from the same archive, which say
+how good a Hipparcos distance is star by star).
 
 Usage:
     python scripts/fetch_star_details.py
@@ -62,23 +64,22 @@ def stars() -> list[dict]:
         return list(csv.DictReader(fh, delimiter=";"))
 
 
-def gaia(hips: list[int]) -> dict[int, dict]:
+def _batched(hips: list[int], tag: str, query_for) -> dict[int, dict]:
+    """Run `query_for(chunk)` against the Gaia archive in batches, each saved
+    so an interrupted run resumes; rows keyed by their `hip` column."""
     out: dict[int, dict] = {}
     for start in range(0, len(hips), BATCH):
         chunk = hips[start:start + BATCH]
-        query = f"""
-            SELECT h.original_ext_source_id AS hip, g.parallax, g.parallax_error,
-                   g.ruwe, a.teff_gspspec, a.radius_flame, a.lum_flame
-            FROM gaiadr3.hipparcos2_best_neighbour AS h
-            JOIN gaiadr3.gaia_source AS g ON g.source_id = h.source_id
-            LEFT JOIN gaiadr3.astrophysical_parameters AS a ON a.source_id = h.source_id
-            WHERE h.original_ext_source_id IN ({",".join(map(str, chunk))})"""
-        cached = CACHE / f"{chunk[0]}-{chunk[-1]}-{len(chunk)}.csv"
+        cached = CACHE / f"{tag}-{chunk[0]}-{chunk[-1]}-{len(chunk)}.csv"
+        if tag == "gaia" and not cached.exists():
+            # Batches saved before the tag existed.
+            legacy = CACHE / f"{chunk[0]}-{chunk[-1]}-{len(chunk)}.csv"
+            cached = legacy if legacy.exists() else cached
         if cached.exists():
             text = cached.read_text(encoding="utf-8")
         else:
             body = urllib.parse.urlencode({"REQUEST": "doQuery", "LANG": "ADQL",
-                                           "FORMAT": "csv", "QUERY": query}).encode()
+                                           "FORMAT": "csv", "QUERY": query_for(chunk)}).encode()
             text = None
             for attempt in range(5):
                 try:
@@ -87,16 +88,34 @@ def gaia(hips: list[int]) -> dict[int, dict]:
                     break
                 except (OSError, http.client.HTTPException) as error:
                     wait = 10 * 2 ** attempt
-                    print(f"  gaia: {error!r}; retrying in {wait}s", file=sys.stderr)
+                    print(f"  {tag}: {error!r}; retrying in {wait}s", file=sys.stderr)
                     time.sleep(wait)
             if text is None:
-                raise RuntimeError("Gaia archive unreachable after 5 attempts; rerun to resume")
+                raise RuntimeError(f"Gaia archive unreachable after 5 attempts ({tag}); rerun to resume")
             CACHE.mkdir(exist_ok=True)
             cached.write_text(text, encoding="utf-8")
         for row in csv.DictReader(io.StringIO(text)):
             out[int(row["hip"])] = row
-        print(f"  gaia: {min(start + BATCH, len(hips))}/{len(hips)}", file=sys.stderr)
+        print(f"  {tag}: {min(start + BATCH, len(hips))}/{len(hips)}", file=sys.stderr)
     return out
+
+
+def gaia(hips: list[int]) -> dict[int, dict]:
+    return _batched(hips, "gaia", lambda chunk: f"""
+        SELECT h.original_ext_source_id AS hip, g.parallax, g.parallax_error,
+               g.ruwe, a.teff_gspspec, a.radius_flame, a.lum_flame
+        FROM gaiadr3.hipparcos2_best_neighbour AS h
+        JOIN gaiadr3.gaia_source AS g ON g.source_id = h.source_id
+        LEFT JOIN gaiadr3.astrophysical_parameters AS a ON a.source_id = h.source_id
+        WHERE h.original_ext_source_id IN ({",".join(map(str, chunk))})""")
+
+
+def hipparcos(hips: list[int]) -> dict[int, dict]:
+    """The Hipparcos new reduction's parallax and its error, per star -- so a
+    card on a Hipparcos distance can say how good that particular one is."""
+    return _batched(hips, "hip", lambda chunk: f"""
+        SELECT hip, plx, e_plx FROM public.hipparcos_newreduction
+        WHERE hip IN ({",".join(map(str, chunk))})""")
 
 
 def jmdc() -> list[tuple[float, float, float, int]]:
@@ -139,6 +158,7 @@ def main() -> int:
     hips = sorted({int(r["hip"]) for r in rows if r["hip"]})
     print(f"stars.csv: {len(rows)} stars, {len(hips)} with a Hipparcos number", file=sys.stderr)
     g = gaia(hips)
+    hp = hipparcos(hips)
 
     # Match JMDC by position: nearest chart star within 20", brightest on a tie.
     measured = jmdc()
@@ -161,17 +181,19 @@ def main() -> int:
 
     out = []
     for hip in hips:
-        gr, dm = g.get(hip), diam.get(hip)
-        if not gr and not dm:
+        gr, dm, hr = g.get(hip), diam.get(hip), hp.get(hip)
+        if not gr and not dm and not hr:
             continue
         f = lambda k, nd: (f"{float(gr[k]):.{nd}f}" if gr and gr.get(k) not in (None, "") else "")
         out.append([hip, f("parallax", 4), f("parallax_error", 4), f("ruwe", 3),
                     f("teff_gspspec", 0), f("radius_flame", 3), f("lum_flame", 3),
-                    f"{dm[0]:.3f}" if dm else "", dm[1] if dm else ""])
+                    f"{dm[0]:.3f}" if dm else "", dm[1] if dm else "",
+                    f"{float(hr['plx']):.2f}" if hr and hr.get("plx") else "",
+                    f"{float(hr['e_plx']):.2f}" if hr and hr.get("e_plx") else ""])
     with open(DATA / "star_details.csv", "w", encoding="utf-8", newline="") as fh:
         w = csv.writer(fh, delimiter=";")
         w.writerow(["hip", "plx", "plx_err", "ruwe", "teff_spec", "radius_flame",
-                    "lum_flame", "diam_mas", "diam_n"])
+                    "lum_flame", "diam_mas", "diam_n", "hip_plx", "hip_plx_err"])
         w.writerows(out)
     count = lambda col: sum(1 for r in out if r[col] != "")
     print(f"star_details.csv: {len(out)} stars; Gaia parallax {count(1)}, "

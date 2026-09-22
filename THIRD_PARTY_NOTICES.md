@@ -118,10 +118,11 @@ use or large-scale redistribution.
 ### IAU star names
 
 - **Used in:** the `label` column of `engine/catalog/data/stars.csv`.
-- **Source:** the IAU Catalog of Star Names (IAU-CSN), the list of names
-  approved by the IAU Working Group on Star Names (WGSN), maintained by
-  E. Mamajek at https://www.pas.rochester.edu/~emamajek/WGSN/IAU-CSN.txt.
-  Retrieved 2026-09-21 by `scripts/fetch_star_chart_data.py`.
+- **Source:** the names approved by the IAU Working Group on Star Names
+  (WGSN), from the WGSN's current table at
+  https://exopla.net/star-names/modern-iau-star-names/ (the older IAU-CSN
+  text file stopped at 2022). Retrieved 2026-09-22 by
+  `scripts/fetch_star_chart_data.py`.
 - **How:** each IAU name is put on the star with its listed Hipparcos number,
   in its diacritic spelling, and taken off any other star d3-celestial gave
   it to. Only names and Hipparcos numbers are used.
