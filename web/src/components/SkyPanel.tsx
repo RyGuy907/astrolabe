@@ -14,7 +14,7 @@
  * without scrolling.
  */
 
-import { useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
+import { createContext, useContext, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import type { FinderSubject } from "./FinderChart";
 import { PlanetImage } from "./PlanetImage";
 import { TargetImage } from "./TargetImage";
@@ -142,6 +142,9 @@ function centreWhileSettling(row: HTMLTableRowElement): () => void {
   return stop;
 }
 
+/** The latest reveal's sequence number, whichever row it was for. */
+const LatestReveal = createContext(0);
+
 /** A row that opens into a dropdown: brings the pair into view when opened,
  *  and when asked to reveal it (an object clicked on the chart) opens it,
  *  centres it and flashes it. */
@@ -152,20 +155,35 @@ function useRowOpen(seq: number | undefined) {
   // Set on opening, consumed once the dropdown has rendered.
   const pending = useRef<"center" | "nearest" | null>(null);
   const settling = useRef<(() => void) | null>(null);
+  // Opened by a reveal rather than by hand: closed again when the next
+  // reveal goes to another row, so stepping through suggestions doesn't
+  // leave a trail of open dropdowns. One opened by hand stays open.
+  const openedByReveal = useRef(false);
+  const latest = useContext(LatestReveal);
 
   const setOpen = (next: boolean) => {
     if (next && !open) pending.current = "nearest";
+    openedByReveal.current = false;
     setOpenState(next);
   };
 
   useEffect(() => {
     if (!seq) return;
     pending.current = "center";
+    openedByReveal.current = true;
     setOpenState(true);
     setFlash(true);
     const done = window.setTimeout(() => setFlash(false), 1600);
     return () => window.clearTimeout(done);
   }, [seq]);
+
+  useEffect(() => {
+    if (openedByReveal.current && latest && latest !== seq) {
+      openedByReveal.current = false;
+      setOpenState(false);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [latest]);
 
   // After the render that drew the dropdown, so its height counts. The tab
   // switch and group expansion that a reveal causes land in the same commit.
@@ -830,6 +848,7 @@ export function SkyPanel({
     : 0;
 
   return (
+    <LatestReveal.Provider value={reveal?.seq ?? 0}>
     <section className="panel sky-panel" aria-labelledby="sky-heading">
       <h2 id="sky-heading" className="visually-hidden">
         Deep sky, solar system and events
@@ -1311,5 +1330,6 @@ export function SkyPanel({
         )}
       </div>
     </section>
+    </LatestReveal.Provider>
   );
 }

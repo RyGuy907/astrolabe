@@ -2027,6 +2027,25 @@ body.is-resizing { cursor: col-resize; user-select: none; }
 
 /* The chart area's head as two tabs while a finder is open. */
 .left-tabs { justify-content: flex-start; gap: 4px; align-items: center; }
+/* "Suggest a target", at the far end of the chart panel's head. */
+.panel-head-end { margin-left: auto; display: inline-flex; align-items: center; }
+.suggest-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 28px;
+  padding: 0 12px 0 10px;
+  border: 1px solid var(--line-strong, var(--line));
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--text);
+  font-size: 0.78rem;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.suggest-button:hover:not(:disabled) { background: rgba(255, 255, 255, 0.1); }
+.suggest-button:disabled { opacity: 0.45; cursor: default; }
+.suggest-button svg { width: 13px; height: 13px; fill: var(--accent); }
 .left-tab {
   display: inline-flex;
   align-items: center;
