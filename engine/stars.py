@@ -22,9 +22,12 @@ The rest of this note is about the estimated path.
 How far each number can be trusted differs, and the card says so rather than
 printing every figure with the same confidence:
 
-* **Distance** is measured (Hipparcos parallax). Good to a few per cent
-  within ~150 pc; by 500 pc the parallax is a couple of milliarcseconds and
-  its error a sizeable fraction of it, so beyond that it is marked rough.
+* **Distance** is measured: Gaia's parallax where its fit is sound, else
+  Hipparcos's, each marked precise (under 5% error), approximate (under 20%)
+  or rough by that star's own parallax error. A Gaia parallax flagged by
+  RUWE is used, its error inflated by RUWE, when Hipparcos has nothing or
+  far worse. Checked against the TESS Input Catalog, the labels hold:
+  Hipparcos "precise" is within 25% for 97%, "approximate" 77%, "rough" 40%.
 * **Type and temperature** come from the spectral type, which is measured.
   For F and G stars short of supergiants the B-V colour (Ballesteros 2012)
   gives the temperature instead: checked against Gaia DR3 and PASTEL's
@@ -391,6 +394,19 @@ def star_profile(index: int) -> StarProfile:
             quality = "precise" if frac < 0.05 else "approximate" if frac < 0.2 else "rough"
         else:
             quality = "precise" if pc < 50 else "approximate" if pc < 250 else "rough"
+    # A flagged Gaia parallax (RUWE >= 1.4: the fit didn't match a single
+    # star) is still a measurement. Its error is then understated roughly in
+    # proportion to RUWE, so it is inflated by it, and the parallax is used
+    # when there is nothing else -- 72 stars showed no distance at all -- or
+    # when even inflated it beats a rough Hipparcos one by half.
+    if plx and plx_err and plx > 0 and ruwe and dist_source != "gaia":
+        frac = plx_err * max(ruwe, 1.0) / plx
+        hip_frac = (num("hip_plx_err") / num("hip_plx")
+                    if num("hip_plx") and num("hip_plx_err") and num("hip_plx") > 0 else None)
+        if frac < 1 / 3 and (pc is None or (quality == "rough" and hip_frac
+                                            and frac < hip_frac / 2)):
+            pc, dist_source = 1000 / plx, "gaia"
+            quality = "precise" if frac < 0.05 else "approximate" if frac < 0.2 else "rough"
     distance_ly = _round_sig(pc * LY_PER_PC, 3 if pc < 150 else 2) if pc else None
     # Absolute magnitude from the distance actually used.
     if pc and mag:
@@ -398,6 +414,18 @@ def star_profile(index: int) -> StarProfile:
 
     parsed = parse_spectral_type(spect) if spect else None
     cls, sub, lum = parsed if parsed else (None, None, None)
+    # A catalogued supergiant or bright giant far too faint, at a distance we
+    # can trust, to be one: the class is wrong (TIC, from Gaia, calls
+    # HIP 78526, "B7Ib/II", a dwarf; at 283 pc it shines at M_V +0.6, where
+    # a supergiant is -4 or brighter). Supergiants are brighter than about
+    # M_V -2.5 and bright giants than 0 across their types, so past those the
+    # class is dropped and read from the brightness instead -- with 1.5 mag
+    # of slack when the distance is rough, as much as doubling it would move.
+    slack = {"precise": 0.0, "approximate": 0.0, "rough": 1.5}.get(quality)
+    if absmag and slack is not None and (
+            (lum == "I" and float(absmag) > -2.5 + slack) or
+            (lum == "II" and float(absmag) > 0.0 + slack)):
+        lum = None
     lum = _infer_class(cls, sub, lum, absmag)
     # A hot type on a plainly orange or red star: the type is a companion's.
     # Double stars are catalogued with one type, and sometimes it is the

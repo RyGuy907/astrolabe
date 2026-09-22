@@ -234,3 +234,36 @@ def test_a_hipparcos_distance_is_judged_by_its_own_error():
             continue
         e = _details()[p.hip]
         assert float(e["hip_plx_err"]) / float(e["hip_plx"]) < 0.05
+
+
+
+# --- found by the random-star check against the TESS Input Catalog ----------
+
+def _by_hip(hip: str):
+    return star_profile(next(i for i, row in enumerate(_rows()) if row[4] == hip))
+
+
+def test_a_supergiant_too_faint_to_be_one_loses_the_label():
+    """HIP 78526 is catalogued B7Ib/II; at its distance it shines like a
+    dwarf, which is what TIC calls it. Real supergiants keep theirs."""
+    assert "supergiant" not in _by_hip("78526").kind
+    for name in ("Rigel", "Deneb", "Betelgeuse", "Antares", "Canopus", "Polaris"):
+        assert "supergiant" in by_name(name).kind, name
+
+
+def test_a_flagged_gaia_parallax_beats_no_distance_at_all():
+    """With no Hipparcos distance, Gaia's parallax is used even when its fit
+    is flagged, its error inflated by RUWE and the result labelled for it."""
+    from engine.stars import _details
+    used = 0
+    for i in range(0, len(_rows()), 7):
+        p = star_profile(i)
+        e = _details().get(p.hip) if p.hip else None
+        if not e or not e.get("ruwe") or float(e["ruwe"]) < 1.4 or p.distance_source != "gaia":
+            continue
+        used += 1
+        inflated = float(e["plx_err"]) * float(e["ruwe"]) / float(e["plx"])
+        assert inflated < 1 / 3
+        assert p.distance_quality == ("precise" if inflated < 0.05 else
+                                      "approximate" if inflated < 0.2 else "rough")
+    assert used > 0
