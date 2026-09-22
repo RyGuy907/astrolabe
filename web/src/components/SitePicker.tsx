@@ -125,10 +125,33 @@ export function SitePicker({ lat, lon, onPick }: Props) {
       center: hasPoint ? [lat, lon] : DEFAULT_CENTER,
       zoom: hasPoint ? PICKED_ZOOM : DEFAULT_ZOOM,
       // The dialog is a scrolling column; swallowing the wheel inside it is
-      // hostile. Ctrl/Cmd+wheel still zooms, and the +/- control always works.
+      // hostile, so a plain scroll scrolls the dialog. A trackpad pinch (and
+      // Ctrl+wheel) zooms -- handled below -- and the +/- control always works.
       scrollWheelZoom: false,
       worldCopyJump: true,
+      // Fractional zoom, so a pinch follows the fingers smoothly instead of
+      // stepping a whole level at a time. The +/- buttons still step by one.
+      zoomSnap: 0,
+      zoomDelta: 1,
     });
+
+    // A trackpad pinch arrives as a wheel event with ctrlKey set (Chrome,
+    // Edge, Firefox and Safari all do this), as does Ctrl+wheel on a mouse.
+    // Left alone, the browser zooms the whole page. Here it zooms the map
+    // about the point between the fingers, like the sky chart does.
+    const onWheel = (event: WheelEvent) => {
+      if (!event.ctrlKey) return;              // a plain scroll scrolls the dialog
+      event.preventDefault();
+      const pixels = event.deltaMode === 1 ? event.deltaY * 16 : event.deltaY;
+      // ~100 px per mouse-wheel notch is one zoom level; a pinch sends many
+      // small deltas, which add up to the same feel.
+      const zoom = Math.min(instance.getMaxZoom(), Math.max(instance.getMinZoom(),
+        instance.getZoom() - pixels / 100));
+      instance.setZoomAround(instance.mouseEventToContainerPoint(event), zoom,
+                             { animate: false });
+    };
+    const element = container.current;
+    element.addEventListener("wheel", onWheel, { passive: false });
 
     const tiles = L.tileLayer(TILE_URL, {
       attribution: TILE_ATTRIBUTION,
@@ -197,6 +220,7 @@ export function SitePicker({ lat, lon, onPick }: Props) {
 
     return () => {
       window.clearTimeout(settle);
+      element.removeEventListener("wheel", onWheel);
       instance.remove();
       map.current = null;
       marker.current = null;
