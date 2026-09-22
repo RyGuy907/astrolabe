@@ -175,7 +175,10 @@ export function FinderChart({ subject, location, timeZone, nightStart, nightEnd,
 
   useEffect(() => {
     const controller = new AbortController();
-    api.skyFrame(location, at, controller.signal).then(setFrame)
+    // A success clears any earlier failure's warning, which otherwise stayed
+    // up through every later time step.
+    api.skyFrame(location, at, controller.signal)
+      .then((next) => { setFrame(next); setError(null); })
       .catch((e) => {
         if ((e as Error)?.name !== "AbortError") {
           setError(e instanceof ApiError ? e.message : String(e));

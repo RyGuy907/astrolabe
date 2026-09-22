@@ -10,7 +10,7 @@
 
 import { useMemo, useRef, useState } from "react";
 import type { AltitudeResponse, ObservingWindow } from "../api";
-import { formatTime } from "../format";
+import { formatTime, zoneOffsetMinutes } from "../format";
 
 /** Drawing units. The SVG scales to its column, so these set the shape and
  *  how big text and lines come out relative to it. At 1000 wide the chart
@@ -154,12 +154,14 @@ export function AltitudeChart({
     [data],
   );
 
-  // Hour ticks on the site's clock, not the browser's.
+  // Hour ticks on the site's clock, not the browser's -- and on its hours:
+  // rounding to the UTC hour put every tick on :30 or :45 in zones like
+  // India's (+5:30) or Nepal's (+5:45).
   const hourTicks = useMemo(() => {
     const ticks: { ms: number; label: string }[] = [];
-    const first = new Date(startMs);
-    first.setUTCMinutes(0, 0, 0);
-    for (let ms = first.getTime(); ms <= endMs; ms += 3600_000) {
+    const offset = zoneOffsetMinutes(startMs, timeZone) * 60_000;
+    const firstLocal = Math.ceil((startMs + offset) / 3600_000) * 3600_000;
+    for (let ms = firstLocal - offset; ms <= endMs; ms += 3600_000) {
       if (ms < startMs) continue;
       ticks.push({
         ms,

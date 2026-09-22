@@ -232,19 +232,22 @@ def get_session(session_id: int, path: Path | None = None) -> Session | None:
 
 
 def list_sessions(limit: int = 50, location_key: str | None = None,
-                  path: Path | None = None) -> list[Session]:
+                  path: Path | None = None, *, on_date: date | None = None) -> list[Session]:
+    """Newest first, optionally for one site and/or one night."""
     connection = _open(path)
     try:
+        where, params = [], []
         if location_key:
-            rows = connection.execute(
-                "SELECT * FROM sessions WHERE location_key = ? "
-                "ORDER BY date DESC, id DESC LIMIT ?", (location_key, limit),
-            ).fetchall()
-        else:
-            rows = connection.execute(
-                "SELECT * FROM sessions ORDER BY date DESC, id DESC LIMIT ?",
-                (limit,),
-            ).fetchall()
+            where.append("location_key = ?")
+            params.append(location_key)
+        if on_date:
+            where.append("date = ?")
+            params.append(on_date.isoformat())
+        clause = f"WHERE {' AND '.join(where)} " if where else ""
+        rows = connection.execute(
+            f"SELECT * FROM sessions {clause}ORDER BY date DESC, id DESC LIMIT ?",
+            (*params, limit),
+        ).fetchall()
 
         sessions = []
         for row in rows:

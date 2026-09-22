@@ -34,22 +34,28 @@ export function ObservationLog({ date, locationKey, timeZone }: Props) {
 
   useEffect(() => {
     if (!open) return;
+    // Another night's session and suggestions are cleared at once, and an
+    // answer for a night we have since left is dropped: stepping through
+    // dates used to let a slow reply land last and log into the wrong night.
+    let cancelled = false;
     setError(null);
+    setPrefill(null);
+    setSession(null);
     Promise.all([
       api.logPrefill(date, locationKey, 6),
       api.sessions(10),
+      // Looked up by night and site, not among the ten most recent: for an
+      // older night it wasn't found, and "Start session" made a duplicate.
+      api.sessions(1, { date, location: locationKey }),
     ])
-      .then(([prefillData, sessionList]) => {
+      .then(([prefillData, sessionList, thisNight]) => {
+        if (cancelled) return;
         setPrefill(prefillData);
         setSessions(sessionList);
-        // Reattach to an existing session for this night rather than
-        // silently creating a duplicate.
-        const existing = sessionList.find(
-          (s) => s.date === date && s.location_key === locationKey,
-        );
-        setSession(existing ?? null);
+        setSession(thisNight[0] ?? null);
       })
-      .catch((e) => setError(e instanceof ApiError ? e.message : String(e)));
+      .catch((e) => !cancelled && setError(e instanceof ApiError ? e.message : String(e)));
+    return () => { cancelled = true; };
   }, [open, date, locationKey]);
 
   async function startSession() {

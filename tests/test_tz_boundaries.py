@@ -226,11 +226,6 @@ REMOTE_URLS_ALLOWED = {
     "weather.py": "Open-Meteo and 7Timer forecasts; PLAN.md 1 designates this "
                   "the networked part of the engine.",
     "geocode.py": "Open-Meteo geocoding, for adding a site by name.",
-    "events.py": "MPC comet orbital elements, fetched through Skyfield's "
-                 "Loader rather than a direct socket, which is why the import "
-                 "scan above does not see it. Guarded by network_enabled() "
-                 "and degrades to CometStatus(available=False); no astronomy "
-                 "depends on it, and the API never calls it.",
 }
 
 

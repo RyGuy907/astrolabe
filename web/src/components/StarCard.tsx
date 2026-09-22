@@ -6,7 +6,7 @@
  * estimate with the same confidence as a measured distance.
  */
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { api, ApiError, type StarProfile } from "../api";
 
 interface Props {
@@ -47,6 +47,10 @@ const figure = (n: number) =>
 export function StarCard({ index, x, y, width, height, onClose }: Props) {
   const [star, setStar] = useState<StarProfile | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // A dialog takes focus when it opens, so a keyboard or screen-reader user
+  // lands in it, and Escape closes it from anywhere inside.
+  const cardRef = useRef<HTMLDivElement>(null);
+  useEffect(() => { cardRef.current?.focus(); }, [index]);
 
   useEffect(() => {
     setStar(null);
@@ -71,7 +75,8 @@ export function StarCard({ index, x, y, width, height, onClose }: Props) {
 
   return (
     <div className="star-card" style={{ left, top, width: CARD_W }}
-         role="dialog" aria-label={`About ${title}`}
+         role="dialog" aria-label={`About ${title}`} ref={cardRef} tabIndex={-1}
+         onKeyDown={(e) => { if (e.key === "Escape") { e.stopPropagation(); onClose(); } }}
          onPointerDown={(e) => e.stopPropagation()}>
       <button className="star-card-close" onClick={onClose} aria-label="Close">×</button>
       <h4>

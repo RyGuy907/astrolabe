@@ -52,6 +52,9 @@ export function HorizonMeasure({ lat, lon, onMeasured }: Props) {
   //: Shown because the answers are only true for that moment -- the sky
   //: turns, and a list left open for an hour is quietly wrong.
   const [computedAt, setComputedAt] = useState<string | null>(null);
+  //: The site's zone, from the server: "Positions set for" is a time at the
+  //: site, which may not be where this browser is.
+  const [siteZone, setSiteZone] = useState<string | null>(null);
   const [chosen, setChosen] = useState<Record<number, string>>({});
   const [loading, setLoading] = useState(false);
   const [failed, setFailed] = useState(false);
@@ -94,6 +97,7 @@ export function HorizonMeasure({ lat, lon, onMeasured }: Props) {
         if (cancelled) return;
         setMarks(Object.fromEntries(pairs.map(([az, r]) => [az, r.marks])));
         setComputedAt(pairs[0]?.[1].at ?? null);
+        setSiteZone(pairs[0]?.[1].timezone ?? null);
       })
       .catch((error) => {
         if (cancelled || (error as Error)?.name === "AbortError") return;
@@ -149,7 +153,7 @@ export function HorizonMeasure({ lat, lon, onMeasured }: Props) {
           Positions set for{" "}
           <strong>
             {formatTime(computedAt,
-                        Intl.DateTimeFormat().resolvedOptions().timeZone)}
+                        siteZone ?? Intl.DateTimeFormat().resolvedOptions().timeZone)}
           </strong>
         </p>
       )}

@@ -10,6 +10,12 @@
  * A separator in ARIA terms, so it is focusable and announced with its
  * position; the arrow keys move it in 2% steps, Home and End go to the
  * limits, and a double-click puts it back where it started.
+ *
+ * While dragging, the split is written straight onto the row's CSS
+ * variables, and the parent hears of it once, on release. Setting parent
+ * state on every pointer move re-rendered the whole dashboard -- every open
+ * target row, the chart, the lists -- dozens of times a second, and wrote
+ * localStorage as often.
  */
 
 import { useRef } from "react";
@@ -35,6 +41,17 @@ interface Props {
 
 export function Splitter({ rowRef, split, onChange }: Props) {
   const dragging = useRef(false);
+  const handle = useRef<HTMLDivElement>(null);
+  // Where the drag has got to, committed on release.
+  const live = useRef<number | null>(null);
+
+  /** Show a split without a render: the row's variables and the handle's
+   *  announced value, as React would have set them. */
+  function paint(next: number) {
+    rowRef.current?.style.setProperty("--split-a", `${next}fr`);
+    rowRef.current?.style.setProperty("--split-b", `${1 - next}fr`);
+    handle.current?.setAttribute("aria-valuenow", String(Math.round(next * 100)));
+  }
 
   /** The split that puts the handle's centre under the pointer. */
   function splitAt(clientX: number): number | null {
@@ -66,13 +83,19 @@ export function Splitter({ rowRef, split, onChange }: Props) {
   function onPointerMove(event: React.PointerEvent<HTMLDivElement>) {
     if (!dragging.current) return;
     const next = splitAt(event.clientX);
-    if (next !== null) onChange(next);
+    if (next === null) return;
+    live.current = next;
+    paint(next);
   }
 
   function stop(event: React.PointerEvent<HTMLDivElement>) {
     if (!dragging.current) return;
     dragging.current = false;
     document.body.classList.remove("is-resizing");
+    if (live.current !== null) {
+      onChange(live.current);
+      live.current = null;
+    }
     if (event.currentTarget.hasPointerCapture(event.pointerId)) {
       event.currentTarget.releasePointerCapture(event.pointerId);
     }
@@ -92,6 +115,7 @@ export function Splitter({ rowRef, split, onChange }: Props) {
 
   return (
     <div
+      ref={handle}
       className="splitter"
       role="separator"
       aria-orientation="vertical"

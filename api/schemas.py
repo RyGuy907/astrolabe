@@ -362,40 +362,6 @@ class PlanetModel(BaseModel):
     notes: list[str]
 
 
-class ChartPointModel(BaseModel):
-    """Something drawn on a finder chart, in chart units: degrees on the
-    tangent plane, target at the origin, +x right and +y up."""
-
-    x: float
-    y: float
-    label: str
-    mag: float | None = None
-    kind: str = "star"
-
-
-class FinderChartModel(BaseModel):
-    """A finder chart, laid out by the engine; the client only scales it."""
-
-    target: str
-    center_ra_deg: float
-    center_dec_deg: float
-    at: datetime
-    orientation: str = Field(description="sky (as seen from the site) or north")
-    radius_deg: float
-    limiting_mag: float = Field(description="The field's default faintest star.")
-    max_mag: float = Field(description="The faintest star included; the client "
-                                       "may show down to it.")
-    overview: bool = False
-    center_alt_deg: float
-    center_az_deg: float
-    stars: list[ChartPointModel]
-    lines: list[list[tuple[float, float]]]
-    objects: list[ChartPointModel]
-    horizon: list[tuple[float, float]]
-    directions: list[ChartPointModel]
-    constellations: list[ChartPointModel] = []
-
-
 class MoonFactsModel(BaseModel):
     """Constants about the Moon, from engine/reference.py."""
 
@@ -585,6 +551,9 @@ class HorizonMarksResponse(BaseModel):
     at: datetime = Field(description="Instant these altitudes were computed "
                                      "for, UTC. Which constellations sit low "
                                      "in a direction depends on the time.")
+    timezone: str = Field(description="The site's IANA timezone, from its "
+                                      "coordinates, for showing `at` on its "
+                                      "own clock.")
     marks: list[SkyMarkModel]
 
 

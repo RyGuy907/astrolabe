@@ -80,6 +80,19 @@ def test_sessions_filter_by_location(db):
     assert len(observations.list_sessions(location_key="home", path=db)) == 1
 
 
+def test_sessions_filter_by_night_however_old(db):
+    """The log reattaches to a night's session by looking it up by date and
+    site. Found among the ten most recent, an older night's was missed and a
+    duplicate made."""
+    for day in range(1, 21):
+        observations.create_session(
+            Session(date=date(2026, 8, day), location_key="home"), path=db)
+    old = observations.list_sessions(limit=1, location_key="home",
+                                     on_date=date(2026, 8, 2), path=db)
+    assert [s.date for s in old] == [date(2026, 8, 2)]
+    assert observations.list_sessions(on_date=date(2026, 7, 1), path=db) == []
+
+
 def test_deleting_a_session_removes_its_observations(db):
     session = observations.create_session(
         Session(date=REFERENCE_DATE, location_key="home"), path=db)

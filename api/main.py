@@ -24,7 +24,8 @@ from fastapi.middleware.gzip import GZipMiddleware
 from db import observations, store
 from engine import geocode
 from engine.catalog.loader import find_object, load_catalog
-from engine.ephem import Interval, altaz_series, night_window
+from engine.ephem import (Interval, altaz_series, chart_span, fixed_altaz_series,
+                          night_window, supported_dates)
 from engine.equipment import load_equipment
 from engine.events import (
     MOON_CONJUNCTION_DEG,
@@ -53,7 +54,7 @@ from engine.targets import (
     group_targets,
     uses_true_dark,
 )
-from engine.timeutil import local_noon_utc, now_utc, resolve_night_date
+from engine.timeutil import now_utc, resolve_night_date
 from engine.weather import get_forecast
 
 from .schemas import (
@@ -75,8 +76,6 @@ from .schemas import (
     SkyMarkModel,
     NightResponse,
     NightWindowModel,
-    ChartPointModel,
-    FinderChartModel,
     MoonFactsModel,
     MoonModel,
     PlanetFactsModel,
@@ -187,10 +186,17 @@ def _resolve_date(raw: str | None, location: Location) -> date:
     if not raw:
         return resolve_night_date(now_utc(), location.tz)
     try:
-        return datetime.strptime(raw, "%Y-%m-%d").date()
+        day = datetime.strptime(raw, "%Y-%m-%d").date()
     except ValueError:
         raise HTTPException(status_code=422,
                             detail=f"{raw!r} is not a valid date; use YYYY-MM-DD")
+    first, last = supported_dates()
+    if not first <= day <= last:
+        raise HTTPException(
+            status_code=422,
+            detail=f"{raw} is outside the planetary ephemeris, which covers "
+                   f"{first.isoformat()} to {last.isoformat()}")
+    return day
 
 
 def _location_model(location: Location, source: str = "config") -> LocationModel:
@@ -765,99 +771,45 @@ def get_altitude(date_: str | None = Query(None, alias="date"),
     night_date = _resolve_date(date_, site)
     window = night_window(night_date, site)
 
-    # Normally sunset to sunrise. Inside the polar circles there may be
-    # neither, and the chart still has something to show: fall back to
-    # astronomical night, then to the whole local day. Erroring here left
-    # arctic sites with no chart at all for half the year.
-    if window.sunset_utc and window.sunrise_utc:
-        start, end = window.sunset_utc, window.sunrise_utc
-    elif window.astronomical_night:
-        start = window.astronomical_night[0][0]
-        end = window.astronomical_night[-1][1]
-    else:
-        start = local_noon_utc(night_date, site.tz)
-        end = local_noon_utc(night_date + timedelta(days=1), site.tz)
+    start, end = chart_span(window)
     step = timedelta(minutes=step_minutes)
     series: list[AltitudeSeriesModel] = []
+
+    def points(sampled) -> list[AltitudePointModel]:
+        return [AltitudePointModel(time=t, altitude_deg=a, azimuth_deg=z)
+                for t, a, z in zip(sampled.times_utc, sampled.alt_deg, sampled.az_deg)]
 
     for body in (b.strip().lower() for b in bodies.split(",") if b.strip()):
         if body not in set(ALL_PLANETS) | {"sun", "moon"}:
             raise HTTPException(status_code=422, detail=f"unknown body {body!r}")
-        sampled = altaz_series(body, site, start, end, step)
         series.append(AltitudeSeriesModel(
             label=body, kind="moon" if body == "moon" else
                             ("sun" if body == "sun" else "planet"),
-            points=[
-                AltitudePointModel(time=t, altitude_deg=a, azimuth_deg=z)
-                for t, a, z in zip(sampled.times_utc, sampled.alt_deg,
-                                   sampled.az_deg)
-            ],
+            points=points(altaz_series(body, site, start, end, step)),
         ))
 
-    if objects:
-        from skyfield.api import Star
+    catalog = load_catalog() if objects or constellations else None
+    for designation in (o.strip() for o in (objects or "").split(",") if o.strip()):
+        obj = find_object(designation, catalog)
+        if obj is None:
+            raise HTTPException(status_code=404,
+                                detail=f"unknown object {designation!r}")
+        series.append(AltitudeSeriesModel(
+            label=obj.display_name, kind="deep-sky",
+            points=points(fixed_altaz_series(obj.display_name, obj.ra_deg, obj.dec_deg,
+                                             site, start, end, step)),
+        ))
 
-        from engine.ephem import _observer, load_ephemeris
-
-        catalog = load_catalog()
-        eph = load_ephemeris()
-        observer = _observer(eph, site)
-
-        stamps, cursor = [], start
-        while cursor <= end:
-            stamps.append(cursor)
-            cursor += step
-        times = eph.timescale.from_datetimes(stamps)
-
-        for designation in (o.strip() for o in objects.split(",") if o.strip()):
-            obj = find_object(designation, catalog)
-            if obj is None:
-                raise HTTPException(status_code=404,
-                                    detail=f"unknown object {designation!r}")
-            star = Star(ra_hours=obj.ra_deg / 15.0, dec_degrees=obj.dec_deg)
-            alt, az, _ = observer.at(times).observe(star).apparent().altaz()
-            series.append(AltitudeSeriesModel(
-                label=obj.display_name, kind="deep-sky",
-                points=[
-                    AltitudePointModel(time=t, altitude_deg=float(a),
-                                       azimuth_deg=float(z))
-                    for t, a, z in zip(stamps, alt.degrees, az.degrees)
-                ],
-            ))
-
-    if constellations:
-        from skyfield.api import Star
-
-        from engine.ephem import _observer, load_ephemeris
-
-        catalog = load_catalog()
-        eph = load_ephemeris()
-        observer = _observer(eph, site)
-
-        stamps, cursor = [], start
-        while cursor <= end:
-            stamps.append(cursor)
-            cursor += step
-        times = eph.timescale.from_datetimes(stamps)
-
-        for abbreviation in (c.strip() for c in constellations.split(",") if c.strip()):
-            position = centroid(abbreviation, catalog)
-            if position is None:
-                raise HTTPException(
-                    status_code=404,
-                    detail=f"unknown constellation {abbreviation!r}",
-                )
-            star = Star(ra_hours=position.ra_deg / 15.0,
-                        dec_degrees=position.dec_deg)
-            alt, az, _ = observer.at(times).observe(star).apparent().altaz()
-            series.append(AltitudeSeriesModel(
-                label=position.name, kind="constellation",
-                points=[
-                    AltitudePointModel(time=t, altitude_deg=float(a),
-                                       azimuth_deg=float(z))
-                    for t, a, z in zip(stamps, alt.degrees, az.degrees)
-                ],
-            ))
+    for abbreviation in (c.strip() for c in (constellations or "").split(",") if c.strip()):
+        position = centroid(abbreviation, catalog)
+        if position is None:
+            raise HTTPException(status_code=404,
+                                detail=f"unknown constellation {abbreviation!r}")
+        series.append(AltitudeSeriesModel(
+            label=position.name, kind="constellation",
+            points=points(fixed_altaz_series(position.name, position.ra_deg,
+                                             position.dec_deg, site, start, end, step)),
+        ))
 
     return AltitudeResponse(
         date=night_date, location=_location_model(site),
@@ -1027,85 +979,11 @@ def horizon_marks(lat: float = Query(..., ge=-90.0, le=90.0),
     return HorizonMarksResponse(
         azimuth_deg=azimuth,
         at=when,
+        timezone=site.tz,
         marks=[SkyMarkModel(abbreviation=m.abbreviation, name=m.name,
                             altitude_deg=m.altitude_deg,
                             azimuth_deg=m.azimuth_deg)
                for m in marks],
-    )
-
-
-@app.get("/api/finder", response_model=FinderChartModel, tags=["targets"])
-def get_finder(location: str | None = None,
-               target: str | None = Query(
-                   None, description="Catalogue id or name, e.g. NGC6205 or M13."),
-               body: str | None = Query(
-                   None, description="moon or a planet, instead of a target."),
-               at: str = Query(..., description="ISO-8601 UTC instant to draw the sky at."),
-               radius: float = Query(10.0, ge=1.0, le=45.0,
-                                     description="Half-width of the field, degrees. "
-                                                 "Over 20 is an overview."),
-               depth: float = Query(1.5, ge=0.0, le=3.0,
-                                    description="Magnitudes fainter than the field's "
-                                                "default to include."),
-               orientation: str = Query("sky", pattern="^(sky|north)$"),
-               ) -> FinderChartModel:
-    """A finder chart around a target or body, for star hopping.
-
-    The engine lays it out -- `engine.starchart` -- in chart units; this only
-    resolves what was asked for and passes the result through.
-    """
-    from engine.starchart import body_position, finder_chart
-
-    site = _resolve_location(location)
-    try:
-        when = datetime.fromisoformat(at.replace("Z", "+00:00"))
-    except ValueError:
-        raise HTTPException(status_code=422, detail=f"{at!r} is not an ISO-8601 datetime")
-    if when.tzinfo is None:
-        raise HTTPException(status_code=422,
-                            detail="`at` must carry a timezone; this API is UTC-only")
-
-    catalog = load_catalog()
-    if body:
-        name = body.strip().lower()
-        if name not in ("moon", *ALL_PLANETS):
-            raise HTTPException(status_code=404, detail=f"No body called {body!r}")
-        ra, dec = body_position(name, site, when)
-        subject, exclude = name.capitalize(), name
-    elif target:
-        obj = find_object(target, catalog)
-        if obj is None:
-            raise HTTPException(status_code=404, detail=f"No catalogue object {target!r}")
-        ra, dec = obj.ra_deg, obj.dec_deg
-        subject, exclude = obj.display_name, None
-    else:
-        raise HTTPException(status_code=422, detail="Give a `target` or a `body`")
-
-    # The showpieces are the neighbours worth marking: the ones a hop might
-    # pass, or that could be mistaken for the target. The engine keeps
-    # those that fall in the frame.
-    ids = showpiece_ids(catalog)
-    nearby = [(o.ra_deg, o.dec_deg,
-               f"M{o.messier}" if o.messier else o.display_name, o.group)
-              for o in catalog if o.name in ids and (target is None or o.name != obj.name)]
-
-    chart = finder_chart(ra, dec, site, when, radius_deg=radius,
-                         orientation=orientation, nearby_positions=nearby,
-                         exclude_body=exclude, extra_mag=depth)
-    point = lambda p: ChartPointModel(x=p.x, y=p.y, label=p.label, mag=p.mag, kind=p.kind)
-    return FinderChartModel(
-        target=subject,
-        center_ra_deg=chart.center_ra_deg, center_dec_deg=chart.center_dec_deg,
-        at=chart.at_utc, orientation=chart.orientation, radius_deg=chart.radius_deg,
-        limiting_mag=chart.limiting_mag, max_mag=chart.max_mag,
-        overview=chart.overview,
-        center_alt_deg=chart.center_alt_deg, center_az_deg=chart.center_az_deg,
-        stars=[point(p) for p in chart.stars],
-        lines=chart.lines,
-        objects=[point(p) for p in chart.objects],
-        horizon=chart.horizon,
-        directions=[point(p) for p in chart.directions],
-        constellations=[point(p) for p in chart.constellations],
     )
 
 

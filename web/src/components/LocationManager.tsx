@@ -172,7 +172,13 @@ function useModalBehaviour(
     return () => {
       node.removeEventListener("keydown", onKeyDown);
       document.body.style.overflow = previousOverflow;
-      previouslyFocused?.focus?.();
+      // The Edit / Add button that opened the dialog was in the site menu,
+      // which closed as the dialog opened -- so it is gone, and focusing it
+      // left focus on <body>. The menu's own trigger is where to come back to.
+      const back = previouslyFocused?.isConnected
+        ? previouslyFocused
+        : document.querySelector<HTMLElement>(".location-trigger");
+      back?.focus?.();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -334,6 +340,12 @@ export function LocationManager({ locations, editingKey, onClose, onCreated }: P
       setAtlas(null);
       return;
     }
+    // The last reading was for other coordinates: drop it now, and the class
+    // it filled in, rather than keep both labelled "from atlas" while the new
+    // lookup is pending -- or, if it fails, for good. An emptied class has to
+    // be chosen before saving, so nothing stale is saved unseen.
+    setAtlas(null);
+    if (!bortleEdited) setBortle("");
     const controller = new AbortController();
     const timer = window.setTimeout(() => {
       api
@@ -354,7 +366,8 @@ export function LocationManager({ locations, editingKey, onClose, onCreated }: P
           }
         })
         .catch(() => {
-          /* no atlas, offline, or superseded: the field stays as it is */
+          /* no atlas, offline, or superseded: the class stays for the
+             observer to choose */
         });
     }, 250);
 

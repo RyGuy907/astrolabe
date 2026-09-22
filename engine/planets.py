@@ -254,36 +254,45 @@ def next_visibility(planet: str, location: Location, after: date, *,
 
     PLAN.md §3.4: "If a planet isn't observable tonight, say when it will be."
     Scanned on a stride rather than nightly — planetary visibility changes over
-    weeks, and a 5-day step finds the returning window quickly enough while
-    keeping the search affordable.
+    weeks, and a 5-day step finds the returning window quickly enough.
+
+    Every candidate night is sampled at once: the Sun's and the planet's
+    altitude every half hour through the 24 hours from local noon, in one
+    vectorised Skyfield call. A sample counts when the planet is above the
+    floor and the Sun is down far enough for this planet (below the horizon
+    for Mercury and Venus, astronomical night for the rest -- the same rule as
+    `observing_span`). This used to compute a full `night_window` for each
+    candidate -- twilight searches, rise and set -- 0.1 s apiece, which for a
+    planet months from reappearing made the Solar System tab take 7-9 s.
     """
     eph = load_ephemeris()
+    candidates = [after + timedelta(days=offset)
+                  for offset in range(stride_days, search_days, stride_days)]
+    if not candidates:
+        return Visibility(when=None, best_altitude_deg=-90.0, best_date=None)
+    samples = 48                                   # half-hourly, noon to noon
+    stamps = [local_noon_utc(day, location.tz) + timedelta(minutes=30 * k)
+              for day in candidates for k in range(samples)]
+    observer = _observer(eph, location).at(eph.timescale.from_datetimes(stamps))
+    sun_alt = observer.observe(eph.kernel["sun"]).apparent().altaz()[0].degrees
+    planet_alt = observer.observe(eph.target(planet)).apparent().altaz()[0].degrees
+    sun_alt = np.asarray(sun_alt).reshape(len(candidates), samples)
+    planet_alt = np.asarray(planet_alt).reshape(len(candidates), samples)
+
+    # Sunset/sunrise refer to the Sun's upper limb with refraction (-0.833);
+    # astronomical night to the centre 18 deg down.
+    sun_limit = -0.833 if planet in INNER_PLANETS else -18.0
+    dark = sun_alt < sun_limit
     best_altitude, best_date = -90.0, None
-
-    for offset in range(stride_days, search_days, stride_days):
-        candidate = after + timedelta(days=offset)
-        window = night_window(candidate, location)
-        span = observing_span(planet, window)
-        if span is None:
+    for day, is_dark, altitudes in zip(candidates, dark, planet_alt):
+        if not is_dark.any():
             continue
-
-        start, end = span
-        stamps, cursor = [], start
-        while cursor <= end:
-            stamps.append(cursor)
-            cursor += timedelta(minutes=30)
-        if len(stamps) < 2:
-            continue
-
-        altitudes = np.asarray(_altitudes(eph, location, planet, stamps))
-        peak = float(altitudes.max())
+        peak = float(altitudes[is_dark].max())
         if peak > best_altitude:
-            best_altitude, best_date = peak, candidate
-
-        above = int(np.sum(altitudes >= min_altitude_deg))
+            best_altitude, best_date = peak, day
+        above = int(np.sum(is_dark & (altitudes >= min_altitude_deg)))
         if above * 0.5 >= min_hours:
-            return Visibility(when=candidate, best_altitude_deg=peak,
-                              best_date=candidate)
+            return Visibility(when=day, best_altitude_deg=peak, best_date=day)
     return Visibility(when=None, best_altitude_deg=best_altitude,
                       best_date=best_date)
 

@@ -37,6 +37,12 @@ import { SkyPanel } from "./components/SkyPanel";
 import { formatDate, resolveNightDate, shiftDate } from "./format";
 import { suggestTarget } from "./suggest";
 
+/** The nights the planetary ephemeris (DE440s) can plan, as
+ *  `engine.ephem.supported_dates` reads them from it. Fixed data, so fixed
+ *  here; the API refuses anything outside them with a 422 as well. */
+const FIRST_NIGHT = "1849-12-27";
+const LAST_NIGHT = "2150-01-19";
+
 /** A curve on the altitude chart.
  *
  * `visible` is separate from membership on purpose. Hiding a curve keeps its
@@ -73,6 +79,7 @@ export default function App() {
   const [targets, setTargets] = useState<TargetsResponse | null>(null);
   const [planets, setPlanets] = useState<PlanetsResponse | null>(null);
   const [events, setEvents] = useState<EventsResponse | null>(null);
+  const [eventsError, setEventsError] = useState<string | null>(null);
   const [altitude, setAltitude] = useState<AltitudeResponse | null>(null);
 
   const [series, setSeries] = useState<ChartSeries[]>([]);
@@ -210,10 +217,13 @@ export default function App() {
   );
 
   // A finder drawn for one night's best time means nothing on another night
-  // or from another site.
+  // or from another site -- nor do custom observing hours, which are absolute
+  // times: carried to the next night they fell outside it, the server quietly
+  // used the defaults, and the panel still showed them as custom.
   useEffect(() => {
     closeFinder();
     suggested.current = new Set();
+    setSession(null);
   }, [date, locationKey]);
 
   // The chart's share of the chart/lists row, as the divider between them
@@ -337,10 +347,15 @@ export default function App() {
   useEffect(() => {
     if (!locationKey || !date) return;
     let cancelled = false;
+    // Cleared first, so a new night or look-ahead shows as loading rather
+    // than leaving the last list up under the new choice.
+    setEvents(null);
+    setEventsError(null);
     api
       .events(date, locationKey, eventDays)
       .then((data) => !cancelled && setEvents(data))
-      .catch(() => !cancelled && setEvents(null));
+      .catch((e) => !cancelled &&
+        setEventsError(e instanceof Error ? e.message : "Could not load events"));
     return () => {
       cancelled = true;
     };
@@ -486,6 +501,9 @@ export default function App() {
   }
 
   function changeDate(next: string) {
+    // Clearing the date field sends "", and a date outside the ephemeris
+    // can't be planned; either would leave the arrows throwing on "".
+    if (!next || next < FIRST_NIGHT || next > LAST_NIGHT) return;
     setDate(next);
     setIsTonight(location ? next === resolveNightDate(location.timezone) : false);
   }
@@ -604,7 +622,8 @@ export default function App() {
                       aria-label="Previous night">
                 ‹
               </button>
-              <input type="date" value={date}
+              <input type="date" value={date} min={FIRST_NIGHT} max={LAST_NIGHT}
+                     aria-label="Night of"
                      onChange={(e) => changeDate(e.target.value)} />
               <button onClick={() => changeDate(shiftDate(date, 1))}
                       aria-label="Next night">
@@ -704,7 +723,8 @@ export default function App() {
                           onClick={() => setLeftTab("altitude")}>
                     Altitude
                   </button>
-                  <span className={`left-tab ${leftTab === "finder" ? "on" : ""}`}>
+                  <span className={`left-tab ${leftTab === "finder" ? "on" : ""}`}
+                        role="presentation">
                     <button role="tab" aria-selected={leftTab === "finder"}
                             onClick={() => setLeftTab("finder")}>
                       {finder.label}
@@ -762,6 +782,7 @@ export default function App() {
                 targets={targets}
                 planets={planets}
                 events={events}
+                eventsError={eventsError}
                 timeZone={location.timezone}
                 charted={chartedIds}
                 onToggleChart={toggleSeries}

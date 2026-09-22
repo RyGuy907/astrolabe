@@ -61,6 +61,8 @@ export interface SkyMark {
 export interface HorizonMarks {
   azimuth_deg: number;
   at: string;
+  /** The site's IANA timezone, for showing `at` on its clock. */
+  timezone: string;
   marks: SkyMark[];
 }
 
@@ -352,40 +354,6 @@ export interface SkyFrame {
   bodies: { name: string; ra: number; dec: number }[];
 }
 
-/** A point on a finder chart, in chart units: degrees on the tangent plane,
- *  target at the origin, +x right and +y up. */
-export interface ChartPointModel {
-  x: number;
-  y: number;
-  label: string;
-  mag: number | null;
-  kind: string;
-}
-
-export interface FinderChartModel {
-  target: string;
-  center_ra_deg: number;
-  center_dec_deg: number;
-  at: string;
-  orientation: "sky" | "north";
-  radius_deg: number;
-  /** The field's default faintest star. */
-  limiting_mag: number;
-  /** The faintest star included; a density control can show down to it. */
-  max_mag: number;
-  /** A wide "where is this in the sky" view rather than a hopping chart. */
-  overview: boolean;
-  center_alt_deg: number;
-  center_az_deg: number;
-  stars: ChartPointModel[];
-  lines: [number, number][][];
-  objects: ChartPointModel[];
-  horizon: [number, number][];
-  directions: ChartPointModel[];
-  /** Constellation names at their label positions (overview only). */
-  constellations: ChartPointModel[];
-}
-
 export interface MoonFactsModel {
   diameter_km: number;
   sidereal_month_days: number;
@@ -663,14 +631,6 @@ export const api = {
                               min_altitude: minAltitude })}`,
     ),
 
-  finder: (location: string, subject: { target?: string; body?: string },
-           at: string, radius: number, orientation: "sky" | "north",
-           signal?: AbortSignal) =>
-    get<FinderChartModel>(
-      `/api/finder${query({ location, target: subject.target, body: subject.body,
-                            at, radius, orientation })}`,
-      signal,
-    ),
 
   skyCatalog: () => get<SkyCatalog>("/api/sky/catalog"),
 
@@ -684,7 +644,9 @@ export const api = {
   logPrefill: (date: string, location: string, limit = 6) =>
     get<LogPrefillResponse>(`/api/log/prefill${query({ date, location, limit })}`),
 
-  sessions: (limit = 10) => get<SessionModel[]>(`/api/sessions${query({ limit })}`),
+  sessions: (limit = 10, filter: { date?: string; location?: string } = {},
+             signal?: AbortSignal) =>
+    get<SessionModel[]>(`/api/sessions${query({ limit, ...filter })}`, signal),
 
   session: (id: number) => get<SessionModel>(`/api/sessions/${id}`),
 

@@ -20,7 +20,7 @@
 
 import { useEffect, useState } from "react";
 import type { ObservingWindow } from "../api";
-import { formatHours } from "../format";
+import { formatHours, toLocalTimeValue, zonedDateParts, zonedTimeToUtc } from "../format";
 
 interface Props {
   session: ObservingWindow;
@@ -28,62 +28,6 @@ interface Props {
   timeZone: string;
   /** null restores the server default: astronomical dusk to 01:00 local. */
   onChange: (session: [string, string] | null) => void;
-}
-
-/** An ISO instant as "HH:MM" in the given zone, for a ClockField. */
-function toLocalTimeValue(iso: string, timeZone: string): string {
-  return new Intl.DateTimeFormat("en-GB", {
-    timeZone, hour: "2-digit", minute: "2-digit", hour12: false,
-  }).format(new Date(iso));
-}
-
-/** What `instant` reads as in `timeZone`, minus what it reads as in UTC. */
-function zoneOffsetMs(instant: Date, timeZone: string): number {
-  const parts = Object.fromEntries(
-    new Intl.DateTimeFormat("en-US", {
-      timeZone, hour12: false,
-      year: "numeric", month: "2-digit", day: "2-digit",
-      hour: "2-digit", minute: "2-digit", second: "2-digit",
-    })
-      .formatToParts(instant)
-      .map((part) => [part.type, part.value]),
-  ) as Record<string, string>;
-  const asIfUtc = Date.UTC(
-    Number(parts.year), Number(parts.month) - 1, Number(parts.day),
-    // en-US with hour12:false renders midnight as "24"; Date.UTC wants 0.
-    Number(parts.hour) % 24, Number(parts.minute), Number(parts.second),
-  );
-  return asIfUtc - instant.getTime();
-}
-
-/**
- * A calendar date and wall-clock time in `timeZone`, as a UTC instant.
- *
- * There is no way to construct a date in a named zone directly, so this
- * subtracts the zone's offset and then corrects once, which resolves the case
- * where the first guess lands on the far side of a DST transition from the
- * answer.
- *
- * The obvious shortcut -- nudge a guess by the difference between what it
- * reads as and what was wanted -- is what this replaced, and it was wrong:
- * wrapping the correction into +/-12 h with `((d + 720) % 1440) - 720` assumes
- * Python's modulo. JavaScript's `%` keeps the sign of the dividend, so a
- * negative drift wrapped the wrong way and the session landed a day out.
- */
-function zonedTimeToUtc(year: number, month: number, day: number,
-                        hours: number, minutes: number,
-                        timeZone: string): Date {
-  const naive = Date.UTC(year, month - 1, day, hours, minutes);
-  const firstPass = naive - zoneOffsetMs(new Date(naive), timeZone);
-  return new Date(naive - zoneOffsetMs(new Date(firstPass), timeZone));
-}
-
-/** The calendar date `instant` falls on, as read at the site. */
-function zonedDateParts(instant: Date, timeZone: string) {
-  const [year, month, day] = new Intl.DateTimeFormat("en-CA", {
-    timeZone, year: "numeric", month: "2-digit", day: "2-digit",
-  }).format(instant).split("-").map(Number);
-  return { year, month, day };
 }
 
 /** "HH:MM" to hours and minutes, or null if it is not a time. */

@@ -10,6 +10,8 @@ serialises the result.
 
 from __future__ import annotations
 
+from datetime import datetime
+
 from fastapi import FastAPI, HTTPException, Query
 
 from db import observations
@@ -147,10 +149,20 @@ def register(app: FastAPI, resolve_location, resolve_date) -> None:
 
     @app.get("/api/sessions", response_model=list[SessionModel], tags=["log"])
     def list_sessions(limit: int = Query(50, ge=1, le=500),
-                      location: str | None = None) -> list[SessionModel]:
+                      location: str | None = None,
+                      date: str | None = Query(None, description="YYYY-MM-DD")
+                      ) -> list[SessionModel]:
+        on_date = None
+        if date:
+            try:
+                on_date = datetime.strptime(date, "%Y-%m-%d").date()
+            except ValueError:
+                raise HTTPException(status_code=422,
+                                    detail=f"{date!r} is not a valid date; use YYYY-MM-DD")
         return [
             _session_model(s)
-            for s in observations.list_sessions(limit=limit, location_key=location)
+            for s in observations.list_sessions(limit=limit, location_key=location,
+                                                on_date=on_date)
         ]
 
     @app.get("/api/sessions/{session_id}", response_model=SessionModel,

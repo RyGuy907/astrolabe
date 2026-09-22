@@ -1,8 +1,11 @@
-"""Meteor showers, eclipses, conjunctions and comets (PLAN.md §2, §3.5).
+"""Meteor showers, lunar eclipses and conjunctions (PLAN.md §2, §3.5).
 
-Everything here is computed or read from vendored data. The one exception is
-comets, whose orbital elements come from the MPC over the network and which
-degrade to "unavailable" exactly like weather does.
+Everything here is computed or read from vendored data; nothing reaches the
+network. Comets were once reported here from the MPC's orbital elements,
+fetched over the network -- but only as a count, never shown by the app, and
+they made this a third networked engine module, so they were removed. A real
+comet feature would need predicted magnitudes, which means propagating each
+orbit, and would belong behind the weather module's network switch.
 
 Solar eclipses are deliberately out of scope: they happen in daylight, which
 is not what this tool plans. PLAN.md §2 lists them, but a night planner has no
@@ -362,48 +365,3 @@ def _conjunctions_in_month(year: int, month: int, planet_threshold_deg: float,
                 involves_moon="moon" in (name_a, name_b),
             ))
     return tuple(out)
-
-
-# --- comets -----------------------------------------------------------------
-
-@dataclass(frozen=True)
-class CometStatus:
-    available: bool
-    reason: str | None = None
-    comets: tuple = ()
-
-
-def bright_comets(max_magnitude: float = 11.0) -> CometStatus:
-    """MPC comet elements. Network-dependent, so it degrades like weather.
-
-    PLAN.md §2 wants predicted magnitude under 11. The MPC file gives orbital
-    elements plus the magnitude parameters H and G, not a predicted magnitude,
-    so computing a real prediction requires propagating each orbit. That is
-    not done here — this reports availability and count only, and says so.
-    """
-    from .weather import network_enabled
-
-    if not network_enabled():
-        return CometStatus(available=False, reason="network disabled")
-    try:
-        from skyfield.data import mpc
-
-        with open_mpc_comets() as stream:
-            dataframe = mpc.load_comets_dataframe(stream)
-    except Exception as exc:                     # noqa: BLE001 - degrade, never crash
-        return CometStatus(available=False, reason=f"MPC unavailable ({exc})")
-    return CometStatus(available=True,
-                       comets=tuple(dataframe["designation"].head(20)))
-
-
-def open_mpc_comets():
-    """Open the MPC comet file, downloading once into the cache directory."""
-    from skyfield.api import Loader
-
-    from .ephem import ephemeris_dir
-
-    loader = Loader(str(ephemeris_dir()), verbose=False)
-    return loader.open(
-        "https://www.minorplanetcenter.net/iau/MPCORB/CometEls.txt",
-        reload=False,
-    )

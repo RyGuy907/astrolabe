@@ -54,6 +54,8 @@ interface Props {
   targets: TargetsResponse | null;
   planets: PlanetsResponse | null;
   events: EventsResponse | null;
+  /** Why events failed to load, if they did. */
+  eventsError?: string | null;
   timeZone: string;
   charted: string[];
   onToggleChart: (id: string, label: string,
@@ -252,8 +254,12 @@ const SEARCH_GROUPS = 15;
  * user, and unreliable as an accessible name, so "too faint" was a word with
  * no way to find out what it meant unless you had a mouse. The label stays
  * visible and compact; the meaning goes in text that assistive technology
- * reads and the layout ignores. `title` is kept as the mouse affordance, and
- * the key under the table covers sighted touch users.
+ * reads and the layout ignores. `title` is kept as the mouse affordance.
+ *
+ * On touch there is no hover, and a key under the table this once relied on
+ * was removed with it -- so the badge is focusable, and tapping or tabbing to
+ * it shows its meaning just below it (`.badge[data-meaning]:focus` in the
+ * stylesheet).
  */
 function Badge({ kind, meaning, children }: {
   kind: string;
@@ -261,7 +267,8 @@ function Badge({ kind, meaning, children }: {
   children: React.ReactNode;
 }) {
   return (
-    <span className={`badge badge-${kind}`} title={meaning}>
+    <span className={`badge badge-${kind}`} title={meaning}
+          tabIndex={0} data-meaning={meaning}>
       {children}
       <span className="visually-hidden"> — {meaning}</span>
     </span>
@@ -720,7 +727,7 @@ function MoonRow({ moon, charted, onToggleChart, minAltitude, timeZone, onFinder
 }
 
 export function SkyPanel({
-  targets, planets, events, timeZone, charted, onToggleChart,
+  targets, planets, events, eventsError, timeZone, charted, onToggleChart,
   eventDays, onEventDaysChange, showAll, onShowAllChange,
   popularOnly, onPopularOnlyChange, targetsPending, onOpenFinder, reveal,
 }: Props) {
@@ -1218,7 +1225,10 @@ export function SkyPanel({
               </div>
             </div>
 
-            {!events && <p className="muted">Loading…</p>}
+            {!events && !eventsError && <p className="muted">Loading…</p>}
+            {eventsError && (
+              <p className="warning small">Couldn't load events: {eventsError}</p>
+            )}
 
             {events && (
               <>

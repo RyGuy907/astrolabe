@@ -128,6 +128,22 @@ class Ephemeris:
         return self.kernel[ephemeris_key(body)]
 
 
+@functools.lru_cache(maxsize=1)
+def supported_dates() -> tuple[date, date]:
+    """The first and last night the ephemeris can plan, read from its own
+    segments (DE440s: 1849-12-26 to 2150-01-22). Two days in from each end,
+    since a night runs past midnight and its searches look a little either
+    side. Past these every computation fails deep in jplephem; callers check
+    first and say so instead.
+    """
+    eph = load_ephemeris()
+    start_jd = max(seg.spk_segment.start_jd for seg in eph.kernel.segments)
+    end_jd = min(seg.spk_segment.end_jd for seg in eph.kernel.segments)
+    first = eph.timescale.tt_jd(start_jd).utc_datetime().date() + timedelta(days=2)
+    last = eph.timescale.tt_jd(end_jd).utc_datetime().date() - timedelta(days=2)
+    return first, last
+
+
 @functools.lru_cache(maxsize=2)
 def load_ephemeris(allow_download: bool | None = None) -> Ephemeris:
     """Load DE440s, downloading it once if the cache is empty.
@@ -506,6 +522,56 @@ def altaz_series(body: str, location: Location, start: datetime, end: datetime,
 
     return AltAzSeries(
         body=body,
+        location=location,
+        times_utc=stamps,
+        alt_deg=[float(v) for v in alt.degrees],
+        az_deg=[float(v) for v in az.degrees],
+    )
+
+
+def chart_span(window: NightWindow) -> tuple[datetime, datetime]:
+    """The stretch an altitude chart covers for a night.
+
+    Normally sunset to sunrise. Inside the polar circles there may be neither,
+    and the chart still has something to show: astronomical night if there is
+    one, then the whole local day, noon to noon. Erroring there left arctic
+    sites with no chart at all for half the year.
+    """
+    if window.sunset_utc and window.sunrise_utc:
+        return window.sunset_utc, window.sunrise_utc
+    if window.astronomical_night:
+        return window.astronomical_night[0][0], window.astronomical_night[-1][1]
+    tz = window.location.tz
+    return (local_noon_utc(window.date, tz),
+            local_noon_utc(window.date + timedelta(days=1), tz))
+
+
+def fixed_altaz_series(label: str, ra_deg: float, dec_deg: float, location: Location,
+                       start: datetime, end: datetime,
+                       step: timedelta = timedelta(minutes=15)) -> AltAzSeries:
+    """`altaz_series` for a fixed point on the sky -- a catalogue object or a
+    constellation's centroid -- at J2000 RA/Dec in degrees."""
+    from skyfield.api import Star
+
+    start = ensure_utc(start, field="start")
+    end = ensure_utc(end, field="end")
+    if end < start:
+        raise ValueError(f"end {end} precedes start {start}")
+    if step.total_seconds() <= 0:
+        raise ValueError(f"step must be positive, got {step}")
+
+    eph = load_ephemeris()
+    stamps: list[datetime] = []
+    cursor = start
+    while cursor <= end:
+        stamps.append(cursor)
+        cursor += step
+    times = eph.timescale.from_datetimes(stamps)
+    star = Star(ra_hours=ra_deg / 15.0, dec_degrees=dec_deg)
+    alt, az, _ = (_observer(eph, location).at(times).observe(star)
+                  .apparent(deflectors=FIXED_TARGET_DEFLECTORS).altaz())
+    return AltAzSeries(
+        body=label,
         location=location,
         times_utc=stamps,
         alt_deg=[float(v) for v in alt.degrees],

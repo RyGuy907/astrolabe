@@ -968,33 +968,6 @@ def test_named_double_stars_reach_the_wire(client):
     assert 300 <= albireo["distance_ly"] <= 420
 
 
-@requires_ephemeris
-def test_finder_chart_for_a_target_and_a_body(client):
-    at = "2026-09-16T04:00:00Z"
-    target = client.get(f"/api/finder?location=home&target=M13&at={at}")
-    assert target.status_code == 200
-    body = target.json()
-    assert body["target"].startswith("M13")
-    assert body["orientation"] == "sky" and body["stars"]
-    assert _is_utc_iso(body["at"])
-
-    planet = client.get(f"/api/finder?location=home&body=saturn&at={at}&orientation=north")
-    assert planet.status_code == 200
-    assert planet.json()["target"] == "Saturn"
-    assert planet.json()["horizon"] == []          # north-up draws no horizon
-
-
-@pytest.mark.parametrize("query, status", [
-    ("target=nothing&at=2026-09-16T04:00:00Z", 404),
-    ("body=pluto&at=2026-09-16T04:00:00Z", 404),
-    ("target=M13&at=2026-09-16T04:00:00", 422),      # naive time
-    ("at=2026-09-16T04:00:00Z", 422),                # neither target nor body
-    ("target=M13&at=2026-09-16T04:00:00Z&orientation=up", 422),
-])
-def test_finder_chart_rejects_what_it_cannot_draw(client, query, status):
-    assert client.get(f"/api/finder?location=home&{query}").status_code == status
-
-
 def test_sky_catalog_is_served_once_and_cached(client):
     resp = client.get("/api/sky/catalog")
     assert resp.status_code == 200
@@ -1029,3 +1002,14 @@ def test_star_card_for_a_named_star(client):
     assert 400 <= card["distance_ly"] <= 700
     assert card["age_basis"] == "published"
     assert client.get("/api/sky/star/99999999").status_code == 404
+
+
+@requires_ephemeris
+@pytest.mark.parametrize("day", ["1700-01-01", "2150-06-01", "2300-01-01"])
+def test_a_date_past_the_ephemeris_is_refused_plainly(client, day):
+    """Out of DE440s's range every computation fails deep in jplephem; the API
+    says why instead of answering 500."""
+    for path in ("/api/night", "/api/targets", "/api/planets"):
+        resp = client.get(f"{path}?location=home&date={day}")
+        assert resp.status_code == 422, (path, resp.status_code)
+        assert "ephemeris" in resp.json()["detail"]
