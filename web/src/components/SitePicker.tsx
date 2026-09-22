@@ -138,17 +138,68 @@ export function SitePicker({ lat, lon, onPick }: Props) {
     // chart: a two-finger scroll, a mouse wheel, or a trackpad pinch (which
     // arrives as a wheel event with ctrlKey set, and would otherwise zoom
     // the whole page). The dialog still scrolls from anywhere off the map.
+    //
+    // Done the way Leaflet does its own touch pinch, not with setZoomAround.
+    // A zoom outside an animation makes every tile layer rebuild its grid
+    // and abort all tiles in flight -- on each of the dozens of wheel events
+    // a gesture sends, so no new tile ever finished loading and the dark
+    // background showed through until the fingers stopped. Moving with
+    // {pinch: true} tells the layers to keep the tiles they have, scaled,
+    // and fetch the next level alongside; the gesture is then finished as
+    // TouchZoom finishes one. `_stop`, `_moveStart`, `_move`, `_animateZoom`
+    // and `_limitZoom` are Leaflet internals, stable across 1.x -- the same
+    // calls its own handler makes (src/map/handler/Map.TouchZoom.js) -- as is
+    // `_onZoomTransitionEnd`, the end of a zoom animation.
+    type Internal = L.Map & {
+      _stop(): void;
+      _moveStart(zoomChanged: boolean, noMoveStart: boolean): void;
+      _move(center: L.LatLng, zoom: number, data?: object): void;
+      _animateZoom(center: L.LatLng, zoom: number, startAnim: boolean, noUpdate: boolean): void;
+      _resetView(center: L.LatLng, zoom: number): void;
+      _limitZoom(zoom: number): number;
+      _onZoomTransitionEnd(): void;
+      _animatingZoom?: boolean;
+    };
+    const inner = instance as Internal;
+    const gesture = { active: false, zoom: 0, center: instance.getCenter(), frame: 0, idle: 0 };
+    const finish = () => {
+      if (!gesture.active) return;
+      gesture.active = false;
+      cancelAnimationFrame(gesture.frame);
+      const zoom = inner._limitZoom(gesture.zoom);
+      if (instance.options.zoomAnimation) inner._animateZoom(gesture.center, zoom, true, false);
+      else inner._resetView(gesture.center, zoom);
+    };
     const onWheel = (event: WheelEvent) => {
       event.preventDefault();
       const pixels = event.deltaMode === 1 ? event.deltaY * 16 : event.deltaY;
+      if (!pixels) return;
+      if (!gesture.active) {
+        // The last gesture's closing animation still running: finish it now,
+        // or its end would later jump the map back to where that one stopped.
+        if (inner._animatingZoom) inner._onZoomTransitionEnd();
+        inner._stop();
+        inner._moveStart(true, false);
+        gesture.active = true;
+        gesture.zoom = instance.getZoom();
+      }
       // A pinch sends small deltas, so a level per ~60 px; a two-finger
       // scroll sends large ones and a mouse notch is ~100, so a level per
       // ~200 px, which keeps a flick from shooting across a dozen levels.
       const perLevel = event.ctrlKey ? 60 : 200;
-      const zoom = Math.min(instance.getMaxZoom(), Math.max(instance.getMinZoom(),
-        instance.getZoom() - pixels / perLevel));
-      instance.setZoomAround(instance.mouseEventToContainerPoint(event), zoom,
-                             { animate: false });
+      gesture.zoom = Math.min(instance.getMaxZoom(), Math.max(instance.getMinZoom(),
+        gesture.zoom - pixels / perLevel));
+      // Keep the point under the pointer where it is.
+      const pointer = instance.mouseEventToContainerPoint(event);
+      const offset = pointer.subtract(instance.getSize().divideBy(2));
+      const anchor = instance.containerPointToLatLng(pointer);
+      gesture.center = instance.unproject(
+        instance.project(anchor, gesture.zoom).subtract(offset), gesture.zoom);
+      cancelAnimationFrame(gesture.frame);
+      gesture.frame = requestAnimationFrame(() =>
+        inner._move(gesture.center, gesture.zoom, { pinch: true, round: false }));
+      window.clearTimeout(gesture.idle);
+      gesture.idle = window.setTimeout(finish, 180);
     };
     const element = container.current;
     element.addEventListener("wheel", onWheel, { passive: false });
@@ -221,6 +272,8 @@ export function SitePicker({ lat, lon, onPick }: Props) {
     return () => {
       window.clearTimeout(settle);
       element.removeEventListener("wheel", onWheel);
+      window.clearTimeout(gesture.idle);
+      cancelAnimationFrame(gesture.frame);
       instance.remove();
       map.current = null;
       marker.current = null;
