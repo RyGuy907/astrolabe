@@ -8,7 +8,8 @@
  */
 
 import {
-  DEG, dot, horizonOnScreen, isGround, limitFor, makeView, norm, placeAt, unit, zoomed,
+  DEG, dot, easeInOut, horizonOnScreen, isGround, limitFor, makeView, norm, placeAt, slerp, unit,
+  zoomed,
   type Vec,
 } from "../src/components/skyview";
 
@@ -133,6 +134,23 @@ for (const [alt, az, fov] of [[20, 180, 90], [40, 250, 180], [89, 30, 120], [90,
   }
   check(`horizon at alt ${alt}, ${fov} degrees wide: ground exactly below it (${hz.kind})`,
         wrong === 0, `${wrong} of ${n} pixels wrong`);
+}
+
+// --- gliding to a target ---------------------------------------------------
+{
+  const a = unit(10, 40), b = unit(250, 36);
+  const total = angle(a, b);
+  const mid = slerp(a, b, 0.5);
+  check("a glide passes halfway along the great circle",
+        close(angle(a, mid), total / 2, 1e-6) && close(angle(mid, b), total / 2, 1e-6));
+  check("a glide starts and ends where it should",
+        angle(slerp(a, b, 0), a) < 1e-3 && angle(slerp(a, b, 1), b) < 1e-3);
+  const opp: Vec = [-a[0], -a[1], -a[2]];
+  const half = slerp(a, opp, 0.5);
+  check("a glide to the opposite point still goes somewhere sensible",
+        close(angle(a, half), 90, 1e-6) && angle(slerp(a, opp, 1), opp) < 1e-3);
+  check("easing starts at rest and ends at rest",
+        easeInOut(0) === 0 && easeInOut(1) === 1 && easeInOut(0.05) < 0.01 && easeInOut(0.95) > 0.99);
 }
 
 // --- detail follows zoom ----------------------------------------------------

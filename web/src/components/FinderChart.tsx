@@ -33,7 +33,8 @@ import { BODY_COLORS } from "./AltitudeChart";
 import { placeLabels, type LabelRequest } from "./labels";
 import { StarCard } from "./StarCard";
 import {
-  apply, applyT, DEG, horizonOnScreen, limitFor, makeView, norm, panned, placeAt, unit, zoomed,
+  apply, applyT, DEG, dot, easeInOut, horizonOnScreen, limitFor, makeView, norm, panned,
+  placeAt, slerp, unit, zoomed,
   type Vec, type View,
 } from "./skyview";
 
@@ -49,6 +50,9 @@ export interface FinderSubject {
   /** J2000 position, for catalogue objects; bodies come from the frame. */
   ra?: number;
   dec?: number;
+  /** Field width to show it at. Unset keeps the current zoom, unless that
+   *  is so far out or in that the target would be lost. */
+  fov?: number;
 }
 
 interface Props {
@@ -71,7 +75,10 @@ const LAYERS: { key: Layer; label: string }[] = [
 ];
 const STEP_MS = 30 * 60_000;
 /** The field the chart opens at, and goes back to on "Recenter". */
-const DEFAULT_FOV = 20;
+export const DEFAULT_FOV = 20;
+/** Outside these, a new subject is shown at the default width instead. */
+const KEEP_FOV_MIN = 4;
+const KEEP_FOV_MAX = 70;
 /** A Telrad's three circles, by diameter in degrees. */
 const TELRAD_RINGS = [0.5, 2, 4];
 /** The true field of a standard 7x50 finder scope, diameter in degrees. */
@@ -191,14 +198,28 @@ export function FinderChart({ subject, location, timeZone, nightStart, nightEnd,
   // a pick from the list starts at the subject's own best time.
   useEffect(() => setAt(subject.at), [subject.at]);
   useEffect(() => setCard(null), [at, orientation, subject.id]);
-  const centred = useRef<string>("");
+  // Each new subject -- a new selection, even of the same object again --
+  // is glided to: along the great circle from where the view is, over about
+  // half a second, easing in and out, so the eye can follow where it went.
+  // The first one, when the chart opens, is simply shown. A body's position
+  // arrives with the frame, so the glide waits for it.
+  const shown = useRef<FinderSubject | null>(null);
   useEffect(() => {
-    if (!subjectEq || centred.current === subject.id) return;
-    centred.current = subject.id;
-    centerEq.current = subjectEq;
-    schedule();
+    if (!subjectEq || shown.current === subject) return;
+    const first = shown.current === null;
+    shown.current = subject;
+    const width = subject.fov ??
+      (fov.current < KEEP_FOV_MIN || fov.current > KEEP_FOV_MAX ? DEFAULT_FOV : fov.current);
+    if (first) {
+      centerEq.current = subjectEq;
+      fov.current = width;
+      setFovShown(Math.round(width));
+      schedule();
+    } else {
+      glideTo(subjectEq, width);
+    }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [subjectEq, subject.id]);
+  }, [subjectEq, subject]);
 
   // --- the static sky, as unit vectors ---
   const sky = useMemo(() => {
@@ -544,6 +565,30 @@ export function FinderChart({ subject, location, timeZone, nightStart, nightEnd,
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // --- gliding to a target ---
+  const glide = useRef(0);
+  const stopGlide = () => { cancelAnimationFrame(glide.current); glide.current = 0; };
+  const glideTo = (toEq: Vec, toFov: number) => {
+    stopGlide();
+    const fromEq = centerEq.current, fromFov = fov.current;
+    const reduced = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+    const degrees = Math.acos(Math.max(-1, Math.min(1, dot(fromEq, toEq)))) / DEG;
+    // Longer trips take a little longer, never so long it feels slow.
+    const ms = reduced ? 0 : Math.min(700, 280 + degrees * 4);
+    const start = performance.now();
+    const frame = (now: number) => {
+      const k = ms ? Math.min(1, (now - start) / ms) : 1;
+      const e = easeInOut(k);
+      centerEq.current = slerp(fromEq, toEq, e);
+      fov.current = Math.exp(Math.log(fromFov) + (Math.log(toFov) - Math.log(fromFov)) * e);
+      moving();
+      if (k < 1) glide.current = requestAnimationFrame(frame);
+      else { glide.current = 0; setFovShown(Math.round(toFov)); }
+    };
+    glide.current = requestAnimationFrame(frame);
+  };
+  useEffect(() => stopGlide, []);
+
   // --- interaction ---
   const pointers = useRef(new Map<number, { x: number; y: number }>());
   // Where a drag started, and the sky point (J2000) that was grabbed there.
@@ -576,6 +621,7 @@ export function FinderChart({ subject, location, timeZone, nightStart, nightEnd,
   };
 
   const onPointerDown = (e: React.PointerEvent<HTMLCanvasElement>) => {
+    stopGlide();                          // a hand on the chart takes over
     try { e.currentTarget.setPointerCapture(e.pointerId); } catch { /* best effort */ }
     const p = local(e);
     pointers.current.set(e.pointerId, p);
@@ -636,6 +682,7 @@ export function FinderChart({ subject, location, timeZone, nightStart, nightEnd,
     if (!canvas) return;
     const onWheel = (e: WheelEvent) => {
       e.preventDefault();
+      stopGlide();
       const rect = canvas.getBoundingClientRect();
       zoomAt(Math.exp(e.deltaY * 0.0015), e.clientX - rect.left, e.clientY - rect.top);
     };
@@ -645,6 +692,7 @@ export function FinderChart({ subject, location, timeZone, nightStart, nightEnd,
 
   const onKeyDown = (e: React.KeyboardEvent<HTMLCanvasElement>) => {
     if (e.key === "Escape" && card) { setCard(null); return; }
+    stopGlide();
     const v = view();
     const stepPx = v.w * 0.1;
     const moves: Record<string, () => void> = {
@@ -661,10 +709,7 @@ export function FinderChart({ subject, location, timeZone, nightStart, nightEnd,
 
   /** Back to the view the chart opened with: the subject, 20 degrees wide. */
   const recenter = () => {
-    if (subjectEq) centerEq.current = subjectEq;
-    fov.current = DEFAULT_FOV;
-    setFovShown(DEFAULT_FOV);
-    moving();
+    if (subjectEq) glideTo(subjectEq, DEFAULT_FOV);
   };
 
   const step = (direction: 1 | -1) => {

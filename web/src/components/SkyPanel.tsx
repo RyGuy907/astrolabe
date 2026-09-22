@@ -14,7 +14,9 @@
  * without scrolling.
  */
 
-import { createContext, useContext, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
+import {
+  createContext, useContext, useDeferredValue, useEffect, useLayoutEffect, useMemo, useRef, useState,
+} from "react";
 import type { FinderSubject } from "./FinderChart";
 import { PlanetImage } from "./PlanetImage";
 import { TargetImage } from "./TargetImage";
@@ -92,6 +94,11 @@ function scrollBox(el: HTMLElement): HTMLElement | null {
  * the chart, which may be anywhere in the list. Otherwise it moves only as
  * far as it must: opening a row you just clicked shouldn't throw it about.
  * Either way, a pair taller than the box shows from its top.
+ *
+ * A move of more than about a box's height is made at once, not animated: a
+ * smooth scroll across thousands of pixels of list is slow and blurs past
+ * rows the eye can't read anyway, and the row's flash says where it landed.
+ * Short moves, where the eye can follow, glide.
  */
 function bringIntoView(row: HTMLTableRowElement, center: boolean) {
   const detail = row.nextElementSibling instanceof HTMLElement &&
@@ -111,8 +118,10 @@ function bringIntoView(row: HTMLTableRowElement, center: boolean) {
   else if (top < view.top + margin) delta = top - (view.top + margin);
   else if (bottom > view.bottom - margin) delta = bottom - (view.bottom - margin);
   else return;
-  if (box) box.scrollBy({ top: delta, behavior: "smooth" });
-  else window.scrollBy({ top: delta, behavior: "smooth" });
+  if (Math.abs(delta) < 1) return;
+  const behavior: ScrollBehavior = Math.abs(delta) > view.bottom - view.top ? "instant" : "smooth";
+  if (box) box.scrollBy({ top: delta, behavior });
+  else window.scrollBy({ top: delta, behavior });
 }
 
 /** Centre a revealed row, and keep it centred for a moment while its dropdown
@@ -150,15 +159,20 @@ const LatestReveal = createContext(0);
  *  centres it and flashes it. */
 function useRowOpen(seq: number | undefined) {
   const ref = useRef<HTMLTableRowElement>(null);
-  const [open, setOpenState] = useState(false);
-  const [flash, setFlash] = useState(false);
+  // A row that mounts as the one being revealed (its group was just opened,
+  // or its tab just shown) starts open, so it opens in the same render the
+  // last revealed row closes in -- not one render later, which would paint
+  // the list with neither open for a frame.
+  const [open, setOpenState] = useState(Boolean(seq));
+  const [flash, setFlash] = useState(Boolean(seq));
   // Set on opening, consumed once the dropdown has rendered.
-  const pending = useRef<"center" | "nearest" | null>(null);
+  const pending = useRef<"center" | "nearest" | null>(seq ? "center" : null);
   const settling = useRef<(() => void) | null>(null);
   // Opened by a reveal rather than by hand: closed again when the next
   // reveal goes to another row, so stepping through suggestions doesn't
   // leave a trail of open dropdowns. One opened by hand stays open.
-  const openedByReveal = useRef(false);
+  const openedByReveal = useRef(Boolean(seq));
+  const handled = useRef(seq);
   const latest = useContext(LatestReveal);
 
   const setOpen = (next: boolean) => {
@@ -169,10 +183,13 @@ function useRowOpen(seq: number | undefined) {
 
   useEffect(() => {
     if (!seq) return;
-    pending.current = "center";
-    openedByReveal.current = true;
-    setOpenState(true);
-    setFlash(true);
+    if (handled.current !== seq) {           // not already opened on mount
+      handled.current = seq;
+      pending.current = "center";
+      openedByReveal.current = true;
+      setOpenState(true);
+      setFlash(true);
+    }
     const done = window.setTimeout(() => setFlash(false), 1600);
     return () => window.clearTimeout(done);
   }, [seq]);
@@ -185,22 +202,20 @@ function useRowOpen(seq: number | undefined) {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [latest]);
 
-  // After the render that drew the dropdown, so its height counts. The tab
-  // switch and group expansion that a reveal causes land in the same commit.
-  useEffect(() => {
+  // After the render that drew the dropdown, so its height counts, and
+  // before the browser paints it: a layout effect, so the list is never seen
+  // in between -- the row opening (and the last revealed one closing above
+  // it) and the scroll that follows land in one frame, not a jump and then
+  // a glide. Runs after every render and consumes `pending` once.
+  useLayoutEffect(() => {
     const how = pending.current;
     if (!how || !ref.current) return;
     pending.current = null;
     const row = ref.current;
-    // Not cancelled by the next render: this effect runs after every one,
-    // and the flash fading must not stop a scroll that is under way.
-    requestAnimationFrame(() => {
-      if (!row.isConnected) return;
-      settling.current?.();
-      settling.current = null;
-      if (how === "center") settling.current = centreWhileSettling(row);
-      else bringIntoView(row, false);
-    });
+    settling.current?.();
+    settling.current = null;
+    if (how === "center") settling.current = centreWhileSettling(row);
+    else bringIntoView(row, false);
   });
   useEffect(() => () => settling.current?.(), []);
 

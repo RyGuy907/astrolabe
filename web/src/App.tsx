@@ -26,7 +26,7 @@ import {
 } from "./api";
 import { AltitudeChart } from "./components/AltitudeChart";
 import { DashboardSkeleton } from "./components/DashboardSkeleton";
-import { FinderChart, type FinderSubject } from "./components/FinderChart";
+import { DEFAULT_FOV, FinderChart, type FinderSubject } from "./components/FinderChart";
 import { SPLIT_DEFAULT, SPLIT_MAX, SPLIT_MIN, Splitter } from "./components/Splitter";
 import { EventAlert } from "./components/EventAlert";
 import { LocationManager } from "./components/LocationManager";
@@ -188,6 +188,9 @@ export default function App() {
       ra: pick.ra_deg, dec: pick.dec_deg,
       // Now if the night is on, else at its best.
       at: inNight ? now : pick.peak_time ?? session?.start ?? now,
+      // A fresh suggestion is shown at the chart's usual width, not at
+      // whatever zoom the last one was left at.
+      fov: DEFAULT_FOV,
     });
     setLeftTab("finder");
   }

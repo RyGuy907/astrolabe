@@ -188,3 +188,23 @@ export function zoomed(center: Vec, fov: number, factor: number, px: number,
   const nextFov = Math.max(FOV_MIN, Math.min(FOV_MAX, fov * factor));
   return { center: placeAt(center, nextFov, anchor, px, py, w, h), fov: nextFov };
 }
+
+/** The point a fraction `t` of the way from `a` to `b` along the great
+ *  circle between them: a glide across the sky rather than a cut. */
+export function slerp(a: Vec, b: Vec, t: number): Vec {
+  const cos = Math.max(-1, Math.min(1, dot(a, b)));
+  const angle = Math.acos(cos);
+  if (angle < 1e-9) return b;
+  if (Math.PI - angle < 1e-6) {
+    // Opposite points: any great circle joins them; go via one through the pole.
+    const via = norm(cross(a, Math.abs(a[2]) < 0.9 ? [0, 0, 1] : [1, 0, 0]));
+    return t < 0.5 ? slerp(a, via, 2 * t) : slerp(via, b, 2 * t - 1);
+  }
+  const s = Math.sin(angle);
+  const wa = Math.sin((1 - t) * angle) / s, wb = Math.sin(t * angle) / s;
+  return norm([a[0] * wa + b[0] * wb, a[1] * wa + b[1] * wb, a[2] * wa + b[2] * wb]);
+}
+
+/** Ease in and out: slow start, quick middle, gentle stop. */
+export const easeInOut = (t: number) =>
+  t < 0.5 ? 4 * t * t * t : 1 - (-2 * t + 2) ** 3 / 2;
