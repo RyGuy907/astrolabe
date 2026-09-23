@@ -591,6 +591,16 @@ class HorizonMarksResponse(BaseModel):
     marks: list[SkyMarkModel]
 
 
+class ElevationReading(BaseModel):
+    """Ground height at a coordinate, for a site picked off the map."""
+
+    elevation_m: float | None = Field(
+        default=None,
+        description="Metres above sea level, or null when the terrain service "
+                    "cannot be reached -- never a stand-in 0.",
+    )
+
+
 class GeocodeCandidate(BaseModel):
     label: str
     name: str

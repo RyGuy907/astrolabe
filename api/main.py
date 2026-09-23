@@ -61,6 +61,7 @@ from .schemas import (
     AltitudePointModel,
     AltitudeResponse,
     AltitudeSeriesModel,
+    ElevationReading,
     ConjunctionModel,
     EclipseModel,
     EventsResponse,
@@ -845,6 +846,14 @@ def geocode_search(q: str = Query(..., min_length=1)) -> list[GeocodeCandidate]:
                          suggested_key=r.suggested_key())
         for r in geocode.search(q)
     ]
+
+
+@app.get("/api/elevation", response_model=ElevationReading, tags=["locations"])
+def elevation(lat: float = Query(..., ge=-90.0, le=90.0),
+              lon: float = Query(..., ge=-180.0, le=180.0)) -> ElevationReading:
+    """Ground height at a point, so a site picked off the map is not saved
+    at 0 m. Null if offline."""
+    return ElevationReading(elevation_m=geocode.elevation_at(lat, lon))
 
 
 @app.post("/api/locations", response_model=LocationModel, status_code=201,

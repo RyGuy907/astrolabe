@@ -193,6 +193,9 @@ use or large-scale redistribution.
   non-commercial use; check current terms before deploying publicly.
 - Responses are cached to SQLite with a 3-hour TTL, keyed by rounded
   coordinates and model run, to keep request volume low.
+- `api.open-meteo.com/v1/elevation` fills in the ground height of a site
+  picked off the map (its terrain model is Copernicus DEM GLO-90). One request
+  per settled pin position, cached in memory, never per keystroke.
 
 ### CDS hips2fits — deep-sky survey images
 

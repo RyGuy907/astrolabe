@@ -56,6 +56,11 @@ export interface SkyGlowTiles {
   legend: [number, number[]][];
 }
 
+/** Ground height at a coordinate; null when the terrain service is unreachable. */
+export interface ElevationReading {
+  elevation_m: number | null;
+}
+
 /** The atlas's answer for one coordinate. */
 export interface SkyBrightnessReading {
   sqm: number | null;
@@ -595,6 +600,10 @@ export const api = {
     ),
 
   /** What the atlas says at one point, so the form can fill Bortle in. */
+  /** Ground height at a point, for a site picked off the map. */
+  elevation: (lat: number, lon: number, signal?: AbortSignal) =>
+    get<ElevationReading>(`/api/elevation${query({ lat, lon })}`, signal),
+
   skyBrightnessAt: (lat: number, lon: number, signal?: AbortSignal) =>
     get<SkyBrightnessReading>(
       `/api/skybrightness/at${query({ lat, lon })}`, signal,

@@ -221,6 +221,11 @@ export function LocationManager({ locations, editingKey, onClose, onCreated }: P
   const [lat, setLat] = useState("");
   const [lon, setLon] = useState("");
   const [elevation, setElevation] = useState("");
+  //: True once the observer has typed an elevation; the terrain lookup then
+  //: leaves it alone, as the atlas leaves an edited Bortle class alone.
+  const [elevationTyped, setElevationTyped] = useState(false);
+  //: True while the field holds what the terrain lookup filled in.
+  const [elevationFromTerrain, setElevationFromTerrain] = useState(false);
   const [bortle, setBortle] = useState<string>("");
   //: Uniform obstruction angle in degrees, applied to every bearing. Null
   //: until chosen: this is the site's altitude floor now, so defaulting it to
@@ -272,6 +277,8 @@ export function LocationManager({ locations, editingKey, onClose, onCreated }: P
     setLat(editing.lat.toFixed(4));
     setLon(editing.lon.toFixed(4));
     setElevation(editing.elevation_m.toFixed(0));
+    setElevationTyped(false);
+    setElevationFromTerrain(false);
     if (editing.sky_source === "observer" && editing.bortle !== null) {
       setBortle(String(editing.bortle));
       setBortleEdited(true);
@@ -355,6 +362,40 @@ export function LocationManager({ locations, editingKey, onClose, onCreated }: P
     };
   }, [search]);
 
+  // Fill the elevation in from terrain data whenever the coordinates settle.
+  // A point picked off the map has no name to look up, so it used to be saved
+  // at 0 m. Left alone: an elevation the observer typed, and a site's saved
+  // one while it stays where it was saved -- a GPS figure beats a 90 m
+  // terrain model. A saved 0 m is the old default, not a measurement, so it
+  // is looked up like any other.
+  useEffect(() => {
+    if (!latValid || !lonValid || elevationTyped) return;
+    const unmoved = editing !== null && editing.elevation_m !== 0 &&
+      Math.abs(latValue - editing.lat) < 1e-4 && Math.abs(lonValue - editing.lon) < 1e-4;
+    if (unmoved) return;
+    // A height looked up for the last point is not this point's.
+    if (elevationFromTerrain) setElevation("");
+    const controller = new AbortController();
+    const timer = window.setTimeout(() => {
+      api
+        .elevation(latValue, lonValue, controller.signal)
+        .then((reading) => {
+          if (reading.elevation_m === null) return;   // offline: theirs to fill
+          setElevation(reading.elevation_m.toFixed(0));
+          setElevationFromTerrain(true);
+        })
+        .catch(() => {
+          /* offline or superseded: the field stays for the observer */
+        });
+    }, 250);
+    return () => {
+      window.clearTimeout(timer);
+      controller.abort();
+    };
+    // Only the coordinates (and the observer taking over) start a lookup.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [latValue, lonValue, latValid, lonValid, elevationTyped]);
+
   // Ask the atlas whenever the coordinates settle, and fill the Bortle class
   // in. This is the whole point of having a raster: the observer should not
   // be recalling a class from memory when the answer is on disk. Debounced
@@ -411,6 +452,8 @@ export function LocationManager({ locations, editingKey, onClose, onCreated }: P
     setLat(candidate.lat.toFixed(4));
     setLon(candidate.lon.toFixed(4));
     setElevation(candidate.elevation_m.toFixed(0));
+    setElevationTyped(false);
+    setElevationFromTerrain(false);
     setError(null);
   }
 
@@ -427,6 +470,8 @@ export function LocationManager({ locations, editingKey, onClose, onCreated }: P
     setLat("");
     setLon("");
     setElevation("");
+    setElevationTyped(false);
+    setElevationFromTerrain(false);
     setBortle("");
     setBortleEdited(false);
     setAtlas(null);
@@ -510,12 +555,19 @@ export function LocationManager({ locations, editingKey, onClose, onCreated }: P
               />
             </label>
             <label>
-              <span>Elevation (m)</span>
+              <span>
+                Elevation (m)
+                {elevationFromTerrain && <span className="field-note"> from terrain</span>}
+              </span>
               <input
                 type="text"
                 inputMode="decimal"
                 value={elevation}
-                onChange={(e) => setElevation(e.target.value)}
+                onChange={(e) => {
+                  setElevation(e.target.value);
+                  setElevationTyped(true);
+                  setElevationFromTerrain(false);
+                }}
                 placeholder="0"
                 className={!elevationValid ? "invalid" : ""}
               />
