@@ -33,6 +33,7 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
+from engine import ratelimit  # noqa: E402
 from engine.ephem import ephemeris_is_cached, night_window  # noqa: E402
 from engine.horizon import preset  # noqa: E402
 from engine.locations import Location, get_location  # noqa: E402
@@ -163,6 +164,24 @@ def _test_locations_config(tmp_path_factory):
         patch.setattr(locations_module, "LOCAL_LOCATIONS_PATH",
                       path.parent / "locations.local.yaml")
         yield path
+
+
+@pytest.fixture(autouse=True)
+def _fresh_rate_limits():
+    """Every test starts with full budgets, no backoff, and no per-visitor
+    count. They are process-wide by design, so without this a suite that
+    fakes a few hundred upstream calls would start refusing its own tests,
+    and which ones would depend on the order they ran in. So too would a
+    cached place name or elevation answered by an earlier test's fake."""
+    from engine import geocode
+
+    ratelimit.reset_all()
+    geocode._search.cache_clear()
+    geocode._elevation.cache_clear()
+    api_main = sys.modules.get("api.main")
+    if api_main is not None:
+        api_main.reset_limits()
+    yield
 
 
 @pytest.fixture(scope="session")

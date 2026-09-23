@@ -12,16 +12,21 @@ only the convenience of typing a place name instead of coordinates is lost.
 no name to search for and so used to be saved at 0 m. It asks Open-Meteo's
 elevation endpoint -- the terrain model behind the geocoder's own elevations,
 about 90 m across, fine enough to tell a ridge from the valley beside it.
+
+Both go through `weather._get_json`, so they spend from the same Open-Meteo
+budget as the forecast and back off with it (engine/ratelimit.py). Both cache
+their answers -- places and ground do not move -- but never a failure: an
+outage used to be remembered as "no elevation here" until a restart.
 """
 
 from __future__ import annotations
 
 import functools
-import json
 import urllib.error
-import urllib.parse
 import urllib.request
 from dataclasses import dataclass
+
+from .ratelimit import OPEN_METEO, RateLimited
 
 GEOCODE_URL = "https://geocoding-api.open-meteo.com/v1/search"
 ELEVATION_URL = "https://api.open-meteo.com/v1/elevation"
@@ -54,23 +59,31 @@ class GeocodeResult:
         return cleaned.strip("_") or "location"
 
 
+class _Unanswered(Exception):
+    """Inside the cached lookups: no answer this time, so nothing is cached."""
+
+
 def search(query: str, count: int = 5) -> list[GeocodeResult]:
     """Look up a place name. Returns [] on any failure — never raises."""
-    from .weather import network_enabled
-
-    if not network_enabled() or not query.strip():
+    # Spacing and case do not change the answer, so they do not miss the cache.
+    name = " ".join(query.split()).lower()
+    if not name:
         return []
-
-    params = urllib.parse.urlencode({
-        "name": query.strip(), "count": max(1, min(count, 20)), "format": "json",
-    })
-    request = urllib.request.Request(f"{GEOCODE_URL}?{params}",
-                                     headers={"User-Agent": USER_AGENT})
     try:
-        with urllib.request.urlopen(request, timeout=REQUEST_TIMEOUT) as response:
-            payload = json.loads(response.read().decode("utf-8"))
-    except (urllib.error.URLError, OSError, ValueError):
+        return list(_search(name, max(1, min(count, 20))))
+    except _Unanswered:
         return []
+
+
+@functools.lru_cache(maxsize=512)
+def _search(name: str, count: int) -> tuple[GeocodeResult, ...]:
+    from .weather import NetworkDisabled, _get_json
+
+    try:
+        payload = _get_json(GEOCODE_URL, {"name": name, "count": count, "format": "json"},
+                            upstream=OPEN_METEO, timeout=REQUEST_TIMEOUT)
+    except (urllib.error.URLError, OSError, ValueError, NetworkDisabled, RateLimited):
+        raise _Unanswered
 
     out: list[GeocodeResult] = []
     for entry in payload.get("results") or []:
@@ -85,7 +98,7 @@ def search(query: str, count: int = 5) -> list[GeocodeResult]:
             ))
         except (KeyError, TypeError, ValueError):
             continue
-    return out
+    return tuple(out)
 
 
 def elevation_at(lat: float, lon: float) -> float | None:
@@ -95,25 +108,27 @@ def elevation_at(lat: float, lon: float) -> float | None:
     exception, and never a guess -- the form then leaves the field for the
     observer rather than filling in 0 m as though it were known.
     """
-    return _elevation(round(lat, 4), round(lon, 4))
+    try:
+        return _elevation(round(lat, 4), round(lon, 4))
+    except _Unanswered:
+        return None
 
 
 @functools.lru_cache(maxsize=512)
 def _elevation(lat: float, lon: float) -> float | None:
     """Cached per ~10 m of coordinate: ground does not move, and dragging a
-    pin back and forth asks about the same few points again."""
-    from .weather import network_enabled
+    pin back and forth asks about the same few points again. A failure
+    raises instead of returning, so it is not cached."""
+    from .weather import NetworkDisabled, _get_json
 
-    if not network_enabled():
-        return None
-    params = urllib.parse.urlencode({"latitude": lat, "longitude": lon})
-    request = urllib.request.Request(f"{ELEVATION_URL}?{params}",
-                                     headers={"User-Agent": USER_AGENT})
     try:
-        with urllib.request.urlopen(request, timeout=REQUEST_TIMEOUT) as response:
-            payload = json.loads(response.read().decode("utf-8"))
+        payload = _get_json(ELEVATION_URL, {"latitude": lat, "longitude": lon},
+                            upstream=OPEN_METEO, timeout=REQUEST_TIMEOUT)
+    except (urllib.error.URLError, OSError, ValueError, NetworkDisabled, RateLimited):
+        raise _Unanswered
+    try:
         value = float(payload["elevation"][0])
-    except (urllib.error.URLError, OSError, ValueError, KeyError, IndexError, TypeError):
+    except (KeyError, IndexError, TypeError, ValueError):
         return None
     # The terrain model marks "no data" (open ocean, mostly) as NaN.
     return value if value == value else None

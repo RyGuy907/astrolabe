@@ -1,7 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
-  <!-- An astrolabe, roughly: a ring, its rete crossing, and a star. -->
+  <!-- A star on crossed sight lines. -->
   <rect width="32" height="32" rx="7" fill="#0d1017"/>
-  <circle cx="16" cy="16" r="10.5" fill="none" stroke="#e8b04b" stroke-width="2"/>
   <path d="M16 5.5v21M5.5 16h21" stroke="#e8b04b" stroke-width="1.2" opacity="0.55"/>
   <path d="M16 10.2l1.6 3.9 4.2.3-3.2 2.7 1 4.1L16 19l-3.6 2.2 1-4.1-3.2-2.7 4.2-.3z" fill="#f4f1e8"/>
 </svg>

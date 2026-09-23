@@ -12,12 +12,14 @@ layer. The API never emits local times.
 from __future__ import annotations
 
 import functools
+import ipaddress
+import math
 import threading
 from contextlib import asynccontextmanager
 
 from datetime import date, datetime, timedelta
 
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
@@ -25,6 +27,7 @@ from pydantic import ValidationError
 
 from db import store
 from engine import geocode
+from engine.ratelimit import SlidingWindow
 from engine.catalog.loader import find_object, load_catalog
 from engine.ephem import (Interval, altaz_series, chart_span, fixed_altaz_series,
                           night_window, supported_dates)
@@ -151,6 +154,61 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+# --- per-visitor limits -----------------------------------------------------
+#
+# The API is public once hosted, and a script can skip the page's debouncing
+# and call it directly. The engine's budgets (engine/ratelimit.py) already
+# keep any flood from reaching Open-Meteo or 7Timer; these keep one visitor
+# from spending that shared budget, or the small server's CPU, for everyone.
+# Both are far above what the web app does: a page load is a handful of
+# requests, and zooming the site map a few dozen tiles.
+
+#: Endpoints that can make a request to another service on a cache miss.
+_REACHES_OUT = frozenset({"/api/night", "/api/geocode", "/api/elevation", "/api/sites/resolve"})
+_EVERY_REQUEST = SlidingWindow(limit=300)
+_REACHING_OUT = SlidingWindow(limit=40)
+
+
+def _visitor(request: Request) -> str:
+    """Who is asking. Behind Caddy, uvicorn has already taken the address
+    from X-Forwarded-For (it trusts that header from 127.0.0.1 only). An IPv6
+    visitor is counted by /64, the block one household is given, so cycling
+    through its addresses does not buy more requests."""
+    host = request.client.host if request.client else "unknown"
+    try:
+        address = ipaddress.ip_address(host)
+    except ValueError:
+        return host
+    if address.version == 6:
+        return str(ipaddress.ip_network(f"{host}/64", strict=False))
+    return host
+
+
+@app.middleware("http")
+async def per_visitor_limit(request: Request, call_next):
+    path = request.url.path
+    if path.startswith("/api/") and path != "/api/health":
+        who = _visitor(request)
+        wait = _EVERY_REQUEST.hit(who)
+        if wait is None and path in _REACHES_OUT:
+            wait = _REACHING_OUT.hit(who)
+        if wait is not None:
+            seconds = math.ceil(wait)
+            return JSONResponse(
+                status_code=429,
+                headers={"Retry-After": str(seconds)},
+                content={"detail": f"Too many requests from your address. "
+                                   f"Try again in {seconds} s."},
+            )
+    return await call_next(request)
+
+
+def reset_limits() -> None:
+    """Every visitor's count back to zero. For tests."""
+    _EVERY_REQUEST.reset()
+    _REACHING_OUT.reset()
 
 
 # --- helpers ----------------------------------------------------------------

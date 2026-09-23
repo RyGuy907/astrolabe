@@ -82,6 +82,25 @@ Caddy on a small EC2 instance, deployed from `main` by CI through S3 and SSM.
 [`deploy/README.md`](deploy/README.md) has the server setup and the deploy
 path.
 
+A public server must not turn somebody else's flood into its own, so the
+services it calls are protected at two layers (`engine/ratelimit.py`):
+
+| Layer | Limit |
+|---|---|
+| Open-Meteo (forecast, place search, elevation share one allowance) | 60 a minute and 1,000 a day -- a tenth of its free tier; a forecast counts as 2 |
+| 7Timer | 10 a minute, 300 a day |
+| A service answering 429 or 503 | left alone for its Retry-After (1-60 min; 10 by default) |
+| Three failures in a row | left alone for 5 minutes |
+| One visitor (IPv6 by /64) | 300 API requests a minute; 40 to the four that can reach out -- `/api/night`, `/api/geocode`, `/api/elevation`, `/api/sites/resolve` |
+
+Over a service's budget the app behaves as it does offline, and says why:
+the forecast reads "today's Open-Meteo request budget is spent", not
+"unreachable". A visitor over theirs gets a 429 with Retry-After. Forecasts
+are cached for three hours per ~1 km, and place searches and elevations for
+the life of the process, so ordinary use never comes near any of it. Map
+tiles and survey images are fetched by each visitor's browser, from their own
+address.
+
 ## Layout
 
 ```

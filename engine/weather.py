@@ -29,6 +29,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 from .locations import Location
+from .ratelimit import OPEN_METEO, SEVENTIMER, RateLimited, Upstream
 from .timeutil import UTC, ensure_utc, now_utc
 
 OPEN_METEO_URL = "https://api.open-meteo.com/v1/forecast"
@@ -43,6 +44,10 @@ OPEN_METEO_HORIZON = timedelta(days=16)
 SEVENTIMER_HORIZON = timedelta(hours=72)
 
 USER_AGENT = "astrolabe/0.1 (personal observing planner)"
+
+# Open-Meteo counts a request for more than 10 variables or 14 days as more
+# than one: 12 variables over 16 days is about 1.4. Budgeted as 2.
+OPEN_METEO_FORECAST_COST = 2
 
 OPEN_METEO_FIELDS = [
     "cloud_cover", "cloud_cover_low", "cloud_cover_mid", "cloud_cover_high",
@@ -325,14 +330,35 @@ def _cache_put(key: str, payload: dict) -> None:
 
 # --- HTTP -------------------------------------------------------------------
 
-def _get_json(url: str, params: dict) -> dict:
+def _get_json(url: str, params: dict, *, upstream: Upstream, cost: int = 1,
+              timeout: float = REQUEST_TIMEOUT) -> dict:
+    """GET a JSON document, inside `upstream`'s budget (engine/ratelimit.py).
+
+    Every outbound request in the engine comes through here, so every one is
+    counted, and a service that says "slow down" -- or keeps failing -- is left
+    alone for a while. Raises NetworkDisabled or RateLimited without making
+    the call, or the urllib or JSON error if it failed; the callers catch all
+    of them and degrade.
+    """
     if not network_enabled():
         raise NetworkDisabled("ASTRO_NO_NETWORK is set")
+    if not upstream.acquire(cost):
+        raise RateLimited(upstream.name)
     query = urllib.parse.urlencode(params)
     request = urllib.request.Request(f"{url}?{query}",
                                      headers={"User-Agent": USER_AGENT})
-    with urllib.request.urlopen(request, timeout=REQUEST_TIMEOUT) as response:
-        return json.loads(response.read().decode("utf-8"))
+    try:
+        with urllib.request.urlopen(request, timeout=timeout) as response:
+            payload = json.loads(response.read().decode("utf-8"))
+    except urllib.error.HTTPError as exc:
+        upstream.failed(status=exc.code,
+                        retry_after=exc.headers.get("Retry-After") if exc.headers else None)
+        raise
+    except (urllib.error.URLError, OSError, ValueError):
+        upstream.failed()
+        raise
+    upstream.succeeded()
+    return payload
 
 
 # --- Open-Meteo -------------------------------------------------------------
@@ -351,8 +377,8 @@ def fetch_open_meteo(location: Location, *, use_cache: bool = True) -> dict | No
             "hourly": ",".join(OPEN_METEO_FIELDS),
             "timezone": "UTC",
             "forecast_days": 16,
-        })
-    except (urllib.error.URLError, OSError, ValueError, NetworkDisabled):
+        }, upstream=OPEN_METEO, cost=OPEN_METEO_FORECAST_COST)
+    except (urllib.error.URLError, OSError, ValueError, NetworkDisabled, RateLimited):
         return None
     _cache_put(key, payload)
     return payload
@@ -414,8 +440,8 @@ def fetch_7timer(location: Location, *, use_cache: bool = True) -> dict | None:
     if location.elevation_m and location.elevation_m > 1000:
         params["ac"] = round(location.elevation_m / 1000.0)
     try:
-        payload = _get_json(SEVENTIMER_URL, params)
-    except (urllib.error.URLError, OSError, ValueError, NetworkDisabled):
+        payload = _get_json(SEVENTIMER_URL, params, upstream=SEVENTIMER)
+    except (urllib.error.URLError, OSError, ValueError, NetworkDisabled, RateLimited):
         return None
     _cache_put(key, payload)
     return payload
@@ -535,7 +561,9 @@ def get_forecast(location: Location, *, start: datetime | None = None,
 
     meteo_payload = fetch_open_meteo(location, use_cache=use_cache)
     if meteo_payload is None:
-        return unavailable(location, "Open-Meteo unreachable")
+        # Held back by the budget or a backoff, say so: "unreachable" would
+        # send someone looking for a fault that is not there.
+        return unavailable(location, OPEN_METEO.unavailable_reason() or "Open-Meteo unreachable")
 
     seventimer_payload = fetch_7timer(location, use_cache=use_cache)
 
