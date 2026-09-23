@@ -43,6 +43,11 @@ class LocationModel(BaseModel):
         description="The class filtering actually uses, however it was "
                     "arrived at. Display only; SQM is the internal unit.",
     )
+    bortle_decimal: float | None = Field(
+        default=None,
+        description="The class with a decimal, e.g. 4.3, when it was read "
+                    "from the light-pollution map; null otherwise.",
+    )
     timezone: str
     horizon_name: str
     horizon_is_generic: bool = Field(
@@ -497,6 +502,17 @@ class NewLocationRequest(BaseModel):
     )
 
 
+class SkyGlowTiles(BaseModel):
+    """Pre-rendered overlay tiles of the configured map."""
+
+    min_zoom: int
+    max_zoom: int
+    legend: list[tuple[float, list[int]]] = Field(
+        description="[SQM, [r, g, b, a]] stops the tiles were coloured by, "
+                    "darkest sky first, so a key can be drawn to match.",
+    )
+
+
 class SkyBrightnessCoverage(BaseModel):
     """Whether a light-pollution atlas is configured, and where it reaches."""
 
@@ -513,6 +529,11 @@ class SkyBrightnessCoverage(BaseModel):
         description='What the raster says it is, e.g. "modelled from 2025 '
                     'satellite data", or null when it does not say.',
     )
+    tiles: SkyGlowTiles | None = Field(
+        default=None,
+        description="Overlay tiles at /api/skybrightness/tiles/{z}/{x}/{y}.png, "
+                    "or null when the raster came without any.",
+    )
 
 
 class SkyBrightnessReading(BaseModel):
@@ -527,6 +548,10 @@ class SkyBrightnessReading(BaseModel):
         default=None,
         description="`sqm` expressed as a Bortle class, or null. Display "
                     "only; SQM is the internal unit.",
+    )
+    bortle_decimal: float | None = Field(
+        default=None,
+        description="The same with a decimal, e.g. 4.3; display only.",
     )
     in_coverage: bool = Field(
         description="False when the atlas simply has nothing here, which is "

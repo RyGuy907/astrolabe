@@ -24,6 +24,7 @@ from engine.skybrightness import (
     NATURAL_SKY_MCD_M2,
     artificial_brightness_from_sqm,
     bortle_at,
+    bortle_decimal_from_sqm,
     bortle_from_sqm,
     is_configured,
     sqm_at,
@@ -120,6 +121,43 @@ def test_lookup_is_off_rather_than_broken_without_a_raster(monkeypatch, tmp_path
     assert sb.sqm_at(34.0, -118.0) is None
     assert sb.bortle_at(34.0, -118.0) is None
     assert sb.is_configured() is False
+
+
+# --- decimal Bortle ----------------------------------------------------------
+
+def test_each_class_value_is_its_own_whole_number():
+    for cls, sqm in BORTLE_SQM.items():
+        assert bortle_decimal_from_sqm(sqm) == pytest.approx(cls)
+
+
+def test_the_decimal_never_contradicts_the_whole_class():
+    """ "Bortle 4.5" beside a class of 4 would be two answers on one screen."""
+    sqm = 16.5
+    while sqm < 22.5:
+        decimal, whole = bortle_decimal_from_sqm(sqm), bortle_from_sqm(sqm)
+        assert abs(decimal - whole) <= 0.4 + 1e-9, (sqm, decimal, whole)
+        sqm += 0.005
+
+
+def test_a_brighter_sky_never_has_a_lower_decimal_class():
+    values = [bortle_decimal_from_sqm(17.0 + i * 0.01) for i in range(500)]
+    assert all(a >= b - 1e-9 for a, b in zip(values, values[1:]))
+
+
+def test_the_decimal_clamps_to_the_scale():
+    assert bortle_decimal_from_sqm(22.3) == 1.0
+    assert bortle_decimal_from_sqm(16.0) == 9.0
+
+
+def test_only_a_class_read_off_the_map_gets_a_decimal():
+    """An observer's own class is a whole number they chose; 4.0 would claim
+    a precision nobody measured."""
+    from engine.locations import Location
+
+    base = dict(key="k", name="n", lat=40.0, lon=-111.0, tz="America/Denver")
+    assert Location(**base, bortle=4).bortle_decimal is None
+    assert Location(**base).bortle_decimal is None
+    assert Location(**base, atlas_sqm=20.65).bortle_decimal == pytest.approx(4.4)
 
 
 def _tiny_raster(path, tags: dict[str, str]) -> None:

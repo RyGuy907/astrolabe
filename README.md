@@ -230,8 +230,14 @@ atlas's light-propagation model and running it on newer satellite data:
    non-negative least-squares fit of the 2014 lights to the atlas. The
    convolutions run by FFT on an equal-area plane.
 3. **apply** runs the latest year's lights through the fitted kernel and
-   writes `data/skyglow/skybrightness_us.tif` (~27 MB). Copy it to
-   `config/skybrightness.tif`.
+   writes `data/skyglow/skybrightness_us.tif` (~27 MB).
+4. **tiles** draws that map once as web-map tiles (zooms 3-7, ~3 MB), which
+   the site picker overlays: sky glow spreading out from each town, coloured
+   by SQM, clear where the sky is pristine. The API only hands out the files.
+5. **install** copies the map and its tiles into `config/`.
+
+Where a site's class comes from the map, the app shows it with a decimal
+("Bortle 4.3"): a whole class hides most of what the map knows.
 
 How well it reproduces the atlas, on 2014 data, over every cell of the lower
 48 (SQM error in mag/arcsec²; the hold-out rows are fitted on one half of the
@@ -247,6 +253,22 @@ country and scored on the other):
 For scale, a handheld sky meter reads to about ±0.1. Nobody told the fit what
 shape the kernel should be; it found a smooth fall-off, and gave every ring
 beyond 140 km a weight of zero.
+
+Checked against the ground, and against David Lorenz's independent 2025
+atlas (the basis of lightpollutionmap.app's values):
+
+- **31 published sky-meter measurements** (2016-2026: a Tucson survey, dark-sky
+  park monitoring, observatories). At lit sites the map is off by a median
+  +0.06 mag; Lorenz's reads 0.34 mag too bright, having no correction for
+  altitude.
+- **519 Globe at Night sites** (2024-25 citizen readings, clear, moonless,
+  full darkness). Citizen readings run about 0.65 mag brighter than every map,
+  pristine sites included, so that part is how they are taken. With each
+  map's own offset removed, this one scatters least: 0.26 mag, against 0.28
+  for the 2014 atlas and 0.34 for Lorenz. Where the sky has brightened since
+  2014, it is 0.35 mag closer to the readings than the atlas.
+- **Change since 2014** agrees with Lorenz's change since 2016 (correlation
+  0.91 across 40 places), led by the Permian Basin oil field.
 
 Sources, all downloaded by hand into `data/skyglow/` (gitignored):
 
@@ -264,6 +286,8 @@ pip install -e ".[skyglow-build]"
 python scripts/build_skyglow.py crop     # ~8 min, mostly decompressing
 python scripts/build_skyglow.py fit      # ~2 min
 python scripts/build_skyglow.py apply    # ~2 min
+python scripts/build_skyglow.py tiles    # seconds
+python scripts/build_skyglow.py install
 ```
 
 It shares one limit with every satellite-based map: VIIRS barely sees the

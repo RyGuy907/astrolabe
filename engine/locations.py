@@ -109,6 +109,19 @@ class Location:
         sqm = self.sqm
         return 5 if sqm is None else bortle_from_sqm(sqm)
 
+    @property
+    def bortle_decimal(self) -> float | None:
+        """The class with a decimal, e.g. 4.3, when it was read off the map.
+
+        Only then: an observer's own class is a whole number they chose, and
+        dressing it up as 4.0 would claim a precision nobody measured.
+        """
+        if self.sky_source != "atlas":
+            return None
+        from .skybrightness import bortle_decimal_from_sqm
+
+        return bortle_decimal_from_sqm(self.atlas_sqm)
+
 
 @functools.lru_cache(maxsize=1)
 def _timezone_finder():

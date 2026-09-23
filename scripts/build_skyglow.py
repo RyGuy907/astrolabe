@@ -28,6 +28,8 @@ Run the stages in order; each writes into data/skyglow/work/:
     python scripts/build_skyglow.py crop
     python scripts/build_skyglow.py fit      # needs the atlas; writes the kernel
     python scripts/build_skyglow.py apply    # needs only the kernel
+    python scripts/build_skyglow.py tiles    # the site map's overlay
+    python scripts/build_skyglow.py install  # map and tiles into config/
 """
 
 from __future__ import annotations
@@ -486,7 +488,7 @@ def apply() -> None:
     col0, row0 = (int(round(v)) for v in ~transform * (OUT_WEST, OUT_NORTH + CELL / 2))
     col1, row1 = (int(round(v)) for v in ~transform * (OUT_EAST, OUT_SOUTH + CELL / 2))
     shipped = now[row0:row1, col0:col1]
-    out = DATA / "skybrightness_us.tif"
+    out = OUTPUT
     profile = dict(driver="GTiff", width=shipped.shape[1], height=shipped.shape[0], count=1,
                    dtype="float32", crs="EPSG:4326", nodata=-1.0,
                    transform=transform * rasterio.Affine.translation(col0, row0),
@@ -505,11 +507,132 @@ def apply() -> None:
     print(f"wrote {out.relative_to(ROOT)} ({out.stat().st_size / 2**20:.1f} MB)")
 
 
+# --- map tiles --------------------------------------------------------------
+
+OUTPUT = DATA / "skybrightness_us.tif"
+TILES = DATA / "skybrightness_us_tiles"
+TILE = 256
+# At zoom 7 a tile pixel is about one ~1 km cell of the map, so it is as fine
+# as the data goes: zoom 8 would only interpolate, at three times the size.
+# Past 7 the browser enlarges what it has. Below 3 the country is a smudge.
+TILE_ZOOMS = range(3, 8)
+
+# The overlay's colours, by SQM. Clear where the sky is as dark as it gets, so
+# the map underneath shows through untouched, then deepening from blue through
+# green and yellow to red and white -- the familiar light-pollution-map ramp,
+# which people already read without a key. The alpha rises with brightness,
+# so faint glow tints the map and a city covers it.
+LEGEND = [
+    (22.0, (0, 0, 0, 0)),
+    (21.8, (20, 30, 90, 90)),
+    (21.5, (30, 70, 170, 150)),
+    (21.0, (25, 140, 90, 175)),
+    (20.4, (120, 180, 40, 190)),
+    (19.8, (220, 200, 40, 205)),
+    (19.1, (245, 140, 30, 215)),
+    (18.4, (235, 60, 40, 225)),
+    (17.6, (240, 110, 190, 235)),
+    (16.8, (255, 255, 255, 245)),
+]
+
+
+def colour(sqm_values: np.ndarray) -> np.ndarray:
+    """SQM -> RGBA bytes along LEGEND; NaN (no data) is transparent."""
+    stops = np.array([s for s, _ in LEGEND])[::-1]         # ascending for interp
+    rgba = np.array([c for _, c in LEGEND], dtype=float)[::-1]
+    out = np.stack([np.interp(sqm_values, stops, rgba[:, i]) for i in range(4)], axis=-1)
+    out[np.isnan(sqm_values)] = 0
+    return np.round(out).astype(np.uint8)
+
+
+def _tile_range(z: int, west: float, south: float, east: float, north: float):
+    n = 2 ** z
+    x0, x1 = int((west + 180) / 360 * n), int((east + 180) / 360 * n)
+    def row(lat):
+        return int((1 - np.arcsinh(np.tan(np.radians(lat))) / np.pi) / 2 * n)
+    return range(x0, x1 + 1), range(row(north), row(south) + 1)
+
+
+def tiles() -> None:
+    """Pre-render the map as web-map tiles, once.
+
+    The site picker overlays these. Rendering them here rather than on
+    request keeps the server to handing out files: the map changes once a
+    year, so there is nothing to compute per view.
+    """
+    import shutil
+    from PIL import Image
+
+    t0 = time.time()
+    with rasterio.open(OUTPUT) as src:
+        bright = src.read(1).astype(np.float64)
+        west, south, east, north = src.bounds
+        label = src.tags().get("LABEL", "")
+    bright[bright < 0] = np.nan
+    # Averages over 2x2, 4x4... cells, for zooms where a tile pixel spans many
+    # cells; sampling the full grid there would alias towns into speckle.
+    pyramid = [bright]
+    while len(pyramid) < 6:
+        b = pyramid[-1]
+        h, w = b.shape[0] // 2 * 2, b.shape[1] // 2 * 2
+        pyramid.append(np.nanmean(b[:h, :w].reshape(h // 2, 2, w // 2, 2), axis=(1, 3)))
+
+    if TILES.exists():
+        shutil.rmtree(TILES)
+    written, size = 0, 0
+    for z in TILE_ZOOMS:
+        n = TILE * 2 ** z
+        degrees_per_pixel = 360 / n
+        level = max(0, min(len(pyramid) - 1, int(np.floor(np.log2(degrees_per_pixel / CELL)))))
+        grid, cell = pyramid[level], CELL * 2 ** level
+        xs, ys = _tile_range(z, west, south, east, north)
+        for x in xs:
+            lon = (x * TILE + np.arange(TILE) + 0.5) / n * 360 - 180
+            cols = (lon - west) / cell - 0.5
+            for y in ys:
+                merc = np.pi * (1 - 2 * (y * TILE + np.arange(TILE) + 0.5) / n)
+                lat = np.degrees(np.arctan(np.sinh(merc)))
+                rows = (north - lat) / cell - 0.5
+                r, c = np.meshgrid(rows, cols, indexing="ij")
+                values = map_coordinates(grid, [r, c], order=1, mode="constant", cval=np.nan)
+                rgba = colour(sqm(values))
+                if not rgba[..., 3].any():
+                    continue                     # all dark or outside: nothing to draw
+                path = TILES / str(z) / str(x) / f"{y}.png"
+                path.parent.mkdir(parents=True, exist_ok=True)
+                # 256 colours with alpha is plenty for a smooth ramp, and a
+                # quarter the size of full RGBA.
+                image = Image.fromarray(rgba, "RGBA").quantize(256, method=Image.Quantize.FASTOCTREE)
+                image.save(path, optimize=True)
+                written += 1
+                size += path.stat().st_size
+        print(f"  zoom {z}: {written} tiles so far, {size / 2**20:.1f} MB", flush=True)
+    meta = {"min_zoom": TILE_ZOOMS.start, "max_zoom": TILE_ZOOMS.stop - 1,
+            "bounds": [west, south, east, north], "label": label,
+            "legend": [[s, list(c)] for s, c in LEGEND]}
+    (TILES / "meta.json").write_text(json.dumps(meta, indent=1) + "\n")
+    print(f"wrote {written} tiles to {TILES.relative_to(ROOT)} ({size / 2**20:.1f} MB) "
+          f"in {time.time() - t0:.0f} s")
+
+
+def install() -> None:
+    """Put the built map and its tiles where engine/skybrightness.py looks."""
+    import shutil
+
+    config = ROOT / "config"
+    shutil.copyfile(OUTPUT, config / "skybrightness.tif")
+    target = config / "skybrightness_tiles"
+    if target.exists():
+        shutil.rmtree(target)
+    shutil.copytree(TILES, target)
+    print(f"installed {OUTPUT.name} and its tiles into config/")
+
+
 def main(argv: list[str]) -> None:
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
-    parser.add_argument("stage", choices=["crop", "fit", "apply"])
+    parser.add_argument("stage", choices=["crop", "fit", "apply", "tiles", "install"])
     args = parser.parse_args(argv)
-    {"crop": crop, "fit": fit, "apply": apply}[args.stage]()
+    {"crop": crop, "fit": fit, "apply": apply, "tiles": tiles, "install": install}[args.stage]()
 
 
 if __name__ == "__main__":

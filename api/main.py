@@ -17,7 +17,7 @@ from contextlib import asynccontextmanager
 from datetime import date, datetime, timedelta
 
 from fastapi import FastAPI, HTTPException, Query
-from fastapi.responses import JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
 
@@ -72,6 +72,7 @@ from .schemas import (
     NewLocationRequest,
     SkyBrightnessCoverage,
     SkyBrightnessReading,
+    SkyGlowTiles,
     HorizonMarksResponse,
     SkyMarkModel,
     NightResponse,
@@ -211,6 +212,7 @@ def _location_model(location: Location, source: str = "config") -> LocationModel
         sqm=location.sqm,
         sky_source=location.sky_source,
         effective_bortle=location.effective_bortle,
+        bortle_decimal=location.bortle_decimal,
         timezone=location.tz,
         horizon_name=location.horizon.name,
         horizon_is_generic=location.horizon.is_generic,
@@ -912,14 +914,47 @@ def remove_location(key: str) -> None:
          tags=["locations"])
 def skybrightness_coverage() -> SkyBrightnessCoverage:
     """Where the configured light-pollution atlas has data, if there is one."""
-    from engine.skybrightness import coverage_bounds, is_configured, source_label
+    from engine.skybrightness import coverage_bounds, is_configured, source_label, tile_meta
 
     bounds = coverage_bounds()
+    meta = tile_meta()
     return SkyBrightnessCoverage(
         configured=is_configured(),
         bounds=list(bounds) if bounds else None,
         source=source_label(),
+        tiles=(SkyGlowTiles(min_zoom=meta["min_zoom"], max_zoom=meta["max_zoom"],
+                            legend=meta["legend"]) if meta else None),
     )
+
+
+#: A 1x1 transparent PNG, for tiles the build left out because the sky there
+#: is pristine: a 404 would do, but would fill the console with errors for
+#: the most ordinary answer on the map.
+_EMPTY_TILE = bytes.fromhex(
+    "89504e470d0a1a0a0000000d49484452000000010000000108060000001f15c489"
+    "0000000d4944415478da63606060600000000500017aa857500000000049454e44ae426082")
+
+
+@app.get("/api/skybrightness/tiles/{z}/{x}/{y}.png", tags=["locations"],
+         response_class=Response)
+def skybrightness_tile(z: int, x: int, y: int) -> Response:
+    """One pre-rendered overlay tile of the configured map.
+
+    Files written by `scripts/build_skyglow.py tiles`; nothing is drawn here.
+    The path is built from three integers, so it cannot leave the tile folder.
+    """
+    from engine.skybrightness import tile_file, tile_meta
+
+    meta = tile_meta()
+    if meta is None or not meta["min_zoom"] <= z <= meta["max_zoom"]:
+        raise HTTPException(status_code=404, detail="no such tile")
+    # A day is long for a file that changes once a year, and short enough
+    # that a rebuilt map shows up by tomorrow.
+    headers = {"Cache-Control": "public, max-age=86400"}
+    path = tile_file(z, x, y)
+    if path is None:
+        return Response(content=_EMPTY_TILE, media_type="image/png", headers=headers)
+    return FileResponse(path, media_type="image/png", headers=headers)
 
 
 @app.get("/api/skybrightness/at", response_model=SkyBrightnessReading,
@@ -933,12 +968,14 @@ def skybrightness_at(lat: float = Query(..., ge=-90.0, le=90.0),
     recall one. Outside coverage the answer is null, which the form treats as
     "you will have to tell me" rather than quietly assuming a suburban sky.
     """
-    from engine.skybrightness import bortle_from_sqm, source_label, sqm_at
+    from engine.skybrightness import (bortle_decimal_from_sqm, bortle_from_sqm,
+                                      source_label, sqm_at)
 
     sqm = sqm_at(lat, lon)
     return SkyBrightnessReading(
         sqm=sqm,
         bortle=None if sqm is None else bortle_from_sqm(sqm),
+        bortle_decimal=None if sqm is None else bortle_decimal_from_sqm(sqm),
         in_coverage=sqm is not None,
         source=source_label(),
     )

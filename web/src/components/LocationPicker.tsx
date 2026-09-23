@@ -29,7 +29,7 @@ function skyLabel(site: LocationModel): string {
     case "observer":
       return `Bortle ${site.bortle}`;
     case "atlas":
-      return `Bortle ${site.effective_bortle} · atlas`;
+      return `Bortle ${(site.bortle_decimal ?? site.effective_bortle).toFixed(1)} · atlas`;
     default:
       return "Bortle 5 assumed";
   }

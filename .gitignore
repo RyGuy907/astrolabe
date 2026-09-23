@@ -35,6 +35,8 @@ npm-debug.log*
 # atlas it is calibrated against. Kept together, never committed.
 data/
 *.tif.gz
+# The map's overlay tiles, built and installed beside it.
+config/skybrightness_tiles/
 
 # --- Local configuration ---
 # config/locations.yaml is committed with public example sites. Keep your own

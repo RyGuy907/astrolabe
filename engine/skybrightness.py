@@ -50,6 +50,7 @@ conversion round-trips against its own inverse.
 from __future__ import annotations
 
 import functools
+import json
 import math
 import os
 from pathlib import Path
@@ -113,6 +114,32 @@ def bortle_from_sqm(sqm: float) -> int:
     extrapolating off a nine-point scale.
     """
     return min(BORTLE_SQM, key=lambda cls: abs(BORTLE_SQM[cls] - sqm))
+
+
+def bortle_decimal_from_sqm(sqm: float) -> float:
+    """SQM -> Bortle with a decimal, e.g. 4.3, for a value read off a map.
+
+    A whole class hides most of what a map knows: 20.5 and 21.3 are both
+    "Bortle 4" and are not the same sky. This interpolates between
+    `BORTLE_SQM`'s representative points, so each class's own value lands on
+    its whole number and halfway between two of them is the .5 between, the
+    same boundary `bortle_from_sqm` uses. Rounded to a tenth and kept inside
+    the class `bortle_from_sqm` gives, so the two never disagree on screen
+    ("Bortle 4.5" beside a class of 4). Clamped to 1-9, as that is.
+    """
+    points = sorted(BORTLE_SQM.items(), key=lambda item: item[1])  # brightest first
+    classes = [float(cls) for cls, _ in points]
+    values = [v for _, v in points]
+    if sqm <= values[0]:
+        exact = classes[0]
+    elif sqm >= values[-1]:
+        exact = classes[-1]
+    else:
+        i = next(i for i in range(1, len(values)) if sqm <= values[i])
+        share = (sqm - values[i - 1]) / (values[i] - values[i - 1])
+        exact = classes[i - 1] + share * (classes[i] - classes[i - 1])
+    whole = bortle_from_sqm(sqm)
+    return min(max(round(exact, 1), whole - 0.4), whole + 0.4)
 
 
 def raster_path() -> Path | None:
@@ -202,6 +229,40 @@ def coverage_bounds() -> tuple[float, float, float, float] | None:
         return (float(west), float(south), float(east), float(north))
     except Exception:                    # noqa: BLE001 - optional, never fatal
         return None
+
+
+def tile_dir() -> Path | None:
+    """The configured raster's pre-rendered map tiles, if it has any.
+
+    `scripts/build_skyglow.py tiles` writes them beside the raster as
+    `<name>_tiles/`, with a `meta.json` describing them; the site map overlays
+    them. None when the raster came without them (Falchi's, say).
+    """
+    path = raster_path()
+    if path is None:
+        return None
+    tiles = path.with_name(path.stem + "_tiles")
+    return tiles if (tiles / "meta.json").is_file() else None
+
+
+def tile_meta() -> dict | None:
+    """The tiles' zoom range, bounds and colour key, or None."""
+    tiles = tile_dir()
+    if tiles is None:
+        return None
+    try:
+        return json.loads((tiles / "meta.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+
+
+def tile_file(z: int, x: int, y: int) -> Path | None:
+    """One tile's file, or None where nothing was drawn (a pristine sky)."""
+    tiles = tile_dir()
+    if tiles is None:
+        return None
+    path = tiles / str(z) / str(x) / f"{y}.png"
+    return path if path.is_file() else None
 
 
 def source_label() -> str | None:

@@ -354,6 +354,78 @@ def test_skybrightness_coverage_reports_whether_an_atlas_is_configured(client):
         assert body["bounds"] is None
 
 
+def _map_with_tiles(tmp_path, *, with_tiles=True):
+    """A 2x2 raster, and beside it the tile folder the build would write."""
+    rasterio = pytest.importorskip("rasterio")
+    import numpy as np
+
+    raster = tmp_path / "map.tif"
+    with rasterio.open(raster, "w", driver="GTiff", width=2, height=2, count=1,
+                       dtype="float32", crs="EPSG:4326",
+                       transform=rasterio.Affine(1, 0, -112, 0, -1, 41)) as out:
+        out.write(np.full((2, 2), 0.5, dtype=np.float32), 1)
+        out.update_tags(LABEL="modelled from 2025 satellite data")
+    if with_tiles:
+        tiles = tmp_path / "map_tiles"
+        (tiles / "5" / "6").mkdir(parents=True)
+        (tiles / "5" / "6" / "12.png").write_bytes(b"\x89PNG fake tile")
+        (tiles / "meta.json").write_text(json.dumps(
+            {"min_zoom": 3, "max_zoom": 7, "legend": [[22.0, [0, 0, 0, 0]], [17.0, [255, 255, 255, 245]]]}))
+    return raster
+
+
+@pytest.fixture
+def configured_map(monkeypatch, tmp_path):
+    import engine.skybrightness as sb
+
+    def configure(**kwargs):
+        monkeypatch.setenv("ASTRO_SKYBRIGHTNESS_RASTER", str(_map_with_tiles(tmp_path, **kwargs)))
+        sb._open_raster.cache_clear()
+    yield configure
+    sb._open_raster.cache_clear()
+
+
+def test_the_map_overlay_is_served_from_its_prebuilt_tiles(client, configured_map):
+    configured_map()
+    tiles = client.get("/api/skybrightness").json()["tiles"]
+    assert tiles["min_zoom"] == 3 and tiles["max_zoom"] == 7
+    assert tiles["legend"][0] == [22.0, [0, 0, 0, 0]]
+
+    drawn = client.get("/api/skybrightness/tiles/5/6/12.png")
+    assert drawn.status_code == 200
+    assert drawn.headers["content-type"] == "image/png"
+    assert drawn.content == b"\x89PNG fake tile"
+    assert "max-age" in drawn.headers["cache-control"]
+
+
+def test_a_tile_left_out_for_a_pristine_sky_is_clear_not_missing(client, configured_map):
+    """The build skips tiles with nothing to draw. Asking for one is the most
+    ordinary request on the map, so it gets a clear image, not an error."""
+    configured_map()
+    blank = client.get("/api/skybrightness/tiles/5/7/12.png")
+    assert blank.status_code == 200
+    assert blank.content.startswith(b"\x89PNG")
+
+
+def test_zooms_the_map_was_not_drawn_at_are_404(client, configured_map):
+    configured_map()
+    assert client.get("/api/skybrightness/tiles/9/1/1.png").status_code == 404
+    assert client.get("/api/skybrightness/tiles/2/1/1.png").status_code == 404
+
+
+def test_a_map_without_tiles_says_so(client, configured_map):
+    configured_map(with_tiles=False)
+    assert client.get("/api/skybrightness").json()["tiles"] is None
+    assert client.get("/api/skybrightness/tiles/5/6/12.png").status_code == 404
+
+
+def test_a_reading_carries_the_decimal_class(client, configured_map):
+    configured_map()
+    body = client.get("/api/skybrightness/at", params={"lat": 40.5, "lon": -111.5}).json()
+    assert body["in_coverage"] is True
+    assert round(body["bortle_decimal"]) == body["bortle"]
+
+
 def test_create_location_with_a_directional_horizon(client):
     """The bearing has to survive the API and the store, not just the engine."""
     payload = {"key": "api_facing_site", "name": "Facing Site",

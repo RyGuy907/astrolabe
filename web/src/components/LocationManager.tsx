@@ -714,7 +714,8 @@ export function LocationManager({ locations, editingKey, onClose, onCreated }: P
                 Bortle class
                 {bortleFromAtlas && (
                   <span className="field-note">
-                    {" "}from atlas, SQM {atlas?.sqm?.toFixed(2)}
+                    {" "}from atlas: {atlas?.bortle_decimal?.toFixed(1)},
+                    SQM {atlas?.sqm?.toFixed(2)}
                     {/* Which map answered, so a number read off 2014 data
                         and one read off last year's are not mistaken for
                         each other. */}

@@ -233,6 +233,9 @@ use or large-scale redistribution.
 
 ### NASA GIBS — VIIRS night-lights overlay
 
+Now the fallback only: where a sky-brightness map with tiles is installed
+(see below), the site picker overlays that instead, and GIBS is not called.
+
 - **Endpoint:** `gibs.earthdata.nasa.gov/wmts/epsg3857/best/VIIRS_Black_Marble`
 - **Source:** NASA Global Imagery Browse Services,
   https://nasa-gibs.github.io/gibs-api-docs/ — keyless, no account. Requested

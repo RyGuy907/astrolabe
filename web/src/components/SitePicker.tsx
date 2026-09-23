@@ -38,7 +38,7 @@
 import { useEffect, useRef, useState } from "react";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
-import { api } from "../api";
+import { api, type SkyBrightnessCoverage } from "../api";
 
 /** Where the map opens with no coordinates and no atlas: a wide view, which
  *  says "pick anywhere" rather than implying a particular part of the world. */
@@ -51,15 +51,17 @@ const TILE_ATTRIBUTION =
   '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors';
 
 /**
- * VIIRS night lights, as an overlay you can pick a dark site off.
+ * The light-pollution overlay you pick a dark site off.
  *
- * This is the same VIIRS data as the light-pollution atlases, delivered as
- * ordinary map tiles by NASA's GIBS rather than as a multi-gigabyte GeoTIFF.
- * That matters: the two datasets HANDOFF item 2 suggested vendoring have both
- * become gated -- Falchi is behind a human-reviewed request form and is
- * CC BY-NC, and EOG's VIIRS download now redirects to an OAuth login. GIBS
- * needs no key and no account, so nothing has to be vendored, downsampled, or
- * relicensed.
+ * Where the server has a sky-brightness map with tiles (see
+ * scripts/build_skyglow.py), the overlay is that map: sky glow, spreading out
+ * from towns into the country around them, and the same numbers the form
+ * reads a site's class from. Tiles are drawn once when the map is built and
+ * served as files.
+ *
+ * Without one it falls back to NASA's VIIRS night lights from GIBS, which
+ * needs no key and no account. Those show where light leaves the ground, not
+ * the sky glow over a site, so they are the second choice.
  *
  * NOTE the axis order. GIBS is WMTS, whose path is TileMatrix/TileRow/TileCol
  * -- z/y/x -- where Leaflet's own convention is z/x/y. Getting this backwards
@@ -76,16 +78,23 @@ const LIGHT_POLLUTION_ATTRIBUTION =
  *  honest here -- the underlying data really is about 500 m per pixel. */
 const LIGHT_POLLUTION_MAX_NATIVE_ZOOM = 8;
 
-/** The overlay's opacity at a zoom. Past its native zoom the night lights
- *  are the same ~500 m pixels stretched -- every GIBS night-lights layer,
- *  Black Marble and the daily VIIRS ones alike, stops at level 8, as the
- *  sensor itself does -- while the street map underneath keeps sharpening.
- *  So the overlay eases from 0.75 at level 8 to 0.4 by level 13: still a
- *  glow saying where the light is, with the crisp roads showing through
- *  instead of a soft blur over them. */
-function lightsOpacity(zoom: number): number {
-  const t = Math.min(1, Math.max(0, (zoom - LIGHT_POLLUTION_MAX_NATIVE_ZOOM) / 5));
-  return 0.75 - 0.35 * t;
+/** Served by the API from the files the map build wrote. */
+const SKY_GLOW_URL = "/api/skybrightness/tiles/{z}/{x}/{y}.png";
+const SKY_GLOW_ATTRIBUTION =
+  'Sky glow: modelled from <a href="https://eogdata.mines.edu/products/vnl/">EOG VIIRS</a> night lights';
+
+/** How an overlay is shown: its tiles run out at `nativeZoom`, and up to
+ *  there it is drawn at `full` opacity. */
+interface Overlay { nativeZoom: number; full: number }
+
+/** The overlay's opacity at a zoom. Past its native zoom the overlay is the
+ *  same coarse pixels stretched -- the satellite sees nothing finer -- while
+ *  the street map underneath keeps sharpening. So it eases to a little over
+ *  half strength five levels on: still a glow saying where the light is,
+ *  with the crisp roads showing through instead of a soft blur over them. */
+function overlayOpacity(zoom: number, overlay: Overlay): number {
+  const t = Math.min(1, Math.max(0, (zoom - overlay.nativeZoom) / 5));
+  return overlay.full * (1 - 0.45 * t);
 }
 
 /** Five decimal places is about a metre — far finer than any observing site
@@ -121,6 +130,11 @@ export function SitePicker({ lat, lon, onPick }: Props) {
   const [tilesFailed, setTilesFailed] = useState(false);
   const [showLights, setShowLights] = useState(true);
   const lightsLayer = useRef<L.TileLayer | null>(null);
+  // Read when the overlay arrives, after the map is built: the checkbox may
+  // have been changed in the meantime.
+  const showLightsNow = useRef(showLights);
+  showLightsNow.current = showLights;
+  const [coverage, setCoverage] = useState<SkyBrightnessCoverage | null>(null);
 
   // `onPick` gets a new identity on every render of the parent, so it is held
   // in a ref and read at event time. Listing it as an effect dependency would
@@ -226,16 +240,45 @@ export function SitePicker({ lat, lon, onPick }: Props) {
     tiles.on("tileerror", () => setTilesFailed(true));
     tiles.addTo(instance);
 
-    // Partly transparent so the coastline and roads underneath stay readable;
-    // the point is to place the glow against geography you recognise.
-    lightsLayer.current = L.tileLayer(LIGHT_POLLUTION_URL, {
-      attribution: LIGHT_POLLUTION_ATTRIBUTION,
-      maxNativeZoom: LIGHT_POLLUTION_MAX_NATIVE_ZOOM,
-      maxZoom: 19,
-      opacity: lightsOpacity(instance.getZoom()),
-      className: "light-pollution-tiles",
+    // One request says both which overlay to show and where the map's data
+    // is; the opening view below waits on the same answer.
+    const coverageRequest = api.skyBrightness().catch(() => null);
+    let overlay: Overlay | null = null;
+    coverageRequest.then((found) => {
+      if (map.current !== instance) return;
+      setCoverage(found);
+      const tiles = found?.tiles;
+      const box = found?.bounds;
+      // Partly transparent so the coastline and roads underneath stay
+      // readable; the point is to place the glow against geography you
+      // recognise. The sky-glow tiles carry their own transparency -- none
+      // at all where the sky is pristine -- so they go on at full strength.
+      overlay = tiles
+        ? { nativeZoom: tiles.max_zoom, full: 1 }
+        : { nativeZoom: LIGHT_POLLUTION_MAX_NATIVE_ZOOM, full: 0.75 };
+      lightsLayer.current = tiles
+        ? L.tileLayer(SKY_GLOW_URL, {
+            attribution: SKY_GLOW_ATTRIBUTION,
+            minNativeZoom: tiles.min_zoom,
+            maxNativeZoom: tiles.max_zoom,
+            maxZoom: 19,
+            // No requests outside the map, where every tile would be empty.
+            bounds: box ? L.latLngBounds([box[1], box[0]], [box[3], box[2]]) : undefined,
+            opacity: overlayOpacity(instance.getZoom(), overlay),
+            className: "light-pollution-tiles",
+          })
+        : L.tileLayer(LIGHT_POLLUTION_URL, {
+            attribution: LIGHT_POLLUTION_ATTRIBUTION,
+            maxNativeZoom: LIGHT_POLLUTION_MAX_NATIVE_ZOOM,
+            maxZoom: 19,
+            opacity: overlayOpacity(instance.getZoom(), overlay),
+            className: "light-pollution-tiles",
+          });
+      if (showLightsNow.current) lightsLayer.current.addTo(instance);
     });
-    instance.on("zoom", () => lightsLayer.current?.setOpacity(lightsOpacity(instance.getZoom())));
+    instance.on("zoom", () => {
+      if (overlay) lightsLayer.current?.setOpacity(overlayOpacity(instance.getZoom(), overlay));
+    });
 
     instance.on("click", (event: L.LeafletMouseEvent) => {
       pick.current(
@@ -245,7 +288,6 @@ export function SitePicker({ lat, lon, onPick }: Props) {
     });
 
     map.current = instance;
-    if (showLights) lightsLayer.current.addTo(instance);
 
     // The dialog lays out around the map, so Leaflet starts out believing its
     // container is zero-sized. Everything that depends on the viewport has to
@@ -263,9 +305,9 @@ export function SitePicker({ lat, lon, onPick }: Props) {
       // swapping the raster moves the map with it. Skipped when the form
       // already has coordinates, which beat any default.
       if (hasPoint) return;
-      api.skyBrightness()
-        .then((coverage) => {
-          const box = coverage.bounds;
+      coverageRequest
+        .then((found) => {
+          const box = found?.bounds;
           if (!box || map.current !== instance) return;
           const [west, south, east, north] = box;
           // animate:false is not a nicety. Leaflet's animated path returns
@@ -365,11 +407,45 @@ export function SitePicker({ lat, lon, onPick }: Props) {
           />
           <span>Show light pollution</span>
         </label>
+        {showLights && coverage?.tiles && (
+          <SkyGlowKey legend={coverage.tiles.legend} source={coverage.source} />
+        )}
       </div>
 
       <p className="muted small">
-        Click anywhere to drop a pin, or drag it to adjust. Hold Ctrl and
-        scroll to zoom.
+        Click anywhere to drop a pin, or drag it to adjust. Scroll or pinch to
+        zoom.
+      </p>
+    </div>
+  );
+}
+
+/**
+ * The overlay's colour key, drawn from the same stops the tiles were coloured
+ * by, so the two cannot drift apart. Dark sky on the left, city on the right,
+ * with the SQM each colour stands for.
+ */
+function SkyGlowKey({ legend, source }: {
+  legend: [number, number[]][];
+  source: string | null;
+}) {
+  const darkest = legend[0][0];
+  const brightest = legend[legend.length - 1][0];
+  const at = (sqm: number) => ((darkest - sqm) / (darkest - brightest)) * 100;
+  const gradient = legend
+    .map(([sqm, [r, g, b, a]]) =>
+      `rgba(${r}, ${g}, ${b}, ${(a / 255).toFixed(2)}) ${at(sqm).toFixed(1)}%`)
+    .join(", ");
+  const ticks = [22, 21, 20, 19, 18, 17].filter((v) => v <= darkest && v >= brightest);
+  return (
+    <div className="sky-glow-key" role="img"
+         aria-label={`Colour key: sky brightness from SQM ${darkest}, darkest, to ${brightest}, brightest`}>
+      <div className="sky-glow-bar" style={{ backgroundImage: `linear-gradient(to right, ${gradient})` }} />
+      <div className="sky-glow-ticks" aria-hidden="true">
+        {ticks.map((v) => <span key={v} style={{ left: `${at(v)}%` }}>{v}</span>)}
+      </div>
+      <p className="muted small" aria-hidden="true">
+        Sky brightness (SQM), higher is darker{source && <> · {source}</>}
       </p>
     </div>
   );

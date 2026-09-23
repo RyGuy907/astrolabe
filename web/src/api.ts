@@ -20,6 +20,8 @@ export interface LocationModel {
   sky_source: string;
   /** The class target filtering actually uses, however it was arrived at. */
   effective_bortle: number;
+  /** The class with a decimal (4.3) when read off the map; else null. */
+  bortle_decimal: number | null;
   timezone: string;
   horizon_name: string;
   horizon_is_generic: boolean;
@@ -42,12 +44,24 @@ export interface SkyBrightnessCoverage {
   bounds: number[] | null;
   /** What the raster says it is, e.g. "modelled from 2025 satellite data". */
   source: string | null;
+  /** Overlay tiles of the map, or null when it came without any. */
+  tiles: SkyGlowTiles | null;
+}
+
+/** Pre-rendered overlay tiles, served at /api/skybrightness/tiles/{z}/{x}/{y}.png. */
+export interface SkyGlowTiles {
+  min_zoom: number;
+  max_zoom: number;
+  /** [SQM, [r, g, b, a]] stops the tiles were coloured by, darkest first. */
+  legend: [number, number[]][];
 }
 
 /** The atlas's answer for one coordinate. */
 export interface SkyBrightnessReading {
   sqm: number | null;
   bortle: number | null;
+  /** The same with a decimal, e.g. 4.3. */
+  bortle_decimal: number | null;
   /** False when the atlas simply has nothing here — a real answer. */
   in_coverage: boolean;
   /** What the raster says it is, as in SkyBrightnessCoverage. */

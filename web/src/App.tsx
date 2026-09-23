@@ -578,7 +578,7 @@ export default function App() {
                   className="tag"
                   title={`Read from the configured light-pollution atlas: SQM ${location.sqm?.toFixed(2)}. You did not set a Bortle class for this site, so this is what target filtering uses.`}
                 >
-                  Bortle {location.effective_bortle} (from atlas)
+                  Bortle {(location.bortle_decimal ?? location.effective_bortle).toFixed(1)} (from atlas)
                   <span className="visually-hidden">
                     {" "}— read from the light-pollution atlas at SQM{" "}
                     {location.sqm?.toFixed(2)}, not a class you set

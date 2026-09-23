@@ -75,6 +75,21 @@ def test_a_lamp_lands_in_the_ring_for_its_distance_and_no_other(distance_km, rin
     assert max(seen) == pytest.approx(1.0)
 
 
+def test_the_overlay_is_clear_where_the_sky_is_pristine_or_unknown():
+    rgba = b.colour(np.array([22.0, 22.3, np.nan]))
+    assert (rgba[:, 3] == 0).all()
+
+
+def test_the_overlay_grows_more_opaque_as_the_sky_brightens():
+    alpha = b.colour(np.linspace(22.0, 16.8, 60))[:, 3].astype(int)
+    assert (np.diff(alpha) >= 0).all() and alpha[-1] > 200
+
+
+def test_the_overlay_hits_each_legend_colour_exactly():
+    for sqm_value, rgba in b.LEGEND:
+        assert list(b.colour(np.array([sqm_value]))[0]) == list(rgba)
+
+
 def test_the_script_and_the_engine_convert_brightness_identically():
     for mcd in (0.0, 0.05, 0.5, 5.0):
         assert float(b.sqm(np.array(mcd))) == pytest.approx(sqm_from_artificial_brightness(mcd))
