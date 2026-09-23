@@ -1244,9 +1244,12 @@ table.targets tr.charted { background: rgba(244, 201, 93, 0.06); }
 .location-menu {
   position: absolute;
   top: calc(100% + 6px);
-  right: 0;
+  /* Opens rightward from the trigger, which sits at the left of the header:
+     anchored on the right, the wider menu hung off the edge of the page. */
+  left: 0;
   z-index: 40;
   min-width: 300px;
+  max-width: calc(100vw - 32px);
   max-height: 60vh;
   overflow-y: auto;
   background: var(--panel);
