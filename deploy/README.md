@@ -31,9 +31,15 @@ each visitor's browser.
    t3.nano. EC2 → the instance → *Instance state → Stop*; once stopped,
    *Actions → Instance settings → Change instance type* → `t3.micro`;
    *Instance state → Start*. The Elastic IP stays attached.
-2. **DNS.** In the `ryanjrusson.com` hosted zone (Route 53): *Create record*,
-   name `astrolabe`, type `A`, value the instance's Elastic IP -- the same
-   address norhog's record uses -- TTL 300.
+2. **DNS.** `ryanjrusson.com` is on Cloudflare: *DNS → Records → Add record*,
+   type `A`, name `astrolabe`, IPv4 the instance's Elastic IP -- the same
+   address norhog's record uses -- TTL Auto, and **Proxy status off** ("DNS
+   only", grey cloud). Caddy gets the certificate itself, so browsers should
+   reach it directly; behind Cloudflare's proxy there would be a second TLS
+   layer, and Cloudflare's default SSL mode loops against Caddy's redirect.
+   To proxy it later, set SSL/TLS to *Full (strict)* first.
+   `nslookup astrolabe.ryanjrusson.com` should then answer with the Elastic
+   IP, not a Cloudflare address.
 3. **Let the new repository use norhog's deploy role.** IAM → Roles → the role
    norhog's `AWS_DEPLOY_ROLE_ARN` names → *Trust relationships → Edit*. Where
    the condition on `token.actions.githubusercontent.com:sub` lists
