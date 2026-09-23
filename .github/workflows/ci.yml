@@ -4,6 +4,8 @@ on:
   push:
     branches: ['**']
   pull_request:
+  # Actions -> CI -> Run workflow: redeploy main without a new commit.
+  workflow_dispatch:
 
 # Read-only by default. The deploy job asks for the extra token it needs.
 permissions:
@@ -70,7 +72,7 @@ jobs:
     needs: [python, web]
     # Skipped, not failed, until the repository has its AWS settings
     # (deploy/README.md).
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && vars.INSTANCE_ID != ''
+    if: (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/main' && vars.INSTANCE_ID != ''
     runs-on: ubuntu-latest
     concurrency:
       group: deploy-production
