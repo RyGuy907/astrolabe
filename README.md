@@ -237,7 +237,20 @@ atlas's light-propagation model and running it on newer satellite data:
 5. **install** copies the map and its tiles into `config/`.
 
 Where a site's class comes from the map, the app shows it with a decimal
-("Bortle 4.3"): a whole class hides most of what the map knows.
+("Bortle 4.3"): a whole class hides most of what the map knows. Classes follow
+lightpollutionmap.info's SQM ranges, the ones most observers learned the scale
+by -- Bortle 1 only at SQM 21.99 and darker, which is about 8% of the lower
+48's land, all of it in the remote West.
+
+**One calibration on top of the fit.** The shipped map's artificial light is
+the model's times 1.55. The satellite barely sees the blue of white LED
+light, so any map built on it -- the atlas included -- runs dark wherever
+streets have gone LED (Kyba et al. 2023, *Science*, found skies brightening
+several times faster to observers on the ground than to the satellite). The
+factor is fitted to 519 Globe at Night sky-meter readings from 2024-25, and it
+errs toward a brighter sky than the atlas, which is the safe side for planning
+a drive. It moves Salt Lake City from SQM 18.2 to 17.7, Provo from 19.0 to
+18.6, and a Kansas farm from 20.9 to 20.6.
 
 How well it reproduces the atlas, on 2014 data, over every cell of the lower
 48 (SQM error in mag/arcsec²; the hold-out rows are fitted on one half of the
@@ -255,18 +268,20 @@ shape the kernel should be; it found a smooth fall-off, and gave every ring
 beyond 140 km a weight of zero.
 
 Checked against the ground, and against David Lorenz's independent 2025
-atlas (the basis of lightpollutionmap.app's values):
+atlas (the basis of lightpollutionmap.app's values). The first three are the
+model before the calibration above:
 
 - **31 published sky-meter measurements** (2016-2026: a Tucson survey, dark-sky
-  park monitoring, observatories). At lit sites the map is off by a median
+  park monitoring, observatories). At lit sites the model is off by a median
   +0.06 mag; Lorenz's reads 0.34 mag too bright, having no correction for
-  altitude.
+  altitude. With the calibration the map reads 0.4 mag bright here -- the
+  price of the safe side.
 - **519 Globe at Night sites** (2024-25 citizen readings, clear, moonless,
   full darkness). Citizen readings run about 0.65 mag brighter than every map,
-  pristine sites included, so that part is how they are taken. With each
-  map's own offset removed, this one scatters least: 0.26 mag, against 0.28
-  for the 2014 atlas and 0.34 for Lorenz. Where the sky has brightened since
-  2014, it is 0.35 mag closer to the readings than the atlas.
+  pristine sites included. With each map's own offset removed, the model
+  scatters least: 0.26 mag, against 0.28 for the 2014 atlas and 0.34 for
+  Lorenz. Where the sky has brightened since 2014, it is 0.35 mag closer to
+  the readings than the atlas. The calibration halves the offset, to 0.36.
 - **Change since 2014** agrees with Lorenz's change since 2016 (correlation
   0.91 across 40 places), led by the Permian Basin oil field.
 

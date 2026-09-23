@@ -10,10 +10,27 @@ import yaml
 
 from .horizon import FLAT, HorizonProfile, parse_horizon
 
-# Bortle -> SQM (mag/arcsec^2), PLAN.md 2. SQM is what we store internally;
-# Bortle is a display convenience.
+# SQM (mag/arcsec^2) is what we store internally; Bortle is a display
+# convenience (PLAN.md 2). The classes are the SQM ranges lightpollutionmap.info
+# uses, the ones most observers have learned the scale by: each value is the
+# darkest-sky end of a class's range, so class 1 is SQM 21.99 and darker --
+# artificial light under about 1% of the natural sky -- and class 9 is
+# brighter than 17.80.
+#
+# An earlier table put the boundary between 1 and 2 at 21.8, which let
+# artificial light up to a fifth of the natural sky count as pristine, and two
+# thirds of the lower 48 came out Bortle 1.
+BORTLE_SQM_LOWER = {
+    1: 21.99, 2: 21.89, 3: 21.69, 4: 20.49, 5: 19.50,
+    6: 18.94, 7: 18.38, 8: 17.80,
+}
+
+# The SQM that stands for a class the observer chose themselves. Inside each
+# class's range; for 4-9 the values PLAN.md always used (Bortle 5 = 20.4 is
+# the fallback that sets which targets appear when nothing is known), and for
+# 1-3 values inside the narrower ranges those classes now have.
 BORTLE_SQM = {
-    1: 21.9, 2: 21.7, 3: 21.4, 4: 20.9, 5: 20.4,
+    1: 22.0, 2: 21.94, 3: 21.79, 4: 20.9, 5: 20.4,
     6: 19.4, 7: 18.5, 8: 18.0, 9: 17.5,
 }
 

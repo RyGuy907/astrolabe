@@ -215,6 +215,18 @@ OUT_WEST, OUT_EAST, OUT_SOUTH, OUT_NORTH = -125.0, -66.0, 24.0, 50.0
 # numbers as engine/skybrightness.py.
 NATURAL = 0.171168465
 
+# Artificial light in the shipped map is the model's times this. The model
+# reproduces the atlas, and the atlas is built on what the satellite sees --
+# which is little of the blue in white LED light, so a satellite map runs dark
+# wherever streets have gone LED, and more so every year (Kyba et al. 2023,
+# Science 379, 265: skies brightening several times faster to people on the
+# ground than to the satellite). 1.55 is fitted to ground readings: 519 Globe
+# at Night sky-meter sites, 2024-25, clear, moonless and fully dark, fitting
+# measured = natural + k x model. It errs toward a brighter sky than the atlas,
+# which is the safe side for planning a drive: at the research-grade sites
+# (mostly Tucson, 2017) it reads about 0.4 mag bright.
+GROUND_CALIBRATION = 1.55
+
 
 def sqm(artificial: np.ndarray) -> np.ndarray:
     return np.log10((artificial + NATURAL) / 1.08e8) / -0.4
@@ -487,7 +499,7 @@ def apply() -> None:
     # the crop's edge the model is missing whatever lies beyond.
     col0, row0 = (int(round(v)) for v in ~transform * (OUT_WEST, OUT_NORTH + CELL / 2))
     col1, row1 = (int(round(v)) for v in ~transform * (OUT_EAST, OUT_SOUTH + CELL / 2))
-    shipped = now[row0:row1, col0:col1]
+    shipped = now[row0:row1, col0:col1] * GROUND_CALIBRATION
     out = OUTPUT
     profile = dict(driver="GTiff", width=shipped.shape[1], height=shipped.shape[0], count=1,
                    dtype="float32", crs="EPSG:4326", nodata=-1.0,
@@ -503,6 +515,8 @@ def apply() -> None:
             SOURCE=f"EOG VIIRS annual VNL, {LATEST}, median_masked (CC BY 4.0)",
             MODEL=("two-layer radial kernel fitted to Falchi et al. 2016 on 2014 VNL v2.1, "
                    "ETOPO 2022 ground height; scripts/build_skyglow.py"),
+            CALIBRATION=(f"artificial x{GROUND_CALIBRATION}, fitted to Globe at Night "
+                         "2024-25 sky-meter readings"),
         )
     print(f"wrote {out.relative_to(ROOT)} ({out.stat().st_size / 2**20:.1f} MB)")
 

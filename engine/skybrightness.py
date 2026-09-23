@@ -55,7 +55,7 @@ import math
 import os
 from pathlib import Path
 
-from .locations import BORTLE_SQM
+from .locations import BORTLE_SQM, BORTLE_SQM_LOWER
 
 #: Zenith brightness of the natural night sky — airglow, starlight, zodiacal
 #: light — in mcd/m². Alone it corresponds to SQM 22.00, which the tests pin.
@@ -106,39 +106,40 @@ def artificial_brightness_from_sqm(sqm: float) -> float:
 
 
 def bortle_from_sqm(sqm: float) -> int:
-    """SQM -> nearest Bortle class, the inverse of `BORTLE_SQM`.
+    """SQM -> Bortle class, by the ranges in `BORTLE_SQM_LOWER`.
 
-    `BORTLE_SQM`'s values are representative points rather than boundaries, so
-    "nearest" is the honest reading: it puts the class boundary halfway between
-    neighbouring entries. Values beyond either end clamp to 1 or 9 rather than
-    extrapolating off a nine-point scale.
+    The darkest class whose lower bound the sky reaches; brighter than every
+    bound is class 9. Each class's `BORTLE_SQM` value lies inside its range,
+    so the two tables agree in both directions.
     """
-    return min(BORTLE_SQM, key=lambda cls: abs(BORTLE_SQM[cls] - sqm))
+    for cls in sorted(BORTLE_SQM_LOWER):
+        if sqm >= BORTLE_SQM_LOWER[cls]:
+            return cls
+    return 9
+
+
+#: Where the decimal scale bottoms out: class 9 has no bright end, so 9.4 is
+#: set at the brightest city skies, around SQM 17.0.
+_BRIGHTEST_SQM = 17.0
 
 
 def bortle_decimal_from_sqm(sqm: float) -> float:
     """SQM -> Bortle with a decimal, e.g. 4.3, for a value read off a map.
 
-    A whole class hides most of what a map knows: 20.5 and 21.3 are both
-    "Bortle 4" and are not the same sky. This interpolates between
-    `BORTLE_SQM`'s representative points, so each class's own value lands on
-    its whole number and halfway between two of them is the .5 between, the
-    same boundary `bortle_from_sqm` uses. Rounded to a tenth and kept inside
-    the class `bortle_from_sqm` gives, so the two never disagree on screen
-    ("Bortle 4.5" beside a class of 4). Clamped to 1-9, as that is.
+    A whole class hides most of what a map knows: 20.6 and 21.6 are both
+    "Bortle 4" and are not the same sky. The decimal is how far through its
+    class's SQM range the sky is, from x.6 at the darker edge to x.4 past the
+    whole number at the brighter one, so it never disagrees with the class
+    `bortle_from_sqm` gives ("Bortle 4.5" beside a class of 4). Class 1 is
+    simply 1.0: no sky is darker than pristine.
     """
-    points = sorted(BORTLE_SQM.items(), key=lambda item: item[1])  # brightest first
-    classes = [float(cls) for cls, _ in points]
-    values = [v for _, v in points]
-    if sqm <= values[0]:
-        exact = classes[0]
-    elif sqm >= values[-1]:
-        exact = classes[-1]
-    else:
-        i = next(i for i in range(1, len(values)) if sqm <= values[i])
-        share = (sqm - values[i - 1]) / (values[i] - values[i - 1])
-        exact = classes[i - 1] + share * (classes[i] - classes[i - 1])
     whole = bortle_from_sqm(sqm)
+    if whole == 1:
+        return 1.0
+    dark_edge = BORTLE_SQM_LOWER[whole - 1]
+    bright_edge = BORTLE_SQM_LOWER.get(whole, _BRIGHTEST_SQM)
+    share = (dark_edge - sqm) / (dark_edge - bright_edge)
+    exact = whole - 0.5 + min(max(share, 0.0), 1.0)
     return min(max(round(exact, 1), whole - 0.4), whole + 0.4)
 
 

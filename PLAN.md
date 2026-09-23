@@ -36,7 +36,7 @@ There is **no good free coordinate→Bortle API**. Don't waste time hunting for 
 - **Phase 1:** Bortle class is a per-location field the user sets when saving a site. Ship the known sites pre-seeded.
 - **Later (optional):** vendor a downsampled World Atlas / VIIRS raster (Falchi et al. 2016 or newer annual VIIRS composite) as a GeoTIFF and do a local pixel lookup with `rasterio`. Offline, no API, ~tens of MB. Do this only after everything else works.
 
-Store sky brightness as **SQM (mag/arcsec²)** internally, with Bortle as a display convenience. Rough mapping: B1 ≈ 21.9, B2 ≈ 21.7, B3 ≈ 21.4, B4 ≈ 20.9, B5 ≈ 20.4, B6 ≈ 19.4, B7 ≈ 18.5, B8 ≈ 18.0, B9 ≈ 17.5.
+Store sky brightness as **SQM (mag/arcsec²)** internally, with Bortle as a display convenience. Classes follow lightpollutionmap.info's SQM ranges: B1 ≥ 21.99, B2 ≥ 21.89, B3 ≥ 21.69, B4 ≥ 20.49, B5 ≥ 19.50, B6 ≥ 18.94, B7 ≥ 18.38, B8 ≥ 17.80, B9 brighter. A class the observer chooses stands for B1 22.0, B2 21.94, B3 21.79, B4 20.9, B5 20.4, B6 19.4, B7 18.5, B8 18.0, B9 17.5.
 
 ### Deep-sky catalog
 **OpenNGC** (`mattiaverga/OpenNGC`, CC-BY-SA) — NGC + IC in CSV: RA/Dec, object type, V/B magnitude, major/minor axis, position angle, surface brightness, common names, Messier cross-reference. Vendor the CSV into the repo, parse once into SQLite at build time.

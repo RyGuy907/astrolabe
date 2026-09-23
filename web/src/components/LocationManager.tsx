@@ -625,6 +625,7 @@ export function LocationManager({ locations, editingKey, onClose, onCreated }: P
               lat={latValid ? latValue : null}
               lon={lonValid ? lonValue : null}
               reading={atlas}
+              elevationM={elevation.trim() !== "" && elevationValid ? Number(elevation) : null}
               readingLabel={BORTLE_CLASSES.find(([value]) => value === atlas?.bortle)?.[1] ?? null}
               onPick={(pickedLat, pickedLon) => {
                 setLat(String(pickedLat));

@@ -96,8 +96,12 @@ def test_telescopic_gain_rejects_nonpositive():
 
 
 def test_naked_eye_limiting_mag_anchors():
-    """The fit is pinned at the Bortle 1 and Bortle 8 endpoints."""
-    assert naked_eye_limiting_mag(BORTLE_SQM[1]) == pytest.approx(7.8, abs=0.01)
+    """The fit is pinned at its two conventional pairings: SQM 21.9 is about
+    mag 7.8, SQM 18.0 about mag 4.3. They are SQM values, not Bortle classes:
+    the class table moved to lightpollutionmap.info's ranges, the pairings did
+    not."""
+    assert naked_eye_limiting_mag(21.9) == pytest.approx(7.8, abs=0.01)
+    assert naked_eye_limiting_mag(18.0) == pytest.approx(4.3, abs=0.01)
     assert naked_eye_limiting_mag(BORTLE_SQM[8]) == pytest.approx(4.3, abs=0.01)
     # Darker sky must never yield a fainter limit.
     values = [naked_eye_limiting_mag(BORTLE_SQM[b]) for b in range(1, 10)]

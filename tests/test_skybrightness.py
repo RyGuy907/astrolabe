@@ -125,9 +125,25 @@ def test_lookup_is_off_rather_than_broken_without_a_raster(monkeypatch, tmp_path
 
 # --- decimal Bortle ----------------------------------------------------------
 
-def test_each_class_value_is_its_own_whole_number():
+def test_each_class_value_rounds_to_its_own_class():
     for cls, sqm in BORTLE_SQM.items():
-        assert bortle_decimal_from_sqm(sqm) == pytest.approx(cls)
+        assert round(bortle_decimal_from_sqm(sqm)) == cls
+
+
+@pytest.mark.parametrize("sqm, cls", [
+    (22.0, 1), (21.99, 1), (21.95, 2), (21.89, 2), (21.8, 3), (21.69, 3),
+    (21.0, 4), (20.49, 4), (20.0, 5), (19.2, 6), (18.6, 7), (18.0, 8), (17.79, 9),
+])
+def test_the_classes_follow_lightpollutionmap_info_ranges(sqm, cls):
+    """The ranges most observers learned the scale by: class 1 only at 21.99
+    and darker, class 9 brighter than 17.80."""
+    assert bortle_from_sqm(sqm) == cls
+
+
+def test_the_decimal_runs_from_the_dark_edge_of_a_class_to_the_bright():
+    assert bortle_decimal_from_sqm(21.68) == pytest.approx(3.6, abs=0.05)   # just into 4
+    assert bortle_decimal_from_sqm(20.50) == pytest.approx(4.4, abs=0.05)   # nearly 5
+    assert bortle_decimal_from_sqm(22.0) == 1.0
 
 
 def test_the_decimal_never_contradicts_the_whole_class():
@@ -145,8 +161,10 @@ def test_a_brighter_sky_never_has_a_lower_decimal_class():
 
 
 def test_the_decimal_clamps_to_the_scale():
+    """Nothing reads better than 1.0 or worse than 9.4: the decimal stays
+    inside the class, and class 9 has no brighter class to run into."""
     assert bortle_decimal_from_sqm(22.3) == 1.0
-    assert bortle_decimal_from_sqm(16.0) == 9.0
+    assert bortle_decimal_from_sqm(16.0) == 9.4
 
 
 def test_only_a_class_read_off_the_map_gets_a_decimal():
@@ -157,7 +175,7 @@ def test_only_a_class_read_off_the_map_gets_a_decimal():
     base = dict(key="k", name="n", lat=40.0, lon=-111.0, tz="America/Denver")
     assert Location(**base, bortle=4).bortle_decimal is None
     assert Location(**base).bortle_decimal is None
-    assert Location(**base, atlas_sqm=20.65).bortle_decimal == pytest.approx(4.4)
+    assert round(Location(**base, atlas_sqm=20.65).bortle_decimal) == 4
 
 
 def _tiny_raster(path, tags: dict[str, str]) -> None:
@@ -356,7 +374,7 @@ def test_the_three_sky_sources_are_distinguishable():
     atlas = Location(**common, bortle=None, atlas_sqm=21.35)
     assert atlas.sky_source == "atlas"
     assert atlas.sqm == 21.35
-    assert atlas.effective_bortle == 3          # nearest class to 21.35
+    assert atlas.effective_bortle == 4          # 21.35 is in class 4's range
 
     nothing = Location(**common)
     assert nothing.sky_source == "assumed"

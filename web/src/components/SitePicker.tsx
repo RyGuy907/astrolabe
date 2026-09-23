@@ -110,12 +110,18 @@ interface Props {
    *  one, shown on the pin; and the name of its Bortle class. */
   reading?: SkyBrightnessReading | null;
   readingLabel?: string | null;
+  /** The form's elevation for these coordinates, in metres, once known. */
+  elevationM?: number | null;
 }
+
+/** Metres to feet, for the pin: US observers read heights in feet. */
+const FEET_PER_METRE = 3.28084;
 
 /** What the pin says about the sky where it stands: the class with its
  *  decimal and description, and the SQM behind it. Built as elements rather
  *  than an HTML string, so nothing in it is ever parsed as markup. */
-function readingContent(reading: SkyBrightnessReading, label: string | null): HTMLElement {
+function readingContent(reading: SkyBrightnessReading | null, label: string | null,
+                        elevationM: number | null): HTMLElement {
   const box = document.createElement("div");
   const add = (tag: string, className: string, text: string) => {
     const el = document.createElement(tag);
@@ -123,14 +129,18 @@ function readingContent(reading: SkyBrightnessReading, label: string | null): HT
     el.textContent = text;
     box.appendChild(el);
   };
-  if (!reading.in_coverage || reading.sqm === null) {
+  if (reading && (!reading.in_coverage || reading.sqm === null)) {
     add("div", "site-reading-note", "No sky-brightness data here");
-    return box;
+  } else if (reading && reading.sqm !== null) {
+    add("div", "site-reading-class",
+        `Bortle ${(reading.bortle_decimal ?? reading.bortle ?? 0).toFixed(1)}`);
+    if (label) add("div", "site-reading-label", label);
+    add("div", "site-reading-sqm", `SQM ${reading.sqm.toFixed(2)} mag/arcsec²`);
   }
-  add("div", "site-reading-class",
-      `Bortle ${(reading.bortle_decimal ?? reading.bortle ?? 0).toFixed(1)}`);
-  if (label) add("div", "site-reading-label", label);
-  add("div", "site-reading-sqm", `SQM ${reading.sqm.toFixed(2)} mag/arcsec²`);
+  if (elevationM !== null) {
+    const feet = Math.round(elevationM * FEET_PER_METRE).toLocaleString();
+    add("div", "site-reading-sqm", `Elevation ${feet} ft`);
+  }
   return box;
 }
 
@@ -149,7 +159,9 @@ function normaliseLon(lon: number): number {
   return (((lon + 180) % 360) + 360) % 360 - 180;
 }
 
-export function SitePicker({ lat, lon, onPick, reading = null, readingLabel = null }: Props) {
+export function SitePicker({
+  lat, lon, onPick, reading = null, readingLabel = null, elevationM = null,
+}: Props) {
   const container = useRef<HTMLDivElement>(null);
   const map = useRef<L.Map | null>(null);
   const marker = useRef<L.Marker | null>(null);
@@ -416,7 +428,7 @@ export function SitePicker({ lat, lon, onPick, reading = null, readingLabel = nu
   useEffect(() => {
     const pin = marker.current;
     if (!pin) return;
-    if (!reading) {
+    if (!reading && elevationM === null) {
       pin.unbindTooltip();
       return;
     }
@@ -425,13 +437,13 @@ export function SitePicker({ lat, lon, onPick, reading = null, readingLabel = nu
     const instance = map.current;
     const nearTop = instance ? instance.latLngToContainerPoint(pin.getLatLng()).y < 90 : false;
     pin.unbindTooltip();
-    pin.bindTooltip(readingContent(reading, readingLabel), {
+    pin.bindTooltip(readingContent(reading, readingLabel, elevationM), {
       permanent: true,
       direction: nearTop ? "bottom" : "top",
       offset: nearTop ? [0, 12] : [0, -12],
       className: "site-reading",
     }).openTooltip();
-  }, [reading, readingLabel, lat, lon]);
+  }, [reading, readingLabel, elevationM, lat, lon]);
 
   return (
     <div className="site-picker">
