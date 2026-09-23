@@ -42,8 +42,10 @@ export function DashboardSkeleton({ splitStyle }: {
               {Array.from({ length: 9 }, (_, i) => (
                 <div key={i}>
                   <Bar width="45%" height={9} />
-                  {/* Tall: the real figures, "21:04–01:00", wrap to two lines. */}
-                  <Bar width="70%" height={50} />
+                  {/* Tall: the real figures, "21:04–01:00", wrap to two lines
+                      -- except on a phone, where they fit on one and the
+                      stylesheet makes this shorter to match. */}
+                  <span className="skeleton-bar skeleton-figure" style={{ width: "70%" }} />
                   <Bar width="40%" height={9} />
                 </div>
               ))}
@@ -61,8 +63,8 @@ export function DashboardSkeleton({ splitStyle }: {
           </div>
           {/* The chart's own proportions, read from it, so the two cannot
               drift apart when one of them changes. */}
-          <span className="skeleton-block"
-                style={{ aspectRatio: `${CHART_WIDTH} / ${CHART_HEIGHT}` }} />
+          <span className="skeleton-block skeleton-chart"
+                style={{ "--chart-aspect": `${CHART_WIDTH} / ${CHART_HEIGHT}` } as React.CSSProperties} />
           {/* The legend chips under the chart: two rows of them. */}
           <div className="skeleton-legend">
             {[72, 64, 70, 60, 66].map((w, i) => (
@@ -75,13 +77,17 @@ export function DashboardSkeleton({ splitStyle }: {
         <span className="splitter" aria-hidden="true" />
         <section className="panel sky-panel">
           <div className="panel-head">
-            <Bar width={240} height={28} />
+            <span className="skeleton-bar skeleton-tabs" />
           </div>
           <span className="skeleton-block" style={{ height: 36, marginBottom: 14 }} />
           {Array.from({ length: 8 }, (_, i) => (
             <div key={i} className="skeleton-row">
               <Bar width={28} height={16} />
-              <Bar width={`${55 - (i % 3) * 10}%`} />
+              {/* A constellation's name, and on a phone its hours under it. */}
+              <span className="skeleton-row-text">
+                <Bar width={`${55 - (i % 3) * 10}%`} />
+                <span className="skeleton-bar skeleton-row-sub" />
+              </span>
               <Bar width={40} />
             </div>
           ))}

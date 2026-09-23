@@ -1929,13 +1929,28 @@ table.targets tr.charted { background: var(--accent-soft); }
 .skeleton-dial {
   width: 188px;
   height: 188px;
-  border-radius: 50%;
   margin: 0 auto 14px;
   background: none;
-  border: 3px solid rgba(255, 255, 255, 0.07);
   animation: none;
+  position: relative;
+}
+/* The ring inside the dial's box where the real one is drawn: radius 46 of
+   a 120 viewBox, so inset by 14/120 of the box on every side. */
+.skeleton-dial::before {
+  content: "";
+  position: absolute;
+  inset: 11.67%;
+  border-radius: 50%;
+  border: 3px solid rgba(255, 255, 255, 0.07);
 }
 .dashboard-skeleton .dial { display: flex; flex-direction: column; align-items: center; }
+.skeleton-figure { height: 50px; }
+.skeleton-chart { aspect-ratio: var(--chart-aspect); }
+.skeleton-tabs { width: 240px; height: 28px; }
+.skeleton-row-text { flex: 1; display: flex; flex-direction: column; }
+.skeleton-row-sub { display: none; }
+
+}
 .skeleton-row {
   display: flex;
   align-items: center;
@@ -1964,6 +1979,19 @@ main#main, .dashboard-skeleton { display: flex; flex-direction: column; gap: 36p
 @media (prefers-reduced-motion: reduce) {
   .skeleton-bar, .skeleton-block { animation: none; }
 }
+
+/* On a phone the skeleton takes the phone layout's shapes, or the page
+   jumped when the real one arrived -- and its 188px dials, two abreast,
+   were wider than the screen. */
+@media (max-width: 600px) {
+  .skeleton-dial { width: min(40vw, 150px); height: min(40vw, 150px); }
+  .skeleton-figure { height: 30px; }
+  /* The chart is drawn at the column's width on a phone, about square. */
+  .skeleton-chart { aspect-ratio: 1 / 1.05; max-height: 440px; min-height: 320px; }
+  .skeleton-legend { margin-left: 0; max-width: none; }
+  .skeleton-tabs { width: 100%; height: 44px; border-radius: 999px; }
+  .skeleton-row { padding: 14px 0; align-items: flex-start; }
+  .skeleton-row-sub { display: block; width: 50%; height: 10px; }
 
 /* The site and date are the controls used every visit, so they get the size.
    They were 34px and 36px -- not even matching -- beside a switch of the
