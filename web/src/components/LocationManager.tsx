@@ -184,6 +184,16 @@ function useModalBehaviour(
   }, []);
 }
 
+/** The name offered for a point picked off the map, which has none of its own. */
+function suggestedName(lat: number, lon: number): string {
+  return `Site ${lat.toFixed(3)}, ${lon.toFixed(3)}`;
+}
+
+/** Whether a name is one `suggestedName` made, rather than one someone typed. */
+function isSuggestedName(name: string): boolean {
+  return /^Site -?\d+\.\d{3}, -?\d+\.\d{3}$/.test(name.trim());
+}
+
 /** Mirrors the key normalisation in `api/main.py:create_location`, so the key
  *  shown in the form is the key that gets saved. */
 function normaliseKey(raw: string): string {
@@ -283,6 +293,21 @@ export function LocationManager({ locations, editingKey, onClose, onCreated }: P
     latValue >= -90 && latValue <= 90;
   const lonValid = lon.trim() !== "" && Number.isFinite(lonValue) &&
     lonValue >= -180 && lonValue <= 180;
+  // A suggested name follows the coordinates it was made from. It used to be
+  // set once, when the name was empty, so moving the pin afterwards -- or
+  // editing a site's coordinates later -- left a site called "Site 42.232,
+  // -107.450" sitting at 40.408, -111.792. A name the observer typed is
+  // theirs and is never touched.
+  useEffect(() => {
+    if (!latValid || !lonValid || !isSuggestedName(name)) return;
+    const suggestion = suggestedName(latValue, lonValue);
+    if (suggestion === name) return;
+    setName(suggestion);
+    if (!keyEdited) setKey(normaliseKey(suggestion));
+    // Only the coordinates should trigger this; the name is read, not watched.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [latValue, lonValue, latValid, lonValid]);
+
   const elevationValid = elevation.trim() === "" || Number.isFinite(Number(elevation));
   const keyValid = normaliseKey(key) !== "";
   // Editing a site keeps its own key, so that key is not "taken" by anyone
@@ -554,9 +579,9 @@ export function LocationManager({ locations, editingKey, onClose, onCreated }: P
                 setError(null);
                 // A map point has no name of its own. Offer one the user can
                 // overwrite, rather than blocking Save on an empty field.
+                // One already suggested is moved along by the effect above.
                 if (!name.trim()) {
-                  const suggestion =
-                    `Site ${pickedLat.toFixed(3)}, ${pickedLon.toFixed(3)}`;
+                  const suggestion = suggestedName(pickedLat, pickedLon);
                   setName(suggestion);
                   if (!keyEdited) setKey(normaliseKey(suggestion));
                 }
