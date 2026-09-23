@@ -44,7 +44,7 @@ import numpy as np
 import rasterio
 from rasterio.windows import Window
 from scipy import fft, optimize
-from scipy.ndimage import map_coordinates
+from scipy.ndimage import map_coordinates, percentile_filter, uniform_filter
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))           # for engine's Bortle table
@@ -198,12 +198,23 @@ PLANE_KM = 1.0  # cell size of the flat grid the convolution runs on
 # Scale heights of the two things in the air that scatter light back down, in
 # km, from Garstang (1986, PASP 98, 364): the air's molecules, which thin out
 # slowly with height, and haze and dust, which are mostly in the lowest
-# couple of kilometres. A site 1.6 km up, like Denver, has a sixth less air
-# above it than one at sea level but only about a third of the haze, and its
-# sky is correspondingly darker for the same lights. Each ring's weight is
-# fitted separately for each: how much of the glow from that distance is
-# scattered by molecules and how much by haze is for the atlas to say.
+# couple of kilometres. Each ring's weight is fitted separately for each: how
+# much of the glow from that distance is scattered by molecules and how much
+# by haze is for the atlas to say.
+#
+# The molecules thin with height above the sea. The haze thins with height
+# above the surrounding low ground: it is the air a town sits in, and it sits
+# on the valley floor wherever that floor is -- Salt Lake City's winter
+# inversions are the extreme case. Measured from the sea instead, as Garstang
+# has it, a city 1.3-2 km up lost most of its own haze and came out 0.3-0.7
+# mag darker than an independent model (Lorenz's, behind lightpollutionmap.app)
+# puts it; measured from the valley floor they agree to about 0.15, and the
+# fit to the atlas and to the ground readings is as good either way.
 LAYERS_KM = (9.62, 1.52)
+# "Surrounding low ground": the 10th percentile of height within about 15 km,
+# smoothed, so a canyon does not count as the floor and a peak above a valley
+# still stands above its haze.
+LOW_GROUND_WINDOW_CELLS, LOW_GROUND_PERCENTILE = 9, 10
 
 # Sites whose glow is compared with the atlas: the lower 48, kept far enough
 # inside the cropped region that nearly all of their surroundings are in it.
@@ -295,6 +306,18 @@ class Plane:
         # The plane cell [i, i+1) has its centre at i + 0.5.
         return map_coordinates(field, [r.ravel() - 0.5, c.ravel() - 0.5],
                                order=1, mode="constant").reshape(r.shape)
+
+
+def layer_heights(height: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    """The height each layer thins with: above the sea for the molecules,
+    above the surrounding low ground for the haze. Both in km, on the grid."""
+    rows, cols = height.shape[0] // 4 * 4, height.shape[1] // 4 * 4
+    coarse = height[:rows, :cols].reshape(rows // 4, 4, cols // 4, 4).mean(axis=(1, 3))
+    low = percentile_filter(coarse, LOW_GROUND_PERCENTILE, size=LOW_GROUND_WINDOW_CELLS)
+    low = uniform_filter(low, size=5)
+    low = np.repeat(np.repeat(low, 4, axis=0), 4, axis=1)
+    low = np.pad(low, [(0, height.shape[0] - rows), (0, height.shape[1] - cols)], mode="edge")
+    return height, np.maximum(height - low, 0.0)
 
 
 def ring_kernels(edges=RINGS_KM, step=PLANE_KM, sub=6) -> np.ndarray:
@@ -395,7 +418,9 @@ def fit() -> None:
     h = height.ravel()[picks]
     # One block of ring columns per layer, each dimmed by how much of that
     # layer lies below the site.
-    design = np.hstack([rings * np.exp(-h / layer)[:, None] for layer in LAYERS_KM])
+    heights = [hh.ravel()[picks] for hh in layer_heights(height)]
+    design = np.hstack([rings * np.exp(-hh / layer)[:, None]
+                        for layer, hh in zip(LAYERS_KM, heights)])
     truth = atlas.ravel()[picks]
     lon = np.broadcast_to(plane.lon[None, :], atlas.shape).ravel()[picks]
     is_strat = np.arange(picks.size) < stratified.size
@@ -462,8 +487,9 @@ def model(year: str, fitted=None) -> np.ndarray:
     layers, kernels = _kernel() if fitted is None else fitted
     height = _read("elevation.tif")
     total = np.zeros(height.shape)
-    for layer, glow in zip(layers, convolve_all(plane.power(_read(f"lights_{year}.tif")), kernels)):
-        total += plane.at(glow) * np.exp(-height / layer)
+    glows = convolve_all(plane.power(_read(f"lights_{year}.tif")), kernels)
+    for layer, hh, glow in zip(layers, layer_heights(height), glows):
+        total += plane.at(glow) * np.exp(-hh / layer)
     return np.maximum(total, 0.0)
 
 
@@ -515,7 +541,7 @@ def apply() -> None:
             UNITS="mcd/m2, artificial zenith sky brightness",
             SOURCE=f"EOG VIIRS annual VNL, {LATEST}, median_masked (CC BY 4.0)",
             MODEL=("two-layer radial kernel fitted to Falchi et al. 2016 on 2014 VNL v2.1, "
-                   "ETOPO 2022 ground height; scripts/build_skyglow.py"),
+                   "haze above local low ground, ETOPO 2022 heights; scripts/build_skyglow.py"),
             CALIBRATION=(f"artificial x{GROUND_CALIBRATION}, fitted to Globe at Night "
                          "2024-25 sky-meter readings"),
         )

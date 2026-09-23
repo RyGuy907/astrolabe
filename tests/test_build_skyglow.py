@@ -90,6 +90,17 @@ def test_the_overlay_hits_each_legend_colour_exactly():
         assert list(b.colour(np.array([sqm_value]))[0]) == list(rgba)
 
 
+def test_haze_is_measured_from_the_valley_floor_and_molecules_from_the_sea():
+    """A city on a high valley floor keeps its haze; a peak above the valley
+    still stands above it. The molecules thin from sea level regardless."""
+    height = np.full((120, 120), 1.4)          # a valley floor 1.4 km up
+    height[50:70, 50:70] = 2.6                 # a mountain rising from it
+    molecules, haze = b.layer_heights(height)
+    assert molecules[10, 10] == pytest.approx(1.4)
+    assert haze[10, 10] == pytest.approx(0.0, abs=1e-9)
+    assert haze[60, 60] > 1.0
+
+
 def test_only_a_bortle_1_sky_is_left_clear():
     """The faint glow that makes a place Bortle 2 has to show on the map; an
     even ramp once left it all but clear, and the glow seemed to stop short."""

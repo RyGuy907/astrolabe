@@ -226,7 +226,8 @@ atlas's light-propagation model and running it on newer satellite data:
    kernel -- the light in each ring of distance around a site, times how much
    a ring that far away contributes -- dimmed by the air a site stands above,
    in two layers with Garstang's scale heights (molecules 9.6 km, haze
-   1.5 km). That is linear in the per-ring weights, so they come from a
+   1.5 km). The molecules thin from sea level; the haze from the surrounding
+   valley floor, since it is the air a town sits in wherever that is. That is linear in the per-ring weights, so they come from a
    non-negative least-squares fit of the 2014 lights to the atlas. The
    convolutions run by FFT on an equal-area plane.
 3. **apply** runs the latest year's lights through the fitted kernel and
@@ -249,8 +250,9 @@ streets have gone LED (Kyba et al. 2023, *Science*, found skies brightening
 several times faster to observers on the ground than to the satellite). The
 factor is fitted to 519 Globe at Night sky-meter readings from 2024-25, and it
 errs toward a brighter sky than the atlas, which is the safe side for planning
-a drive. It moves Salt Lake City from SQM 18.2 to 17.7, Provo from 19.0 to
-18.6, and a Kansas farm from 20.9 to 20.6.
+a drive. Together with the valley-floor haze, it puts Salt Lake City at SQM
+17.4 (Bortle 9), Provo at 18.2 (8) and a Kansas farm at 20.6 (4), and the
+high-elevation cities within about 0.15 of Lorenz's independent model.
 
 How well it reproduces the atlas, on 2014 data, over every cell of the lower
 48 (SQM error in mag/arcsec²; the hold-out rows are fitted on one half of the
@@ -258,10 +260,10 @@ country and scored on the other):
 
 | Sky | Median error | Median error, hold-out |
 | --- | --- | --- |
-| City, SQM < 19 | 0.04 | 0.04–0.05 |
-| Suburban, 19–21 | 0.04–0.05 | 0.05–0.06 |
-| Rural, 21–21.5 | 0.03 | 0.05 |
-| Dark, > 21.5 | 0.003 | 0.003 |
+| City, SQM < 19 | 0.05 | 0.06–0.08 |
+| Suburban, 19–21 | 0.04–0.05 | 0.05–0.09 |
+| Rural, 21–21.5 | 0.03 | 0.04–0.06 |
+| Dark, > 21.5 | 0.003 | 0.003–0.004 |
 
 For scale, a handheld sky meter reads to about ±0.1. Nobody told the fit what
 shape the kernel should be; it found a smooth fall-off, and gave every ring
@@ -273,15 +275,15 @@ model before the calibration above:
 
 - **31 published sky-meter measurements** (2016-2026: a Tucson survey, dark-sky
   park monitoring, observatories). At lit sites the model is off by a median
-  +0.06 mag; Lorenz's reads 0.34 mag too bright, having no correction for
+  -0.03 mag; Lorenz's reads 0.34 mag too bright, having no correction for
   altitude. With the calibration the map reads 0.4 mag bright here -- the
   price of the safe side.
 - **519 Globe at Night sites** (2024-25 citizen readings, clear, moonless,
   full darkness). Citizen readings run about 0.65 mag brighter than every map,
   pristine sites included. With each map's own offset removed, the model
-  scatters least: 0.26 mag, against 0.28 for the 2014 atlas and 0.34 for
-  Lorenz. Where the sky has brightened since 2014, it is 0.35 mag closer to
-  the readings than the atlas. The calibration halves the offset, to 0.36.
+  scatters least: 0.27 mag, against 0.28 for the 2014 atlas and 0.34 for
+  Lorenz. Where the sky has brightened since 2014, it is 0.34 mag closer to
+  the readings than the atlas. The calibration halves the offset, to 0.34.
 - **Change since 2014** agrees with Lorenz's change since 2016 (correlation
   0.91 across 40 places), led by the Permian Basin oil field.
 
