@@ -560,8 +560,12 @@ export default function App() {
             <p className="muted">
               <strong>{formatDate(date, location.timezone)}</strong>
               {isTonight && <span className="tag">tonight</span>}
-              {" "}{location.name} · {location.lat.toFixed(3)},{" "}
-              {location.lon.toFixed(3)} · {location.elevation_m.toFixed(0)} m
+              {/* A site named for its coordinates would print them twice. */}
+              {" "}{location.name}
+              {!/^Site -?\d+\.\d+, -?\d+\.\d+$/.test(location.name) && (
+                <> · {location.lat.toFixed(3)}, {location.lon.toFixed(3)}</>
+              )}
+              {" · "}{location.elevation_m.toFixed(0)} m
               {" · "}
               {location.sky_source === "assumed" ? (
                 // Two words, not a lecture. The atlas answers for anywhere it
@@ -637,12 +641,15 @@ export default function App() {
             role="switch"
             onClick={() => setNightVision((on) => !on)}
             aria-checked={nightVision}
+            aria-label="Night vision"
             title="Red palette that preserves dark adaptation at the eyepiece"
           >
             <span className="switch-track" aria-hidden="true">
               <span className="switch-thumb" />
             </span>
-            Night vision
+            {/* Hidden on a phone, where the switch sits by the title; the
+                button's aria-label keeps its name either way. */}
+            <span className="night-vision-label" aria-hidden="true">Night vision</span>
           </button>
         </div>
 

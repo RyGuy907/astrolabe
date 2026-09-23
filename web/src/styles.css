@@ -2350,3 +2350,31 @@ tr.revealed > td { background: var(--accent-soft, rgba(10, 132, 255, 0.14)); tra
 /* The altitude chart drawn at a phone's own width: a sideways drag reads it,
    a vertical swipe still scrolls the page. */
 .chart svg { touch-action: pan-y; }
+
+/* --- the header on a phone ------------------------------------------------
+   It stacked the site, the date and night vision on three right-aligned
+   lines, with empty space beside them. Now: night vision as a bare switch
+   beside the title, the site and date sharing one full-width row, and the
+   line under the title small enough to stay on one line. */
+@media (max-width: 600px) {
+  .app-head { position: relative; gap: 14px; }
+  .brand p { font-size: 0.74rem; gap: 6px; margin-top: 6px; }
+  .brand p .tag { font-size: 0.68rem; padding: 1px 7px; }
+
+  .night-vision-toggle { position: absolute; top: 2px; right: 0; padding: 0 6px; }
+  .night-vision-label { display: none; }
+
+  /* One row when it fits; on the narrowest phones the site takes the first
+     line whole and the date the second, rather than running off the edge. */
+  .controls { flex-wrap: wrap; justify-content: stretch; gap: 8px; }
+  .controls .location-picker { flex: 1 1 130px; min-width: 0; }
+  .controls .location-trigger { width: 100%; max-width: none; min-width: 0; padding: 0 12px; }
+  .controls .date-row { flex: 0 1 auto; margin-left: auto; }
+  .controls .date-row button { width: 34px; }
+  /* A native date field sizes itself for a desktop calendar icon; the date
+     itself needs about this much at 16px. */
+  .controls .date-row input[type="date"] { width: 124px; padding: 0 6px; text-align: center; }
+  /* A phone opens its own date picker when the field is tapped; the desktop
+     calendar icon only covered the last digit of the year. */
+  .controls .date-row input[type="date"]::-webkit-calendar-picker-indicator { display: none; }
+}

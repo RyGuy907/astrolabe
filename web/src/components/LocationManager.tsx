@@ -43,6 +43,11 @@ import { HorizonMeasure } from "./HorizonMeasure";
  *  pause between words still feels instant. */
 const DEBOUNCE_MS = 400;
 
+/** "Use my location": a fix this good is GPS, and the watch stops there;
+ *  after WATCH_MS it stops with whatever it has. */
+const GOOD_FIX_M = 25;
+const WATCH_MS = 15000;
+
 /** One or two characters match half the gazetteer; not worth a round trip. */
 const MIN_QUERY_LENGTH = 3;
 
@@ -247,6 +252,10 @@ export function LocationManager({ locations, editingKey, onClose, onCreated }: P
   const [locating, setLocating] = useState<"locating" | { note: string; failed: boolean } | null>(null);
   //: Bumped to send the map to the pin, after the device has located itself.
   const [mapFocus, setMapFocus] = useState(0);
+  //: The running location watch, so it can be stopped: on a good enough fix,
+  //: after a while, when the observer moves the pin themselves, or on close.
+  const locateWatch = useRef<{ id: number; timer: number } | null>(null);
+  useEffect(() => () => stopLocating(), []);
   const [showAdvanced, setShowAdvanced] = useState(false);
   //: An azimuth->altitude map built by naming visible constellations. When
   //: present it is sent instead of a preset, and the engine treats it as
@@ -475,6 +484,37 @@ export function LocationManager({ locations, editingKey, onClose, onCreated }: P
    * to the terrain lookup: a phone's GPS altitude is often off by tens of
    * metres and measured from a different datum.
    */
+  function stopLocating() {
+    const watch = locateWatch.current;
+    if (!watch) return;
+    navigator.geolocation.clearWatch(watch.id);
+    window.clearTimeout(watch.timer);
+    locateWatch.current = null;
+  }
+
+  /** What to say about a fix of this accuracy, in metres. */
+  function fixNote(accuracy: number, final: boolean): string {
+    const metres = Math.round(accuracy);
+    if (!final) return `Found you to within about ${metres} m, refining…`;
+    if (accuracy <= GOOD_FIX_M * 4) {
+      return `Placed where your device is, to within about ${metres} m. Drag the pin if it's off.`;
+    }
+    // A computer, or a phone indoors: the position came from Wi-Fi or the
+    // network, not satellites.
+    return `Only approximate: within about ${metres >= 1000 ? `${(metres / 1000).toFixed(1)} km` : `${metres} m`}, ` +
+      "from your network rather than GPS. Drag the pin to the exact spot.";
+  }
+
+  /**
+   * Ask the device where it is, for adding a site while standing on it.
+   *
+   * Watched rather than asked once: a phone answers first with a rough fix
+   * from Wi-Fi or the network, then with GPS a few seconds later, and taking
+   * the first answer put the pin hundreds of metres out. Each better fix
+   * moves the pin; the watch ends at GPS accuracy, after WATCH_MS, or as soon
+   * as the observer moves the pin themselves. A computer never gets better
+   * than its network fix, and the note says so.
+   */
   function locateMe() {
     if (!window.isSecureContext) {
       setLocating({ failed: true, note: "Location needs a secure (https) page. It works on the hosted app." });
@@ -484,19 +524,29 @@ export function LocationManager({ locations, editingKey, onClose, onCreated }: P
       setLocating({ failed: true, note: "This browser can't share its location." });
       return;
     }
+    stopLocating();
     setLocating("locating");
-    navigator.geolocation.getCurrentPosition(
+    let best = Infinity;
+    const finish = () => {
+      stopLocating();
+      if (Number.isFinite(best)) setLocating({ failed: false, note: fixNote(best, true) });
+      else setLocating({ failed: true, note: "Your device took too long to find itself. Try again, ideally with a clear view of the sky." });
+    };
+    const id = navigator.geolocation.watchPosition(
       (position) => {
         const { latitude, longitude, accuracy } = position.coords;
-        setEntry("map");
+        if (accuracy >= best) return;
+        const first = !Number.isFinite(best);
+        best = accuracy;
+        if (first) setEntry("map");
         placeAt(Number(latitude.toFixed(5)), Number(longitude.toFixed(5)));
-        setMapFocus((n) => n + 1);
-        setLocating({
-          failed: false,
-          note: `Placed where your device is, to within about ${Math.round(accuracy)} m. Drag the pin if it's off.`,
-        });
+        if (first) setMapFocus((n) => n + 1);
+        if (accuracy <= GOOD_FIX_M) finish();
+        else setLocating({ failed: false, note: fixNote(accuracy, false) });
       },
       (failure) => {
+        if (Number.isFinite(best)) return;       // a fix already stands
+        stopLocating();
         const note =
           failure.code === failure.PERMISSION_DENIED
             ? "Location permission was turned down. Allow it in your browser's settings for this site to use this."
@@ -505,8 +555,11 @@ export function LocationManager({ locations, editingKey, onClose, onCreated }: P
               : "Your device couldn't work out where it is. Pick the spot on the map instead.";
         setLocating({ failed: true, note });
       },
-      { enableHighAccuracy: true, timeout: 20000, maximumAge: 60000 },
+      // maximumAge 0: a fix cached from somewhere else is exactly the wrong
+      // answer for "where am I standing".
+      { enableHighAccuracy: true, timeout: WATCH_MS, maximumAge: 0 },
     );
+    locateWatch.current = { id, timer: window.setTimeout(finish, WATCH_MS) };
   }
 
   function pickCandidate(candidate: GeocodeCandidate) {
@@ -712,6 +765,8 @@ export function LocationManager({ locations, editingKey, onClose, onCreated }: P
               elevationM={elevation.trim() !== "" && elevationValid ? Number(elevation) : null}
               readingLabel={BORTLE_CLASSES.find(([value]) => value === atlas?.bortle)?.[1] ?? null}
               onPick={(pickedLat, pickedLon) => {
+                // Placing the pin by hand ends any location still refining.
+                stopLocating();
                 placeAt(pickedLat, pickedLon);
                 setLocating(null);
               }}
