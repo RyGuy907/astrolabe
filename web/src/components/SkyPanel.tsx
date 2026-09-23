@@ -1142,7 +1142,7 @@ export function SkyPanel({
 
         {tab === "planets" && planets && (
           <div className="table-scroll">
-            <table className="targets">
+            <table className="targets planets">
               <thead>
                 <tr>
                   <th aria-label="Chart" />

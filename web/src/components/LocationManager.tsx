@@ -242,6 +242,11 @@ export function LocationManager({ locations, editingKey, onClose, onCreated }: P
 
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  //: "Use my location": null when idle, "locating" while the device looks,
+  //: or what to tell the observer once it has answered.
+  const [locating, setLocating] = useState<"locating" | { note: string; failed: boolean } | null>(null);
+  //: Bumped to send the map to the pin, after the device has located itself.
+  const [mapFocus, setMapFocus] = useState(0);
   const [showAdvanced, setShowAdvanced] = useState(false);
   //: An azimuth->altitude map built by naming visible constellations. When
   //: present it is sent instead of a preset, and the engine treats it as
@@ -444,6 +449,66 @@ export function LocationManager({ locations, editingKey, onClose, onCreated }: P
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [latValid, lonValid, latValue, lonValue, bortleEdited]);
 
+  /** Put the site at a point with no name of its own -- a map click, or
+   *  where the device says it is. */
+  function placeAt(pointLat: number, pointLon: number) {
+    setLat(String(pointLat));
+    setLon(String(pointLon));
+    setChosen(null);
+    setError(null);
+    // Offer a name the user can overwrite, rather than blocking Save on an
+    // empty field. One already suggested is moved along by the effect above.
+    if (!name.trim()) {
+      const suggestion = suggestedName(pointLat, pointLon);
+      setName(suggestion);
+      if (!keyEdited) setKey(normaliseKey(suggestion));
+    }
+  }
+
+  /**
+   * Ask the device where it is, for adding a site while standing on it.
+   *
+   * The browser asks the observer's permission the first time; nothing is
+   * requested until they press the button. It only works over https (or on
+   * localhost) -- browsers refuse location to plain-http pages -- so that
+   * case gets its own explanation rather than a bare failure. Height is left
+   * to the terrain lookup: a phone's GPS altitude is often off by tens of
+   * metres and measured from a different datum.
+   */
+  function locateMe() {
+    if (!window.isSecureContext) {
+      setLocating({ failed: true, note: "Location needs a secure (https) page. It works on the hosted app." });
+      return;
+    }
+    if (!("geolocation" in navigator)) {
+      setLocating({ failed: true, note: "This browser can't share its location." });
+      return;
+    }
+    setLocating("locating");
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        const { latitude, longitude, accuracy } = position.coords;
+        setEntry("map");
+        placeAt(Number(latitude.toFixed(5)), Number(longitude.toFixed(5)));
+        setMapFocus((n) => n + 1);
+        setLocating({
+          failed: false,
+          note: `Placed where your device is, to within about ${Math.round(accuracy)} m. Drag the pin if it's off.`,
+        });
+      },
+      (failure) => {
+        const note =
+          failure.code === failure.PERMISSION_DENIED
+            ? "Location permission was turned down. Allow it in your browser's settings for this site to use this."
+            : failure.code === failure.TIMEOUT
+              ? "Your device took too long to find itself. Try again, ideally with a clear view of the sky."
+              : "Your device couldn't work out where it is. Pick the spot on the map instead.";
+        setLocating({ failed: true, note });
+      },
+      { enableHighAccuracy: true, timeout: 20000, maximumAge: 60000 },
+    );
+  }
+
   function pickCandidate(candidate: GeocodeCandidate) {
     setChosen(candidate);
     setName(candidate.label);
@@ -464,6 +529,7 @@ export function LocationManager({ locations, editingKey, onClose, onCreated }: P
 
   function resetForm() {
     setChosen(null);
+    setLocating(null);
     setName("");
     setKey("");
     setKeyEdited(false);
@@ -620,26 +686,34 @@ export function LocationManager({ locations, editingKey, onClose, onCreated }: P
             </button>
           </div>
 
+          <div className="locate-row">
+            <button className="secondary locate-button" onClick={locateMe}
+                    disabled={locating === "locating"}>
+              <svg viewBox="0 0 16 16" aria-hidden="true">
+                <circle cx="8" cy="8" r="3" />
+                <path d="M8 0.5v2.5M8 13v2.5M0.5 8H3M13 8h2.5" />
+                <circle cx="8" cy="8" r="5.2" fill="none" />
+              </svg>
+              {locating === "locating" ? "Finding you…" : "Use my location"}
+            </button>
+            {locating && locating !== "locating" && (
+              <span className={`small ${locating.failed ? "warning" : "muted"}`} role="status">
+                {locating.note}
+              </span>
+            )}
+          </div>
+
           {entry === "map" && (
             <SitePicker
               lat={latValid ? latValue : null}
               lon={lonValid ? lonValue : null}
               reading={atlas}
+              focus={mapFocus}
               elevationM={elevation.trim() !== "" && elevationValid ? Number(elevation) : null}
               readingLabel={BORTLE_CLASSES.find(([value]) => value === atlas?.bortle)?.[1] ?? null}
               onPick={(pickedLat, pickedLon) => {
-                setLat(String(pickedLat));
-                setLon(String(pickedLon));
-                setChosen(null);
-                setError(null);
-                // A map point has no name of its own. Offer one the user can
-                // overwrite, rather than blocking Save on an empty field.
-                // One already suggested is moved along by the effect above.
-                if (!name.trim()) {
-                  const suggestion = suggestedName(pickedLat, pickedLon);
-                  setName(suggestion);
-                  if (!keyEdited) setKey(normaliseKey(suggestion));
-                }
+                placeAt(pickedLat, pickedLon);
+                setLocating(null);
               }}
             />
           )}

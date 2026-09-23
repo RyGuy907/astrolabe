@@ -1199,6 +1199,7 @@ table.targets tr.charted { background: rgba(244, 201, 93, 0.06); }
   color: var(--text);
   text-shadow: 0 0 3px rgba(0, 0, 0, 0.9);
 }
+.bortle-key span.pale { color: #15171c; text-shadow: none; }
 
 /* In night-vision mode the overlay is the brightest thing on screen. */
 :root[data-night-vision="on"] .light-pollution-tiles {
@@ -1825,6 +1826,13 @@ select, input[type="date"] { height: 36px; padding: 0 14px; border-radius: var(-
 .segmented button { background: none; border: none; border-radius: var(--pill); padding: 5px 15px; }
 .segmented button.on { background: rgba(255, 255, 255, 0.16); color: var(--text); }
 
+/* "Use my location", under the add-site tabs, with what the device said. */
+.locate-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin: 10px 0 8px; }
+.locate-button { display: inline-flex; align-items: center; gap: 7px; }
+.locate-button svg { width: 15px; height: 15px; }
+.locate-button svg circle:first-child { fill: currentColor; }
+.locate-button svg path, .locate-button svg circle:last-child { stroke: currentColor; stroke-width: 1.4; fill: none; }
+
 /* --- tables lose their rules --------------------------------------------- */
 table.targets th {
   border-bottom: 1px solid var(--line);
@@ -2054,7 +2062,6 @@ body.is-resizing { cursor: col-resize; user-select: none; }
 }
 .suggest-button:hover:not(:disabled) { background: rgba(255, 255, 255, 0.1); }
 .suggest-button:disabled { opacity: 0.45; cursor: default; }
-.suggest-button svg { width: 13px; height: 13px; fill: var(--accent); }
 .left-tab {
   display: inline-flex;
   align-items: center;
@@ -2226,4 +2233,66 @@ tr.revealed > td { background: var(--accent-soft, rgba(10, 132, 255, 0.14)); tra
 @media (max-width: 480px) {
   .dials { gap: 12px; justify-content: space-around; }
   .dial svg { width: min(40vw, 150px); height: min(40vw, 150px); }
+}
+
+/* --- phones ---------------------------------------------------------------
+   From a mobile audit on an emulated iPhone. */
+@media (max-width: 860px) {
+  /* The site button sits at the right of the header here, so its menu opens
+     leftward; opening rightward, as on a wide screen, it ran off the page. */
+  .location-menu { left: auto; right: 0; }
+
+  /* A constellation's row wraps its visibility and hours onto a second line
+     rather than running off the edge -- which also left the list's scroll
+     box free to slide sideways under a thumb. */
+  .group-head { flex-wrap: wrap; row-gap: 3px; min-width: 0; }
+  .group-head-row { min-width: 0; }
+
+  /* A table's first two columns -- the name, and the date or chart button
+     beside it -- stay on one line; squeezed to the screen, "Venus" broke a
+     letter at a time. The rest wrap, so a table still fits the screen. */
+  table.targets th, table.targets td:nth-child(-n+2) { white-space: nowrap; }
+  /* The planets' table as rows of cards: the numbers on one line, and the
+     apparition note -- too long to share a phone's width with them -- on
+     its own line underneath, where it had been squeezed to a word a line. */
+  table.targets.planets thead, table.targets.planets tbody { display: block; }
+  table.targets.planets tr {
+    display: grid;
+    grid-template-columns: 40px minmax(0, 1.8fr) repeat(3, minmax(0, 1fr));
+    align-items: start;
+    border-bottom: 1px solid var(--line);
+  }
+  table.targets.planets th, table.targets.planets td { border-bottom: none; }
+  table.targets.planets th:last-child { display: none; }
+  table.targets.planets td:last-child { grid-column: 2 / -1; padding-top: 0; }
+  table.targets.planets td[colspan], table.targets.planets th[colspan] { grid-column: 1 / -1; }
+
+  /* Small print a phone at arm's length can still read. */
+  .badge { font-size: 0.72rem; }
+  .chart-legend-label, .legend-all { font-size: 0.7rem; }
+  .tag { font-size: 0.75rem; }
+}
+
+/* Safari on iPhone zooms the whole page when a field with text under 16px
+   is focused, and leaves it zoomed. */
+@media (pointer: coarse) {
+  /* !important: the date and search fields set their own smaller sizes, and
+     this has to win over every one of them. */
+  input, select, textarea { font-size: 16px !important; }
+
+  /* Fingers, not a cursor: nothing a thumb has to hit smaller than about
+     32px. The glyphs stay the size they were; the targets grow round them. */
+  .legend-toggle { min-height: 32px; }
+  .legend-remove { min-width: 32px; min-height: 32px; font-size: 1.1rem; }
+  .legend-all { min-height: 32px; padding: 0 8px; }
+  .chip { width: 34px; height: 34px; }
+  .finder-open { width: 32px; height: 32px; }
+  .night-vision-toggle { height: 34px; padding: 0 12px 0 8px; font-size: 0.8rem; }
+  .suggest-button { height: 34px; }
+  .segmented button { min-height: 36px; }
+  .link-button { padding: 6px 0; }
+  .lights-toggle input, .checkbox-field input { width: 20px; height: 20px; }
+  .target-name { min-height: 32px; }
+  .finder-layer { min-height: 34px; }
+  .left-tab-close { min-width: 32px; min-height: 32px; }
 }

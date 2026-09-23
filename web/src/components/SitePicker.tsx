@@ -114,6 +114,9 @@ interface Props {
   readingLabel?: string | null;
   /** The form's elevation for these coordinates, in metres, once known. */
   elevationM?: number | null;
+  /** Changes whenever the map should go to the pin and zoom in on it -- after
+   *  "Use my location", where a pin on a whole-country map says nothing. */
+  focus?: number;
 }
 
 /** Metres to feet, for the pin: US observers read heights in feet. */
@@ -162,7 +165,7 @@ function normaliseLon(lon: number): number {
 }
 
 export function SitePicker({
-  lat, lon, onPick, reading = null, readingLabel = null, elevationM = null,
+  lat, lon, onPick, reading = null, readingLabel = null, elevationM = null, focus = 0,
 }: Props) {
   const container = useRef<HTMLDivElement>(null);
   const map = useRef<L.Map | null>(null);
@@ -425,6 +428,14 @@ export function SitePicker({
     }
   }, [lat, lon]);
 
+  useEffect(() => {
+    const instance = map.current;
+    if (!focus || !instance || lat === null || lon === null) return;
+    instance.setView([lat, lon], Math.max(instance.getZoom(), PICKED_ZOOM));
+    // Only a new request to focus moves the map; typing coordinates does not.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [focus]);
+
   // The reading, on the pin. A tooltip rather than a popup: a popup closes on
   // the next map click, which is exactly when a new reading is wanted. The
   // form drops its reading the moment the coordinates change, so this never
@@ -535,8 +546,11 @@ function BortleKey({ classes, source }: { classes: SkyGlowClass[]; source: strin
       <div className="bortle-key">
         {classes.map((c, i) => {
           const [r, g, b, a] = c.rgba;
+          // Dark numerals on the pale swatches (8's pink, 9's white).
+          const pale = (0.299 * r + 0.587 * g + 0.114 * b) * (a / 255) > 150;
           return (
             <span key={c.bortle} title={`Bortle ${c.bortle}: ${range(c, i)}`}
+                  className={pale ? "pale" : undefined}
                   style={{ backgroundColor: `rgba(${r}, ${g}, ${b}, ${(a / 255).toFixed(2)})` }}>
               {c.bortle}
             </span>

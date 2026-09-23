@@ -209,9 +209,6 @@ export default function App() {
             title={popularOnly
               ? "One of tonight's best well-known objects, opened on the sky chart"
               : "One of tonight's best targets, opened on the sky chart"}>
-      <svg viewBox="0 0 16 16" aria-hidden="true">
-        <path d="M8 1.5l1.7 4.1 4.3.3-3.3 2.8 1 4.3L8 10.7 4.3 13l1-4.3L2 5.9l4.3-.3z" />
-      </svg>
       Suggest a target
     </button>
   );
