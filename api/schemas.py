@@ -516,6 +516,11 @@ class SkyGlowTiles(BaseModel):
 
     min_zoom: int
     max_zoom: int
+    version: str = Field(
+        description="Names this build of the tiles; request them with "
+                    "?v=<version> so a rebuilt map is never served from a "
+                    "browser's cache of the old one.",
+    )
     legend: list[tuple[float, list[int]]] = Field(
         description="[SQM, [r, g, b, a]] stops the tiles were coloured by, "
                     "darkest sky first, so a key can be drawn to match.",

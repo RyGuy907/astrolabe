@@ -932,7 +932,8 @@ def skybrightness_coverage() -> SkyBrightnessCoverage:
         bounds=list(bounds) if bounds else None,
         source=source_label(),
         tiles=(SkyGlowTiles(min_zoom=meta["min_zoom"], max_zoom=meta["max_zoom"],
-                            legend=meta["legend"], classes=meta.get("classes"))
+                            version=meta["version"], legend=meta["legend"],
+                            classes=meta.get("classes"))
                if meta else None),
     )
 
@@ -947,7 +948,9 @@ _EMPTY_TILE = bytes.fromhex(
 
 @app.get("/api/skybrightness/tiles/{z}/{x}/{y}.png", tags=["locations"],
          response_class=Response)
-def skybrightness_tile(z: int, x: int, y: int) -> Response:
+def skybrightness_tile(z: int, x: int, y: int,
+                       v: str | None = Query(None, description="The tiles' version")
+                       ) -> Response:
     """One pre-rendered overlay tile of the configured map.
 
     Files written by `scripts/build_skyglow.py tiles`; nothing is drawn here.
@@ -958,9 +961,13 @@ def skybrightness_tile(z: int, x: int, y: int) -> Response:
     meta = tile_meta()
     if meta is None or not meta["min_zoom"] <= z <= meta["max_zoom"]:
         raise HTTPException(status_code=404, detail="no such tile")
-    # A day is long for a file that changes once a year, and short enough
-    # that a rebuilt map shows up by tomorrow.
-    headers = {"Cache-Control": "public, max-age=86400"}
+    # Asked for by the current version, a tile never changes: a rebuild is a
+    # new version and so new URLs, and the browser may keep this one for
+    # good. Asked for without one, it could be stale by the next build, so a
+    # browser should check again tomorrow.
+    current = v is not None and v == meta["version"]
+    headers = {"Cache-Control": "public, max-age=31536000, immutable" if current
+               else "no-cache"}
     path = tile_file(z, x, y)
     if path is None:
         return Response(content=_EMPTY_TILE, media_type="image/png", headers=headers)

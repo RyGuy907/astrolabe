@@ -666,7 +666,12 @@ def tiles() -> None:
                 written += 1
                 size += path.stat().st_size
         print(f"  zoom {z}: {written} tiles so far, {size / 2**20:.1f} MB", flush=True)
+    from datetime import datetime, timezone
+
     meta = {"min_zoom": TILE_ZOOMS.start, "max_zoom": TILE_ZOOMS.stop - 1,
+            # Goes into the tile URLs, so a rebuilt map is new URLs and no
+            # browser can go on showing the old tiles from its cache.
+            "version": datetime.now(timezone.utc).strftime("%Y%m%d%H%M%S"),
             "bounds": [west, south, east, north], "label": label,
             "legend": [[s, list(c)] for s, c in LEGEND],
             "classes": _class_key()}

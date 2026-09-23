@@ -52,6 +52,8 @@ export interface SkyBrightnessCoverage {
 export interface SkyGlowTiles {
   min_zoom: number;
   max_zoom: number;
+  /** Names this build of the tiles; goes in their URLs as ?v=. */
+  version: string;
   /** [SQM, [r, g, b, a]] stops the tiles were coloured by, darkest first. */
   legend: [number, number[]][];
   /** Each Bortle class's colour and SQM range, for the map's key. */

@@ -247,12 +247,21 @@ def tile_dir() -> Path | None:
 
 
 def tile_meta() -> dict | None:
-    """The tiles' zoom range, bounds and colour key, or None."""
+    """The tiles' zoom range, bounds, colour key and version, or None.
+
+    The version names this build of the tiles; the site map puts it in their
+    URLs so a rebuilt map is never hidden behind cached old ones. Tiles from
+    before builds carried one are versioned by when their metadata was
+    written, which changes with every build all the same.
+    """
     tiles = tile_dir()
     if tiles is None:
         return None
     try:
-        return json.loads((tiles / "meta.json").read_text(encoding="utf-8"))
+        path = tiles / "meta.json"
+        meta = json.loads(path.read_text(encoding="utf-8"))
+        meta.setdefault("version", str(int(path.stat().st_mtime)))
+        return meta
     except (OSError, ValueError):
         return None
 

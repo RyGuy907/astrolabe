@@ -297,7 +297,9 @@ export function SitePicker({
         ? { nativeZoom: tiles.max_zoom, full: 1 }
         : { nativeZoom: LIGHT_POLLUTION_MAX_NATIVE_ZOOM, full: 0.75 };
       lightsLayer.current = tiles
-        ? L.tileLayer(SKY_GLOW_URL, {
+        // The version in the URL means a rebuilt map is new URLs, so the
+        // browser cannot keep showing the old tiles it has cached.
+        ? L.tileLayer(`${SKY_GLOW_URL}?v=${encodeURIComponent(tiles.version)}`, {
             attribution: SKY_GLOW_ATTRIBUTION,
             minNativeZoom: tiles.min_zoom,
             maxNativeZoom: tiles.max_zoom,

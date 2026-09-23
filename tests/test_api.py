@@ -391,11 +391,25 @@ def test_the_map_overlay_is_served_from_its_prebuilt_tiles(client, configured_ma
     assert tiles["min_zoom"] == 3 and tiles["max_zoom"] == 7
     assert tiles["legend"][0] == [22.0, [0, 0, 0, 0]]
 
-    drawn = client.get("/api/skybrightness/tiles/5/6/12.png")
+    drawn = client.get("/api/skybrightness/tiles/5/6/12.png", params={"v": tiles["version"]})
     assert drawn.status_code == 200
     assert drawn.headers["content-type"] == "image/png"
     assert drawn.content == b"\x89PNG fake tile"
-    assert "max-age" in drawn.headers["cache-control"]
+
+
+def test_a_rebuilt_map_can_never_be_hidden_by_cached_tiles(client, configured_map):
+    """The site map asks for tiles by version. At the current version a tile
+    can be kept for good -- a rebuild is new URLs -- and anything else must
+    be checked again, or a browser goes on showing the old map."""
+    configured_map()
+    version = client.get("/api/skybrightness").json()["tiles"]["version"]
+    assert version
+
+    current = client.get("/api/skybrightness/tiles/5/6/12.png", params={"v": version})
+    assert "immutable" in current.headers["cache-control"]
+    for params in ({}, {"v": "an-old-build"}):
+        stale = client.get("/api/skybrightness/tiles/5/6/12.png", params=params)
+        assert stale.headers["cache-control"] == "no-cache"
 
 
 def test_a_tile_left_out_for_a_pristine_sky_is_clear_not_missing(client, configured_map):
