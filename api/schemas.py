@@ -502,6 +502,15 @@ class NewLocationRequest(BaseModel):
     )
 
 
+class SkyGlowClass(BaseModel):
+    """One Bortle class as the overlay draws it."""
+
+    bortle: int
+    sqm_min: float | None = Field(description="Darkest-sky end of the class's "
+                                              "range; null for class 9.")
+    rgba: list[int]
+
+
 class SkyGlowTiles(BaseModel):
     """Pre-rendered overlay tiles of the configured map."""
 
@@ -510,6 +519,11 @@ class SkyGlowTiles(BaseModel):
     legend: list[tuple[float, list[int]]] = Field(
         description="[SQM, [r, g, b, a]] stops the tiles were coloured by, "
                     "darkest sky first, so a key can be drawn to match.",
+    )
+    classes: list[SkyGlowClass] | None = Field(
+        default=None,
+        description="The colour of each Bortle class, for the map's key. "
+                    "Null for tiles built before the key was class-based.",
     )
 
 

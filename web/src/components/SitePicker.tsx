@@ -38,7 +38,9 @@
 import { useEffect, useRef, useState } from "react";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
-import { api, type SkyBrightnessCoverage, type SkyBrightnessReading } from "../api";
+import {
+  api, type SkyBrightnessCoverage, type SkyBrightnessReading, type SkyGlowClass,
+} from "../api";
 
 /** Where the map opens with no coordinates and no atlas: a wide view, which
  *  says "pick anywhere" rather than implying a particular part of the world. */
@@ -469,9 +471,9 @@ export function SitePicker({
           />
           <span>Show light pollution</span>
         </label>
-        {showLights && coverage?.tiles && (
-          <SkyGlowKey legend={coverage.tiles.legend} source={coverage.source} />
-        )}
+        {showLights && coverage?.tiles && (coverage.tiles.classes
+          ? <BortleKey classes={coverage.tiles.classes} source={coverage.source} />
+          : <SkyGlowKey legend={coverage.tiles.legend} source={coverage.source} />)}
       </div>
 
       <p className="muted small">
@@ -508,6 +510,39 @@ function SkyGlowKey({ legend, source }: {
       </div>
       <p className="muted small" aria-hidden="true">
         Sky brightness (SQM), higher is darker{source && <> · {source}</>}
+      </p>
+    </div>
+  );
+}
+
+/**
+ * The overlay's key as the nine Bortle classes, one equal band each, in the
+ * colours the tiles were drawn with. Equal bands rather than an SQM scale:
+ * classes 2 and 3 are only a tenth and a fifth of a magnitude wide and would
+ * be slivers. Class 1 is drawn as the clear map it is.
+ */
+function BortleKey({ classes, source }: { classes: SkyGlowClass[]; source: string | null }) {
+  const range = (c: SkyGlowClass, i: number) => {
+    const brighter = classes[i - 1]?.sqm_min;
+    if (c.sqm_min === null) return `SQM below ${brighter}`;
+    return i === 0 ? `SQM ${c.sqm_min} and darker` : `SQM ${c.sqm_min} to ${brighter}`;
+  };
+  return (
+    <div className="sky-glow-key" role="img"
+         aria-label="Colour key: Bortle classes 1, pristine, to 9, inner city">
+      <div className="bortle-key">
+        {classes.map((c, i) => {
+          const [r, g, b, a] = c.rgba;
+          return (
+            <span key={c.bortle} title={`Bortle ${c.bortle}: ${range(c, i)}`}
+                  style={{ backgroundColor: `rgba(${r}, ${g}, ${b}, ${(a / 255).toFixed(2)})` }}>
+              {c.bortle}
+            </span>
+          );
+        })}
+      </div>
+      <p className="muted small" aria-hidden="true">
+        Bortle class{source && <> · {source}</>}
       </p>
     </div>
   );

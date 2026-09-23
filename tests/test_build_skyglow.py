@@ -90,6 +90,24 @@ def test_the_overlay_hits_each_legend_colour_exactly():
         assert list(b.colour(np.array([sqm_value]))[0]) == list(rgba)
 
 
+def test_only_a_bortle_1_sky_is_left_clear():
+    """The faint glow that makes a place Bortle 2 has to show on the map; an
+    even ramp once left it all but clear, and the glow seemed to stop short."""
+    from engine.locations import BORTLE_SQM_LOWER
+
+    assert b.colour(np.array([BORTLE_SQM_LOWER[1]]))[0, 3] == 0
+    assert b.colour(np.array([BORTLE_SQM_LOWER[1] - 0.01]))[0, 3] >= 100
+
+
+def test_the_key_lists_every_class_with_its_range():
+    from engine.locations import BORTLE_SQM_LOWER
+
+    key = b._class_key()
+    assert [c["bortle"] for c in key] == list(range(1, 10))
+    assert all(c["sqm_min"] == BORTLE_SQM_LOWER.get(c["bortle"]) for c in key)
+    assert key[0]["rgba"][3] == 0 and all(c["rgba"][3] > 0 for c in key[1:])
+
+
 def test_the_script_and_the_engine_convert_brightness_identically():
     for mcd in (0.0, 0.05, 0.5, 5.0):
         assert float(b.sqm(np.array(mcd))) == pytest.approx(sqm_from_artificial_brightness(mcd))

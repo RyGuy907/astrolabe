@@ -54,6 +54,15 @@ export interface SkyGlowTiles {
   max_zoom: number;
   /** [SQM, [r, g, b, a]] stops the tiles were coloured by, darkest first. */
   legend: [number, number[]][];
+  /** Each Bortle class's colour and SQM range, for the map's key. */
+  classes: SkyGlowClass[] | null;
+}
+
+export interface SkyGlowClass {
+  bortle: number;
+  /** Darkest-sky end of the class's range; null for class 9. */
+  sqm_min: number | null;
+  rgba: number[];
 }
 
 /** Ground height at a coordinate; null when the terrain service is unreachable. */

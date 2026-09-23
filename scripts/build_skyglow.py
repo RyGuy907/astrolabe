@@ -47,6 +47,7 @@ from scipy import fft, optimize
 from scipy.ndimage import map_coordinates
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))           # for engine's Bortle table
 DATA = ROOT / "data" / "skyglow"
 WORK = DATA / "work"
 # The fitted kernel is committed: a few dozen numbers, not the atlas, and with
@@ -531,23 +532,41 @@ TILE = 256
 # Past 7 the browser enlarges what it has. Below 3 the country is a smudge.
 TILE_ZOOMS = range(3, 8)
 
-# The overlay's colours, by SQM. Clear where the sky is as dark as it gets, so
-# the map underneath shows through untouched, then deepening from blue through
-# green and yellow to red and white -- the familiar light-pollution-map ramp,
-# which people already read without a key. The alpha rises with brightness,
-# so faint glow tints the map and a city covers it.
-LEGEND = [
-    (22.0, (0, 0, 0, 0)),
-    (21.8, (20, 30, 90, 90)),
-    (21.5, (30, 70, 170, 150)),
-    (21.0, (25, 140, 90, 175)),
-    (20.4, (120, 180, 40, 190)),
-    (19.8, (220, 200, 40, 205)),
-    (19.1, (245, 140, 30, 215)),
-    (18.4, (235, 60, 40, 225)),
-    (17.6, (240, 110, 190, 235)),
-    (16.8, (255, 255, 255, 245)),
-]
+# The overlay's colour for each Bortle class -- the familiar light-pollution
+# map ramp, blue through green and yellow to red and white, which people read
+# without a key. Keyed to the classes rather than spread evenly over SQM:
+# classes 2 and 3 are a tenth and a fifth of a magnitude wide, and on an even
+# ramp the faint glow that makes a place Bortle 2 or 3 was all but clear, so
+# the map showed light pollution stopping far short of where it does. Only a
+# true Bortle 1 sky is left clear. The alpha rises with the class, so faint
+# glow tints the map and a city covers it.
+CLASS_RGBA = {
+    1: (0, 0, 0, 0),
+    2: (55, 65, 160, 110),
+    3: (40, 105, 215, 140),
+    4: (40, 165, 85, 170),
+    5: (205, 200, 40, 190),
+    6: (245, 150, 30, 205),
+    7: (235, 70, 40, 215),
+    8: (240, 110, 190, 228),
+    9: (255, 255, 255, 240),
+}
+
+
+def _legend():
+    """SQM -> colour stops: each class's colour at the middle of its range,
+    blending between classes, with a clean edge where Bortle 1 ends."""
+    from engine.locations import BORTLE_SQM_LOWER as lower
+
+    stops = [(22.0, CLASS_RGBA[1]), (lower[1], CLASS_RGBA[1]),
+             (lower[1] - 0.0001, CLASS_RGBA[2])]
+    for cls in range(2, 9):
+        stops.append(((lower[cls - 1] + lower[cls]) / 2, CLASS_RGBA[cls]))
+    stops += [(lower[8] - 0.4, CLASS_RGBA[9]), (16.8, CLASS_RGBA[9])]
+    return stops
+
+
+LEGEND = _legend()
 
 
 def colour(sqm_values: np.ndarray) -> np.ndarray:
@@ -623,10 +642,19 @@ def tiles() -> None:
         print(f"  zoom {z}: {written} tiles so far, {size / 2**20:.1f} MB", flush=True)
     meta = {"min_zoom": TILE_ZOOMS.start, "max_zoom": TILE_ZOOMS.stop - 1,
             "bounds": [west, south, east, north], "label": label,
-            "legend": [[s, list(c)] for s, c in LEGEND]}
+            "legend": [[s, list(c)] for s, c in LEGEND],
+            "classes": _class_key()}
     (TILES / "meta.json").write_text(json.dumps(meta, indent=1) + "\n")
     print(f"wrote {written} tiles to {TILES.relative_to(ROOT)} ({size / 2**20:.1f} MB) "
           f"in {time.time() - t0:.0f} s")
+
+
+def _class_key() -> list[dict]:
+    """The key the site map draws: each class, its SQM range, its colour."""
+    from engine.locations import BORTLE_SQM_LOWER as lower
+
+    return [{"bortle": cls, "sqm_min": lower.get(cls), "rgba": list(CLASS_RGBA[cls])}
+            for cls in range(1, 10)]
 
 
 def install() -> None:

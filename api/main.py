@@ -932,7 +932,8 @@ def skybrightness_coverage() -> SkyBrightnessCoverage:
         bounds=list(bounds) if bounds else None,
         source=source_label(),
         tiles=(SkyGlowTiles(min_zoom=meta["min_zoom"], max_zoom=meta["max_zoom"],
-                            legend=meta["legend"]) if meta else None),
+                            legend=meta["legend"], classes=meta.get("classes"))
+               if meta else None),
     )
 
 

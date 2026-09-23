@@ -1182,6 +1182,23 @@ table.targets tr.charted { background: rgba(244, 201, 93, 0.06); }
 .sky-glow-ticks span:first-child { transform: none; }
 .sky-glow-ticks span:last-child { transform: translateX(-100%); }
 .sky-glow-key p { margin: 0; }
+/* Nine equal bands, one per class. The map's own colour sits under each, so
+   the clear class 1 reads as the map does where the sky is pristine. */
+.bortle-key {
+  display: grid;
+  grid-template-columns: repeat(9, 1fr);
+  border-radius: 4px;
+  overflow: hidden;
+  box-shadow: inset 0 0 0 1px var(--line);
+  background-color: var(--panel-2);
+}
+.bortle-key span {
+  font-size: 0.68rem;
+  line-height: 16px;
+  text-align: center;
+  color: var(--text);
+  text-shadow: 0 0 3px rgba(0, 0, 0, 0.9);
+}
 
 /* In night-vision mode the overlay is the brightest thing on screen. */
 :root[data-night-vision="on"] .light-pollution-tiles {
