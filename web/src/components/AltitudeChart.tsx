@@ -22,11 +22,11 @@ export const WIDTH = 700;
 export const HEIGHT = 460;
 const MARGIN = { top: 16, right: 18, bottom: 40, left: 48 };
 
-/** Below this width -- a phone -- the chart stops being a 700-wide drawing
+/** Below this width -- a phone; the desktop column is ~600 -- the chart stops being a 700-wide drawing
  *  scaled down, whose labels came out at 5px, and is drawn at the column's
  *  own width instead: one unit to a pixel, so text is its real size, taller
  *  than it is wide so a night of curves still has room. */
-const COMPACT_BELOW = 600;
+const COMPACT_BELOW = 560;
 const COMPACT_MARGIN = { top: 14, right: 10, bottom: 34, left: 36 };
 
 /** An hour label needs about this many units to itself, or they collide. */
