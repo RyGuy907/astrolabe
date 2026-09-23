@@ -75,6 +75,13 @@ Also available: `planner locations`.
 On first use of `planner targets`, the vendored OpenNGC CSV is parsed once into
 a SQLite cache next to the ephemeris. Both are local file reads.
 
+## Hosted
+
+The web app runs at **https://astrolabe.ryanjrusson.com**: uvicorn behind
+Caddy on a small EC2 instance, deployed from `main` by CI through S3 and SSM.
+[`deploy/README.md`](deploy/README.md) has the server setup and the deploy
+path.
+
 ## Layout
 
 ```
@@ -83,6 +90,7 @@ api/        FastAPI adapter over the engine; computes no astronomy and stores
 db/         SQLite for the CLI: its sessions and observations, and sites saved
             by older versions (the API only ever reads these)
 web/        React + TypeScript + Vite; sites and history live in the browser
+deploy/     server setup, the systemd unit, the Caddy block, the deploy script
 engine/     pure Python; no web imports, no I/O beyond local caches
   timeutil.py    tz-aware-UTC invariant, "tonight" resolution
   locations.py   locations.yaml -> Location, timezone from coordinates

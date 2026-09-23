@@ -1,0 +1,31 @@
+# Astrolabe's site block. Appended to /etc/caddy/Caddyfile, beside norhog's
+# (deploy/README.md). Caddy gets and renews the certificate itself.
+astrolabe.ryanjrusson.com {
+	encode zstd gzip
+
+	# The API: uvicorn on loopback, run by astrolabe.service.
+	handle /api/* {
+		reverse_proxy 127.0.0.1:8001
+	}
+
+	# The web app, copied here by deploy-astrolabe.sh. Any other path gets
+	# index.html, so reloading the app on any URL still loads it.
+	handle {
+		root * /var/www/astrolabe
+		try_files {path} /index.html
+		file_server
+	}
+
+	# Vite names every asset by its content hash, so those are cached for
+	# good; the page itself is revalidated, so a deploy shows up on reload.
+	# The API sets its own caching (the map tiles are versioned).
+	@hashed path /assets/*
+	header @hashed Cache-Control "public, max-age=31536000, immutable"
+	@page not path /assets/* /api/*
+	header @page Cache-Control "no-cache"
+
+	header {
+		X-Content-Type-Options nosniff
+		Referrer-Policy strict-origin-when-cross-origin
+	}
+}

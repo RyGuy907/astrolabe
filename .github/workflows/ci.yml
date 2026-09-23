@@ -1,0 +1,160 @@
+name: CI
+
+on:
+  push:
+    branches: ['**']
+  pull_request:
+
+# Read-only by default. The deploy job asks for the extra token it needs.
+permissions:
+  contents: read
+
+jobs:
+  python:
+    name: Engine and API — tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      # The server runs Ubuntu 24.04's Python.
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+          cache: pip
+
+      # skyglow-build brings rasterio and scipy, for the sky-brightness tests.
+      - run: pip install -e ".[dev,skyglow-build]"
+
+      # DE440s is 32 MB from JPL and never changes; fetch it once.
+      - uses: actions/cache@v4
+        with:
+          path: ~/.cache/astro-night-planner/ephemeris
+          key: ephemeris-de440s
+
+      - name: Fetch the ephemeris
+        run: python -c "from engine.ephem import load_ephemeris; load_ephemeris()"
+
+      # `network` tests compare against live third-party services. With the
+      # ephemeris required, a failed download fails the run instead of
+      # quietly skipping every test that needs it. The five that need the
+      # sky-brightness map skip: it is never in the repository.
+      - run: pytest -q -m "not network"
+        env:
+          ASTRO_REQUIRE_EPHEMERIS: '1'
+
+  web:
+    name: Web — type-check and build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - run: npm ci
+        working-directory: web
+
+      # tsc -b, then vite build.
+      - run: npm run build
+        working-directory: web
+
+      # Catches a syntax error in a deploy script before it can break a release.
+      - name: Deploy script syntax
+        run: bash -n deploy/build-bundle.sh && bash -n deploy/deploy-astrolabe.sh
+
+  deploy:
+    name: Deploy to astrolabe.ryanjrusson.com
+    needs: [python, web]
+    # Skipped, not failed, until the repository has its AWS settings
+    # (deploy/README.md).
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && vars.INSTANCE_ID != ''
+    runs-on: ubuntu-latest
+    concurrency:
+      group: deploy-production
+      cancel-in-progress: false
+    permissions:
+      id-token: write # required to request the OIDC token for AWS
+      contents: read
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Build the bundle
+        run: |
+          deploy/build-bundle.sh artifact.tar.gz
+          echo "bundle contents:"
+          tar -tzf artifact.tar.gz | head -20
+
+      # OIDC federation: GitHub presents a short-lived token and assumes the
+      # role. No long-lived AWS keys are stored in this repository.
+      - uses: aws-actions/configure-aws-credentials@v5
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: us-west-2
+
+      - name: Upload the bundle to S3
+        env:
+          BUCKET: ${{ vars.DEPLOY_BUCKET }}
+        run: aws s3 cp artifact.tar.gz "s3://${BUCKET}/astrolabe/${{ github.sha }}.tar.gz" --only-show-errors
+
+      # SSM runs the command on the instance; GitHub never connects to it.
+      - name: Trigger the deploy via SSM
+        env:
+          BUCKET: ${{ vars.DEPLOY_BUCKET }}
+          INSTANCE_ID: ${{ vars.INSTANCE_ID }}
+          SHA: ${{ github.sha }}
+        run: |
+          cat > /tmp/ssm-params.json <<EOF
+          {"commands":["runuser -l ubuntu -c '/home/ubuntu/bin/deploy-astrolabe.sh s3://${BUCKET}/astrolabe/${SHA}.tar.gz'"]}
+          EOF
+          CMD_ID=$(aws ssm send-command \
+            --instance-ids "$INSTANCE_ID" \
+            --document-name AWS-RunShellScript \
+            --comment "Astrolabe ${SHA:0:7}" \
+            --parameters file:///tmp/ssm-params.json \
+            --timeout-seconds 900 \
+            --query Command.CommandId --output text)
+          echo "SSM command id: $CMD_ID"
+          echo "CMD_ID=$CMD_ID" >> "$GITHUB_ENV"
+
+      - name: Wait for the deploy and surface its output
+        env:
+          INSTANCE_ID: ${{ vars.INSTANCE_ID }}
+        run: |
+          # `aws ssm wait` gives up after 100 s; a first install takes longer.
+          for _ in $(seq 1 90); do
+            STATUS=$(aws ssm get-command-invocation --command-id "$CMD_ID" \
+              --instance-id "$INSTANCE_ID" --query Status --output text 2>/dev/null || echo Pending)
+            case "$STATUS" in Pending|InProgress|Delayed) sleep 10 ;; *) break ;; esac
+          done
+
+          echo "--- remote stdout ---"
+          aws ssm get-command-invocation --command-id "$CMD_ID" \
+            --instance-id "$INSTANCE_ID" --query StandardOutputContent --output text
+
+          ERR=$(aws ssm get-command-invocation --command-id "$CMD_ID" \
+            --instance-id "$INSTANCE_ID" --query StandardErrorContent --output text)
+          if [ -n "$ERR" ] && [ "$ERR" != "None" ]; then
+            echo "--- remote stderr ---"
+            echo "$ERR"
+          fi
+
+          echo "SSM status: $STATUS"
+          [ "$STATUS" = "Success" ]
+
+      # The remote script checks the API on loopback. This checks the whole
+      # path from outside, including DNS, Caddy and TLS.
+      - name: Verify the live site
+        run: |
+          curl -fsS -m 20 -o /dev/null https://astrolabe.ryanjrusson.com/api/health
+          CODE=$(curl -s -o /dev/null -w '%{http_code}' -m 20 https://astrolabe.ryanjrusson.com/)
+          echo "https://astrolabe.ryanjrusson.com -> $CODE"
+          [ "$CODE" = "200" ]

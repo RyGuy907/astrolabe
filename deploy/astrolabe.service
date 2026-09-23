@@ -1,0 +1,34 @@
+# The Astrolabe API. Installed to /etc/systemd/system/astrolabe.service
+# (deploy/README.md). Caddy serves the web app and proxies /api/* to this.
+[Unit]
+Description=Astrolabe API (uvicorn)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=ubuntu
+Group=ubuntu
+WorkingDirectory=/home/ubuntu/services/astrolabe
+ExecStart=/home/ubuntu/venvs/astrolabe/bin/python -m uvicorn api.main:app \
+    --host 127.0.0.1 --port 8001 --workers 1 --no-server-header
+
+# The sky-brightness map lives outside every release; its tiles are found
+# beside it (skybrightness_tiles/).
+Environment=ASTRO_SKYBRIGHTNESS_RASTER=/home/ubuntu/config/astrolabe/skybrightness.tif
+# One worker on a small box: numpy's thread pools would only add memory.
+Environment=OPENBLAS_NUM_THREADS=1
+Environment=OMP_NUM_THREADS=1
+Environment=PYTHONUNBUFFERED=1
+
+Restart=on-failure
+RestartSec=3
+# Shares the instance with norhog: a runaway here is killed and restarted
+# rather than starving it.
+MemoryMax=512M
+
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+
+[Install]
+WantedBy=multi-user.target
