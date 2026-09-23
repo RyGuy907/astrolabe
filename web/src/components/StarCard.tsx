@@ -6,7 +6,7 @@
  * estimate with the same confidence as a measured distance.
  */
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { api, ApiError, type StarProfile } from "../api";
 
 interface Props {
@@ -51,6 +51,10 @@ export function StarCard({ index, x, y, width, height, onClose }: Props) {
   // lands in it, and Escape closes it from anywhere inside.
   const cardRef = useRef<HTMLDivElement>(null);
   useEffect(() => { cardRef.current?.focus(); }, [index]);
+  // Its real height, once the facts are in: taller than CARD_H on a narrow
+  // phone, where the words wrap more, and placed by the estimate it ran off
+  // the bottom of the chart.
+  const [cardHeight, setCardHeight] = useState(CARD_H);
 
   useEffect(() => {
     setStar(null);
@@ -64,17 +68,22 @@ export function StarCard({ index, x, y, width, height, onClose }: Props) {
     return () => controller.abort();
   }, [index]);
 
+  useLayoutEffect(() => {
+    if (cardRef.current) setCardHeight(cardRef.current.offsetHeight);
+  }, [star, error]);
+
   // Beside the star, kept inside the chart: right of it unless that runs off
-  // the edge, and never covering the star itself.
+  // the edge, and never covering the star itself. Capped at the chart's
+  // height, scrolling beyond that, so it always fits inside.
   const left = x + 16 + CARD_W <= width ? x + 16 : Math.max(8, x - 16 - CARD_W);
-  const top = Math.max(8, Math.min(y - 24, height - CARD_H - 8));
+  const top = Math.max(8, Math.min(y - 24, height - cardHeight - 8));
 
   const title = star
     ? star.name ?? (star.hip ? `HIP ${star.hip}` : "Unnamed star")
     : "…";
 
   return (
-    <div className="star-card" style={{ left, top, width: CARD_W }}
+    <div className="star-card" style={{ left, top, width: CARD_W, maxHeight: height - 16 }}
          role="dialog" aria-label={`About ${title}`} ref={cardRef} tabIndex={-1}
          onKeyDown={(e) => { if (e.key === "Escape") { e.stopPropagation(); onClose(); } }}
          onPointerDown={(e) => e.stopPropagation()}>

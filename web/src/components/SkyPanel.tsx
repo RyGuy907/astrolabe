@@ -1095,7 +1095,7 @@ export function SkyPanel({
 
                   {open && (
                     <div className="table-scroll">
-                      <table className="targets">
+                      <table className="targets objects">
                         <thead>
                           <tr>
                             <th>Score</th>

@@ -37,6 +37,16 @@ const SURVEY = "CDS/P/DSS2/color";
  *  to be worth looking at. */
 const PIXELS = 320;
 
+/** Asked for on high-density screens -- every phone -- where a 320-pixel
+ *  cutout shown 320 points wide is drawn from a third of the pixels the
+ *  screen has and looks soft. Still a modest request. */
+const PIXELS_DENSE = 480;
+
+function requestPixels(): number {
+  return typeof window !== "undefined" && window.devicePixelRatio >= 1.5
+    ? PIXELS_DENSE : PIXELS;
+}
+
 /** Show this much sky around the object itself, so it sits in context rather
  *  than filling the frame edge to edge. */
 const FRAMING = 2.5;
@@ -59,11 +69,11 @@ export function cutoutFov(sizeArcmin: number | null): number {
 }
 
 export function cutoutUrl(raDeg: number, decDeg: number,
-                          sizeArcmin: number | null): string {
+                          sizeArcmin: number | null, pixels = PIXELS): string {
   const params = new URLSearchParams({
     hips: SURVEY,
-    width: String(PIXELS),
-    height: String(PIXELS),
+    width: String(pixels),
+    height: String(pixels),
     fov: cutoutFov(sizeArcmin).toFixed(4),
     projection: "TAN",
     coordsys: "icrs",
@@ -91,7 +101,7 @@ export function TargetImage({ name, raDeg, decDeg, sizeArcmin,
   const [src, setSrc] = useState<string | null>(null);
   const [fromCache, setFromCache] = useState(false);
   const fov = cutoutFov(sizeArcmin);
-  const url = cutoutUrl(raDeg, decDeg, sizeArcmin);
+  const url = cutoutUrl(raDeg, decDeg, sizeArcmin, requestPixels());
 
   // Goes through the browser cache rather than straight to <img src>, because
   // hips2fits sends no caching headers and re-renders every request: measured

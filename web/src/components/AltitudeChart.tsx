@@ -8,7 +8,7 @@
  * and a crosshair that reads every series at once.
  */
 
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { AltitudeResponse, ObservingWindow } from "../api";
 import { formatTime, zoneOffsetMinutes } from "../format";
 
@@ -22,8 +22,50 @@ export const WIDTH = 700;
 export const HEIGHT = 460;
 const MARGIN = { top: 16, right: 18, bottom: 40, left: 48 };
 
-const PLOT_WIDTH = WIDTH - MARGIN.left - MARGIN.right;
-const PLOT_HEIGHT = HEIGHT - MARGIN.top - MARGIN.bottom;
+/** Below this width -- a phone -- the chart stops being a 700-wide drawing
+ *  scaled down, whose labels came out at 5px, and is drawn at the column's
+ *  own width instead: one unit to a pixel, so text is its real size, taller
+ *  than it is wide so a night of curves still has room. */
+const COMPACT_BELOW = 600;
+const COMPACT_MARGIN = { top: 14, right: 10, bottom: 34, left: 36 };
+
+/** An hour label needs about this many units to itself, or they collide. */
+const MIN_LABEL_SPACING = 50;
+
+interface Layout {
+  width: number;
+  height: number;
+  margin: typeof MARGIN;
+  plotWidth: number;
+  plotHeight: number;
+  compact: boolean;
+}
+
+function layoutFor(columnWidth: number): Layout {
+  const compact = columnWidth > 0 && columnWidth < COMPACT_BELOW;
+  const width = compact ? Math.round(columnWidth) : WIDTH;
+  const height = compact ? Math.round(Math.min(440, Math.max(320, columnWidth * 1.05))) : HEIGHT;
+  const margin = compact ? COMPACT_MARGIN : MARGIN;
+  return {
+    width, height, margin, compact,
+    plotWidth: width - margin.left - margin.right,
+    plotHeight: height - margin.top - margin.bottom,
+  };
+}
+
+/** The figure's width in CSS pixels, kept current as the layout changes. */
+function useWidth(ref: React.RefObject<HTMLElement>): number {
+  const [width, setWidth] = useState(0);
+  useEffect(() => {
+    const node = ref.current;
+    if (!node) return;
+    setWidth(node.clientWidth);
+    const observer = new ResizeObserver(([entry]) => setWidth(entry.contentRect.width));
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, [ref]);
+  return width;
+}
 
 /** Colours for the bodies people already picture in a colour.
  *
@@ -118,6 +160,9 @@ export function AltitudeChart({
   obstructionDeg = 0, obstructionVaries = false,
 }: Props) {
   const svgRef = useRef<SVGSVGElement>(null);
+  const figureRef = useRef<HTMLElement>(null);
+  const layout = layoutFor(useWidth(figureRef));
+  const { width: W, height: H, margin: M, plotWidth: PLOT_WIDTH, plotHeight: PLOT_HEIGHT } = layout;
   const [hoverX, setHoverX] = useState<number | null>(null);
   //: Pointer position: `y` in plot units, for finding the nearest curve, and
   //: `left`/`top` in CSS pixels within the figure, for placing the label.
@@ -151,7 +196,9 @@ export function AltitudeChart({
           d: `M ${points}`,
         };
       }),
-    [data],
+    // The drawing size changes the path, so it is a dependency too.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [data, PLOT_WIDTH, PLOT_HEIGHT],
   );
 
   // Hour ticks on the site's clock, not the browser's -- and on its hours:
@@ -168,8 +215,12 @@ export function AltitudeChart({
         label: formatTime(new Date(ms).toISOString(), timeZone),
       });
     }
-    return ticks.filter((_, i) => i % 2 === 0);
-  }, [startMs, endMs, timeZone]);
+    // Every other hour on a wide chart; on a narrow one, as many hours apart
+    // as it takes for the labels not to run into each other.
+    const unitsPerHour = PLOT_WIDTH / ((endMs - startMs) / 3600_000);
+    const every = Math.max(2, Math.ceil(MIN_LABEL_SPACING / unitsPerHour));
+    return ticks.filter((_, i) => i % every === 0);
+  }, [startMs, endMs, timeZone, PLOT_WIDTH]);
 
   const hoverTime = hoverX === null
     ? null
@@ -215,9 +266,9 @@ export function AltitudeChart({
       }
     }
     return bestPx <= HOVER_RADIUS_PX ? best : null;
-    // yOf is a pure function of constants.
+    // yOf is a pure function of the plot height.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pointer, readouts]);
+  }, [pointer, readouts, PLOT_HEIGHT]);
 
   function renderChip(path: { label: string; color: string }) {
     const off = hidden.includes(path.label);
@@ -251,16 +302,19 @@ export function AltitudeChart({
     );
   }
 
-  function onMove(event: React.MouseEvent<SVGSVGElement>) {
+  // Pointer events, so a finger reads the chart as a mouse does: touch and
+  // slide sideways to move the time line. The SVG's touch-action lets a
+  // vertical swipe still scroll the page.
+  function onMove(event: React.PointerEvent<SVGSVGElement>) {
     const svg = svgRef.current;
     if (!svg) return;
     const rect = svg.getBoundingClientRect();
-    const scale = WIDTH / rect.width;
-    const x = (event.clientX - rect.left) * scale - MARGIN.left;
+    const scale = W / rect.width;
+    const x = (event.clientX - rect.left) * scale - M.left;
     const inside = x >= 0 && x <= PLOT_WIDTH;
     setHoverX(inside ? x : null);
     setPointer(inside ? {
-      y: (event.clientY - rect.top) * scale - MARGIN.top,
+      y: (event.clientY - rect.top) * scale - M.top,
       // The figure is the label's positioning parent, and the SVG is its
       // first child, so SVG-relative pixels are figure-relative too.
       left: event.clientX - rect.left,
@@ -271,16 +325,21 @@ export function AltitudeChart({
   }
 
   return (
-    <figure className="chart">
+    <figure className={`chart${layout.compact ? " chart-compact" : ""}`} ref={figureRef}>
       <svg
         ref={svgRef}
-        viewBox={`0 0 ${WIDTH} ${HEIGHT}`}
+        viewBox={`0 0 ${W} ${H}`}
         role="img"
         aria-label="Altitude versus time for the selected objects"
-        onMouseMove={onMove}
-        onMouseLeave={() => { setHoverX(null); setPointer(null); }}
+        onPointerMove={onMove}
+        onPointerDown={onMove}
+        // A mouse leaving clears the readout; a finger lifting leaves it up
+        // to be read.
+        onPointerLeave={(e) => {
+          if (e.pointerType === "mouse") { setHoverX(null); setPointer(null); }
+        }}
       >
-        <g transform={`translate(${MARGIN.left},${MARGIN.top})`}>
+        <g transform={`translate(${M.left},${M.top})`}>
           {/* Sky background, then progressively darker bands for astronomical
               night and for true dark. The shading is the point: it shows at a
               glance which part of the night is actually worth using. */}

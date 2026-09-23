@@ -1525,8 +1525,6 @@ footer { text-align: center; padding-top: 8px; }
   .two-col { grid-template-columns: 1fr; gap: 16px; }
   .event-alert { flex-direction: column; gap: 8px; }
   .dials { justify-content: space-around; gap: 18px; }
-  .chart { overflow-x: auto; }
-  .chart svg { min-width: 720px; }
   .chart-legend-section { flex-direction: column; align-items: flex-start; gap: 3px; }
   .chart-legend-label { width: auto; text-align: left; }
   .chart-legend-head { width: auto; flex-direction: row; align-items: baseline; gap: 8px; }
@@ -2153,6 +2151,10 @@ tr.revealed > td { background: var(--accent-soft, rgba(10, 132, 255, 0.14)); tra
   backdrop-filter: blur(8px);
   font-size: 0.8rem;
   color: var(--text);
+  /* Capped at the chart's height (set inline): a 280px-wide phone chart is
+     shorter than the card, which scrolls instead. */
+  overflow-y: auto;
+  overscroll-behavior: contain;
 }
 .star-card h4 {
   display: flex;
@@ -2252,13 +2254,51 @@ tr.revealed > td { background: var(--accent-soft, rgba(10, 132, 255, 0.14)); tra
      beside it -- stay on one line; squeezed to the screen, "Venus" broke a
      letter at a time. The rest wrap, so a table still fits the screen. */
   table.targets th, table.targets td:nth-child(-n+2) { white-space: nowrap; }
+  /* An opened row's detail is its row's first cell too, and must wrap. */
+  table.targets td[colspan], table.targets th[colspan] { white-space: normal; }
+
+  /* A constellation's objects the same way: score, name, magnitude and peak
+     on one line, the best window under the name. As a table the rows ran
+     wider than the screen, and an opened object's picture was stretched to
+     the table's width -- 1300px and blurred on a 390px phone. As rows, the
+     detail underneath is exactly the screen's width. */
+  table.targets.objects thead, table.targets.objects tbody { display: block; }
+  table.targets.objects tr {
+    display: grid;
+    grid-template-columns: 48px minmax(0, 1fr) auto auto;
+    column-gap: 2px;
+    align-items: start;
+    border-bottom: 1px solid var(--line);
+  }
+  table.targets.objects th, table.targets.objects td { border-bottom: none; }
+  table.targets.objects td:nth-child(2) { white-space: normal; }
+  table.targets.objects th:nth-child(5) { display: none; }
+  table.targets.objects td:nth-child(5) { grid-column: 2 / -1; padding-top: 0; color: var(--muted-text); font-size: 0.8rem; }
+  table.targets.objects td:nth-child(5)::before { content: "Best "; }
+  table.targets.objects td:nth-child(3), table.targets.objects td:nth-child(4),
+  table.targets.objects th:nth-child(3), table.targets.objects th:nth-child(4) { text-align: right; padding-left: 0; }
+  table.targets.objects td[colspan] { grid-column: 1 / -1; }
+
+  /* An opened object's picture at the screen's width, square, never wider. */
+  .target-detail td { min-width: 0; }
+  .target-image img, .target-image-failed { max-width: 100%; }
+  .planet-figure { width: 100%; }
+  .planet-photo { width: 100%; max-width: 360px; height: auto; aspect-ratio: 1; }
+  .planet-figure figcaption { max-width: none; }
+
+  /* The lists are part of the page on a phone, not a box scrolling inside a
+     scrolling page: that trapped the thumb, and clipped a tall dropdown like
+     the Moon's. (The desktop cap, set further up, has to be undone here.)
+     Rows opened from the chart scroll the page instead. */
+  .tab-body { max-height: none; overflow-y: visible; }
   /* The planets' table as rows of cards: the numbers on one line, and the
      apparition note -- too long to share a phone's width with them -- on
      its own line underneath, where it had been squeezed to a word a line. */
   table.targets.planets thead, table.targets.planets tbody { display: block; }
   table.targets.planets tr {
     display: grid;
-    grid-template-columns: 40px minmax(0, 1.8fr) repeat(3, minmax(0, 1fr));
+    grid-template-columns: 38px minmax(0, 1fr) repeat(3, auto);
+    column-gap: 2px;
     align-items: start;
     border-bottom: 1px solid var(--line);
   }
@@ -2266,6 +2306,16 @@ tr.revealed > td { background: var(--accent-soft, rgba(10, 132, 255, 0.14)); tra
   table.targets.planets th:last-child { display: none; }
   table.targets.planets td:last-child { grid-column: 2 / -1; padding-top: 0; }
   table.targets.planets td[colspan], table.targets.planets th[colspan] { grid-column: 1 / -1; }
+  /* The chart button drops under the name rather than pushing it out. */
+  table.targets.planets td:nth-child(2) { white-space: normal; overflow-wrap: normal; }
+  table.targets.planets .target-name { white-space: nowrap; }
+
+  /* The conditions beside the dials: no fixed minimum width, which pushed the
+     page sideways on a 320px phone, and figures that shrink a little to fit
+     two columns there. */
+  .score-body { min-width: 0; flex: 1 1 100%; }
+  .key-facts { gap: 22px 18px; }
+  .key-facts strong { font-size: clamp(1.3rem, 6.4vw, 1.7rem); }
 
   /* Small print a phone at arm's length can still read. */
   .badge { font-size: 0.72rem; }
@@ -2296,3 +2346,7 @@ tr.revealed > td { background: var(--accent-soft, rgba(10, 132, 255, 0.14)); tra
   .finder-layer { min-height: 34px; }
   .left-tab-close { min-width: 32px; min-height: 32px; }
 }
+
+/* The altitude chart drawn at a phone's own width: a sideways drag reads it,
+   a vertical swipe still scrolls the page. */
+.chart svg { touch-action: pan-y; }
