@@ -17,10 +17,10 @@
  *
  * **What a click cannot tell you** is sky darkness. Bortle stays a separate,
  * required decision in the form — coordinates alone say nothing about light
- * pollution. Wiring that up automatically is HANDOFF item 2 (vendor the Falchi
- * atlas and read the pixel); when that lands, this component is where the
- * value should surface, and the atlas would also make a darkness overlay
- * possible, which is how people actually choose a dark site.
+ * pollution. Where a light-pollution map is configured (see the README), the
+ * form reads the class from it for the clicked point; a darkness overlay
+ * drawn from that same map would be the natural next step, since it is how
+ * people actually choose a dark site.
  *
  * **Plain Leaflet, no React wrapper.** react-leaflet is licensed
  * Hippocratic-2.1, which is not OSI-approved and imposes use restrictions that

@@ -250,6 +250,30 @@ use or large-scale redistribution.
   kept to what the user is actually viewing. Confirm current terms with NASA
   before any public deployment.
 
+### Sky-brightness map — inputs to `scripts/build_skyglow.py`
+
+None of these is fetched by the application or committed to the repository.
+They are downloaded by hand (ETOPO is read over HTTP) when the map is rebuilt,
+and only the built map, `config/skybrightness.tif`, is read at run time.
+
+- **EOG VIIRS annual night lights (VNL v2.1 and v2.2)** — Earth Observation
+  Group, Payne Institute for Public Policy, Colorado School of Mines,
+  https://eogdata.mines.edu (free account). Licensed **CC BY 4.0**. The map's
+  light comes from these. Cite: C. D. Elvidge, M. Zhizhin, T. Ghosh, F.-C. Hsu,
+  J. Taneja, "Annual time series of global VIIRS nighttime lights derived from
+  monthly averages: 2012 to 2019", *Remote Sensing* 13(5), 922 (2021).
+- **ETOPO 2022 Global Relief Model, 30 arc-second** — NOAA National Centers for
+  Environmental Information, https://doi.org/10.25921/fd45-gt74. US Government
+  work, public domain. Ground height for the model's altitude term.
+- **The New World Atlas of Artificial Night Sky Brightness** — Falchi et al.,
+  *Science Advances* 2(6), e1600377 (2016), data DOI
+  10.5880/GFZ.1.4.2016.001. Its README prohibits further distribution and
+  commercial use. It is used **only as the calibration target** that the
+  propagation kernel is fitted to, on 2014 data; it is never copied into the
+  built map or redistributed, and the map's values come from the EOG data
+  above. The kernel's form follows the Garstang (1986, PASP 98, 364) and
+  Cinzano/Falchi tradition of modelling sky glow as propagated upward light.
+
 ### 7Timer! ASTRO — seeing and transparency
 
 - **Endpoint:** `www.7timer.info/bin/api.pl`

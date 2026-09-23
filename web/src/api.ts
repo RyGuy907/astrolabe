@@ -40,6 +40,8 @@ export interface SkyBrightnessCoverage {
   configured: boolean;
   /** [west, south, east, north] in degrees, or null. */
   bounds: number[] | null;
+  /** What the raster says it is, e.g. "modelled from 2025 satellite data". */
+  source: string | null;
 }
 
 /** The atlas's answer for one coordinate. */
@@ -48,6 +50,8 @@ export interface SkyBrightnessReading {
   bortle: number | null;
   /** False when the atlas simply has nothing here — a real answer. */
   in_coverage: boolean;
+  /** What the raster says it is, as in SkyBrightnessCoverage. */
+  source: string | null;
 }
 
 /** A constellation visible toward one bearing, for measuring a horizon. */

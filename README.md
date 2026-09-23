@@ -195,36 +195,83 @@ often a home address to four decimal places. `config/locations.yaml` ships
 public examples only; put yours in `config/locations.local.yaml`, which uses
 the same schema, is merged over the top, and is gitignored.
 
-## Sky brightness from a light-pollution atlas (optional)
+## Sky brightness from a light-pollution map (optional)
 
-By default the Bortle class of a site is something you choose. If you have a
-light-pollution raster, `engine/skybrightness.py` can read one instead:
+By default the Bortle class of a site is something you choose. With a
+light-pollution raster, `engine/skybrightness.py` reads it instead, and the
+add-site form fills the class in from wherever you click:
 
 ```bash
 pip install -e ".[skybrightness]"
 ```
 
+The raster is `config/skybrightness.tif`, or wherever
+`ASTRO_SKYBRIGHTNESS_RASTER` points. It is gitignored and the feature is off
+without one. Outside its coverage the answer is `None`, which the form treats
+as "set the class yourself".
+
+### Building a current map for the lower 48
+
+The standard light-pollution atlas, Falchi et al. 2016
+([DOI 10.5880/GFZ.1.4.2016.001](https://doi.org/10.5880/GFZ.1.4.2016.001)), is
+built from 2014 satellite data, and a decade is long enough for places to
+change: the Permian Basin oil fields have brightened by nearly a magnitude.
+`scripts/build_skyglow.py` makes a current map instead, by *learning* the
+atlas's light-propagation model and running it on newer satellite data:
+
+1. **crop** cuts the lower 48, with 300 km to spare, out of EOG's annual
+   VIIRS night lights for 2014 and for the latest year, the atlas, and NOAA's
+   ETOPO 2022 ground height, all onto one 30-arcsecond grid.
+2. **fit** treats sky glow as the night lights convolved with a radial
+   kernel -- the light in each ring of distance around a site, times how much
+   a ring that far away contributes -- dimmed by the air a site stands above,
+   in two layers with Garstang's scale heights (molecules 9.6 km, haze
+   1.5 km). That is linear in the per-ring weights, so they come from a
+   non-negative least-squares fit of the 2014 lights to the atlas. The
+   convolutions run by FFT on an equal-area plane.
+3. **apply** runs the latest year's lights through the fitted kernel and
+   writes `data/skyglow/skybrightness_us.tif` (~27 MB). Copy it to
+   `config/skybrightness.tif`.
+
+How well it reproduces the atlas, on 2014 data, over every cell of the lower
+48 (SQM error in mag/arcsec²; the hold-out rows are fitted on one half of the
+country and scored on the other):
+
+| Sky | Median error | Median error, hold-out |
+| --- | --- | --- |
+| City, SQM < 19 | 0.04 | 0.04–0.05 |
+| Suburban, 19–21 | 0.04–0.05 | 0.05–0.06 |
+| Rural, 21–21.5 | 0.03 | 0.05 |
+| Dark, > 21.5 | 0.003 | 0.003 |
+
+For scale, a handheld sky meter reads to about ±0.1. Nobody told the fit what
+shape the kernel should be; it found a smooth fall-off, and gave every ring
+beyond 140 km a weight of zero.
+
+Sources, all downloaded by hand into `data/skyglow/` (gitignored):
+
+- EOG VIIRS annual night lights, `median_masked`, v2.1 for 2014 and v2.2 for
+  the latest year -- free account at https://eogdata.mines.edu. CC BY 4.0.
+- `World_Atlas_2015.zip` from the atlas's DOI above -- used only as the
+  calibration target, never redistributed. Only `fit` needs it: the fitted
+  kernel is committed as `scripts/skyglow_kernel.json`, so `apply` runs from
+  the satellite data alone.
+- ETOPO 2022 is read over HTTP; only the region's blocks, about 50 MB, are
+  fetched.
+
 ```bash
-ASTRO_SKYBRIGHTNESS_RASTER=/path/to/atlas.tif planner targets
+pip install -e ".[skyglow-build]"
+python scripts/build_skyglow.py crop     # ~8 min, mostly decompressing
+python scripts/build_skyglow.py fit      # ~2 min
+python scripts/build_skyglow.py apply    # ~2 min
 ```
 
-Or simply drop the file at `config/skybrightness.tif`, which is checked when
-the variable is unset. Either way the file is gitignored: it is a third-party
-derived product and not ours to redistribute. With neither present the feature
-is off and nothing changes.
+It shares one limit with every satellite-based map: VIIRS barely sees the
+blue light of white LEDs, so a city that has converted its streetlights looks
+dimmer to the satellite than it is to the eye.
 
-A regional export is plenty. At 30 arcsec the grid is about 120 pixels per
-degree, so a box covering a whole state is a few megabytes — a 10° box is
-roughly 5.5 MB. Cover everywhere you might plausibly drive rather than just
-the site you use now: outside the raster's coverage the answer is `None`, and
-`None` falls back to assuming Bortle 5.
-
-**No atlas ships with this project, deliberately.** The obvious dataset, Falchi
-et al. 2016 ([DOI 10.5880/GFZ.1.4.2016.001](https://doi.org/10.5880/GFZ.1.4.2016.001)),
-is not a public download — it is behind a request form — and is CC BY-NC, so a
-derivative of it does not belong in an MIT repository. EOG's VIIRS annual
-composites now need an account. Either file is gigabytes. Fetch one yourself
-and point this at it.
+Falchi's own raster, or a regional export of it, also works as
+`config/skybrightness.tif`.
 
 **The raster must hold artificial sky brightness in mcd/m², not satellite
 radiance.** This matters more than it sounds. A satellite measures light

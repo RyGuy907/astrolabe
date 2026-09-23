@@ -38,6 +38,8 @@ dev = ["pytest>=8.0", "httpx>=0.27"]
 # is a large install to force on everyone for a feature most users will not
 # switch on.
 skybrightness = ["rasterio>=1.3"]
+# Only for building that raster: scripts/build_skyglow.py.
+skyglow-build = ["rasterio>=1.3", "scipy>=1.11"]
 
 [project.scripts]
 planner = "cli.main:app"

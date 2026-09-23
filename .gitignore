@@ -31,6 +31,10 @@ npm-debug.log*
 *.tif
 *.tiff
 *.h5
+# Source data for scripts/build_skyglow.py: the satellite night-lights and the
+# atlas it is calibrated against. Kept together, never committed.
+data/
+*.tif.gz
 
 # --- Local configuration ---
 # config/locations.yaml is committed with public example sites. Keep your own

@@ -508,6 +508,11 @@ class SkyBrightnessCoverage(BaseModel):
         description="[west, south, east, north] in degrees, or null. The map "
                     "picker opens here so that clicks land inside coverage.",
     )
+    source: str | None = Field(
+        default=None,
+        description='What the raster says it is, e.g. "modelled from 2025 '
+                    'satellite data", or null when it does not say.',
+    )
 
 
 class SkyBrightnessReading(BaseModel):
@@ -526,6 +531,10 @@ class SkyBrightnessReading(BaseModel):
     in_coverage: bool = Field(
         description="False when the atlas simply has nothing here, which is "
                     "a real answer and not an error.",
+    )
+    source: str | None = Field(
+        default=None,
+        description="What the raster says it is, as in SkyBrightnessCoverage.",
     )
 
 

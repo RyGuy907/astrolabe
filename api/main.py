@@ -912,12 +912,13 @@ def remove_location(key: str) -> None:
          tags=["locations"])
 def skybrightness_coverage() -> SkyBrightnessCoverage:
     """Where the configured light-pollution atlas has data, if there is one."""
-    from engine.skybrightness import coverage_bounds, is_configured
+    from engine.skybrightness import coverage_bounds, is_configured, source_label
 
     bounds = coverage_bounds()
     return SkyBrightnessCoverage(
         configured=is_configured(),
         bounds=list(bounds) if bounds else None,
+        source=source_label(),
     )
 
 
@@ -932,13 +933,14 @@ def skybrightness_at(lat: float = Query(..., ge=-90.0, le=90.0),
     recall one. Outside coverage the answer is null, which the form treats as
     "you will have to tell me" rather than quietly assuming a suburban sky.
     """
-    from engine.skybrightness import bortle_from_sqm, sqm_at
+    from engine.skybrightness import bortle_from_sqm, source_label, sqm_at
 
     sqm = sqm_at(lat, lon)
     return SkyBrightnessReading(
         sqm=sqm,
         bortle=None if sqm is None else bortle_from_sqm(sqm),
         in_coverage=sqm is not None,
+        source=source_label(),
     )
 
 

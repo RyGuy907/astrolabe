@@ -122,6 +122,47 @@ def test_lookup_is_off_rather_than_broken_without_a_raster(monkeypatch, tmp_path
     assert sb.is_configured() is False
 
 
+def _tiny_raster(path, tags: dict[str, str]) -> None:
+    rasterio = pytest.importorskip("rasterio")
+    import numpy as np
+
+    with rasterio.open(path, "w", driver="GTiff", width=2, height=2, count=1,
+                       dtype="float32", crs="EPSG:4326",
+                       transform=rasterio.Affine(1, 0, -100, 0, -1, 40)) as out:
+        out.write(np.zeros((2, 2), dtype=np.float32), 1)
+        out.update_tags(**tags)
+
+
+@pytest.mark.parametrize("tags, expected", [
+    ({"LABEL": "modelled from 2025 satellite data"}, "modelled from 2025 satellite data"),
+    ({}, None),                      # Falchi's raster says nothing about itself
+    ({"LABEL": "   "}, None),
+])
+def test_a_raster_describes_itself_through_its_label_tag(monkeypatch, tmp_path, tags, expected):
+    """The app shows which map a site's class was read from, so a value from
+    2014 data and one from last year's are not taken for each other -- and
+    the words come from the file, so a rebuilt map cannot be mislabelled by
+    a year left behind in the code."""
+    import engine.skybrightness as sb
+
+    path = tmp_path / "labelled.tif"
+    _tiny_raster(path, tags)
+    monkeypatch.setenv("ASTRO_SKYBRIGHTNESS_RASTER", str(path))
+    sb._open_raster.cache_clear()
+    try:
+        assert sb.source_label() == expected
+    finally:
+        sb._open_raster.cache_clear()
+
+
+def test_no_raster_means_no_label(monkeypatch, tmp_path):
+    import engine.skybrightness as sb
+
+    monkeypatch.delenv("ASTRO_SKYBRIGHTNESS_RASTER", raising=False)
+    monkeypatch.setattr(sb, "CONVENTIONAL_RASTER", tmp_path / "absent.tif")
+    assert sb.source_label() is None
+
+
 def _raster_sample_points(count: int = 12) -> list[tuple[float, float]]:
     """A spread of coordinates inside whatever raster is configured.
 

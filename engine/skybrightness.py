@@ -5,21 +5,19 @@ Bortle as a display convenience. This module is the missing half of that: a way
 to get an SQM for a coordinate instead of asking the observer to type a Bortle
 class from memory.
 
-No data ships with this project
--------------------------------
-`sqm_at()` reads a raster **you** supply, named by the
-`ASTRO_SKYBRIGHTNESS_RASTER` environment variable. Nothing is vendored, and the
-feature is simply off when the variable is unset. That is deliberate:
+Where the raster comes from
+---------------------------
+`sqm_at()` reads a raster of artificial sky brightness from
+`config/skybrightness.tif`, or wherever the `ASTRO_SKYBRIGHTNESS_RASTER`
+environment variable points; the feature is simply off without one. The file
+is built, not committed: `scripts/build_skyglow.py` makes one for the lower 48
+from EOG's latest annual VIIRS night lights, with a propagation model fitted to
+Falchi et al.'s World Atlas. Falchi's own raster, or a regional export of it,
+works here too. See the README.
 
-* The obvious dataset, Falchi et al. 2016 (DOI 10.5880/GFZ.1.4.2016.001), is
-  not a public download — it is behind a request form — and is CC BY-NC, so
-  redistributing a derivative of it inside an MIT repository would be wrong.
-* The obvious alternative, EOG's VIIRS annual composites, now requires an
-  account.
-* Either file is gigabytes before downsampling, which does not belong in a
-  repository this size.
-
-See the README for how to obtain a raster and point this at it.
+A raster may say what it is in a `LABEL` tag ("modelled from 2025 satellite
+data"), which `source_label()` passes on so the app can show it beside the
+class it filled in.
 
 Why a raster and not satellite radiance
 ---------------------------------------
@@ -204,6 +202,23 @@ def coverage_bounds() -> tuple[float, float, float, float] | None:
         return (float(west), float(south), float(east), float(north))
     except Exception:                    # noqa: BLE001 - optional, never fatal
         return None
+
+
+def source_label() -> str | None:
+    """What the configured raster says it is, or None.
+
+    From the file's `LABEL` tag, so a rebuilt map describes itself and there
+    is no year here to forget to update. A raster without one -- Falchi's,
+    say -- is simply unlabelled.
+    """
+    path = raster_path()
+    if path is None:
+        return None
+    try:
+        label = _open_raster(str(path)).tags().get("LABEL", "").strip()
+    except Exception:                    # noqa: BLE001 - optional, never fatal
+        return None
+    return label or None
 
 
 def is_configured() -> bool:
