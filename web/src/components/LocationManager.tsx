@@ -572,6 +572,8 @@ export function LocationManager({ locations, editingKey, onClose, onCreated }: P
             <SitePicker
               lat={latValid ? latValue : null}
               lon={lonValid ? lonValue : null}
+              reading={atlas}
+              readingLabel={BORTLE_CLASSES.find(([value]) => value === atlas?.bortle)?.[1] ?? null}
               onPick={(pickedLat, pickedLon) => {
                 setLat(String(pickedLat));
                 setLon(String(pickedLon));

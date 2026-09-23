@@ -38,7 +38,7 @@
 import { useEffect, useRef, useState } from "react";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
-import { api, type SkyBrightnessCoverage } from "../api";
+import { api, type SkyBrightnessCoverage, type SkyBrightnessReading } from "../api";
 
 /** Where the map opens with no coordinates and no atlas: a wide view, which
  *  says "pick anywhere" rather than implying a particular part of the world. */
@@ -106,6 +106,32 @@ interface Props {
   lat: number | null;
   lon: number | null;
   onPick: (lat: number, lon: number) => void;
+  /** The form's sky-brightness reading for these coordinates, once it has
+   *  one, shown on the pin; and the name of its Bortle class. */
+  reading?: SkyBrightnessReading | null;
+  readingLabel?: string | null;
+}
+
+/** What the pin says about the sky where it stands: the class with its
+ *  decimal and description, and the SQM behind it. Built as elements rather
+ *  than an HTML string, so nothing in it is ever parsed as markup. */
+function readingContent(reading: SkyBrightnessReading, label: string | null): HTMLElement {
+  const box = document.createElement("div");
+  const add = (tag: string, className: string, text: string) => {
+    const el = document.createElement(tag);
+    el.className = className;
+    el.textContent = text;
+    box.appendChild(el);
+  };
+  if (!reading.in_coverage || reading.sqm === null) {
+    add("div", "site-reading-note", "No sky-brightness data here");
+    return box;
+  }
+  add("div", "site-reading-class",
+      `Bortle ${(reading.bortle_decimal ?? reading.bortle ?? 0).toFixed(1)}`);
+  if (label) add("div", "site-reading-label", label);
+  add("div", "site-reading-sqm", `SQM ${reading.sqm.toFixed(2)} mag/arcsec²`);
+  return box;
 }
 
 /** Leaflet's default marker resolves its PNGs by a relative URL that breaks
@@ -123,7 +149,7 @@ function normaliseLon(lon: number): number {
   return (((lon + 180) % 360) + 360) % 360 - 180;
 }
 
-export function SitePicker({ lat, lon, onPick }: Props) {
+export function SitePicker({ lat, lon, onPick, reading = null, readingLabel = null }: Props) {
   const container = useRef<HTMLDivElement>(null);
   const map = useRef<L.Map | null>(null);
   const marker = useRef<L.Marker | null>(null);
@@ -382,6 +408,30 @@ export function SitePicker({ lat, lon, onPick }: Props) {
       instance.setView(position, Math.max(instance.getZoom(), PICKED_ZOOM));
     }
   }, [lat, lon]);
+
+  // The reading, on the pin. A tooltip rather than a popup: a popup closes on
+  // the next map click, which is exactly when a new reading is wanted. The
+  // form drops its reading the moment the coordinates change, so this never
+  // shows one pin's answer against another's position.
+  useEffect(() => {
+    const pin = marker.current;
+    if (!pin) return;
+    if (!reading) {
+      pin.unbindTooltip();
+      return;
+    }
+    // Above the pin, unless that would run off the top of the map -- the map
+    // clips it, so a pin dropped near the top edge would show nothing.
+    const instance = map.current;
+    const nearTop = instance ? instance.latLngToContainerPoint(pin.getLatLng()).y < 90 : false;
+    pin.unbindTooltip();
+    pin.bindTooltip(readingContent(reading, readingLabel), {
+      permanent: true,
+      direction: nearTop ? "bottom" : "top",
+      offset: nearTop ? [0, 12] : [0, -12],
+      className: "site-reading",
+    }).openTooltip();
+  }, [reading, readingLabel, lat, lon]);
 
   return (
     <div className="site-picker">

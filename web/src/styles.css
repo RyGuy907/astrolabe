@@ -1148,6 +1148,25 @@ table.targets tr.charted { background: rgba(244, 201, 93, 0.06); }
 }
 .lights-toggle input { accent-color: var(--accent); }
 
+/* The sky reading on the site pin: the app's own panel colours rather than
+   Leaflet's white, which glares on a dark map. */
+.site-map .site-reading {
+  background: var(--panel);
+  color: var(--text);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.45);
+  padding: 6px 10px;
+  text-align: center;
+  line-height: 1.3;
+}
+.site-map .leaflet-tooltip-top.site-reading::before { border-top-color: var(--line); }
+.site-map .leaflet-tooltip-bottom.site-reading::before { border-bottom-color: var(--line); }
+.site-reading-class { font-weight: 600; font-size: 0.95rem; }
+.site-reading-label { font-size: 0.75rem; color: var(--muted-text); }
+.site-reading-sqm { font-size: 0.72rem; color: var(--muted-text); font-variant-numeric: tabular-nums; }
+.site-reading-note { font-size: 0.78rem; color: var(--muted-text); }
+
 /* The overlay's colour key: beside the toggle when there is room, under it on
    a phone. The bar sits on the map's own background colour, so the clear end
    reads as the map does where the sky is pristine. */
