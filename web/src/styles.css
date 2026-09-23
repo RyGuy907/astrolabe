@@ -648,7 +648,6 @@ table.targets th {
 }
 table.targets td { padding: 7px 8px; border-bottom: 1px solid var(--line); vertical-align: top; font-variant-numeric: tabular-nums; }
 table.targets tr:last-child td { border-bottom: none; }
-table.targets tr.charted { background: rgba(244, 201, 93, 0.06); }
 
 .score-pill {
   display: inline-block;
@@ -732,48 +731,6 @@ table.targets tr.charted { background: rgba(244, 201, 93, 0.06); }
 .segmented button:last-child { border-right: none; }
 .segmented button:hover { color: var(--text); }
 .segmented button.on { background: var(--accent); color: #1a1206; font-weight: 600; }
-
-/* --- observation log --- */
-.log-start { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin: 10px 0; }
-.log-start input, .log-freetext input {
-  flex: 1;
-  min-width: 220px;
-  background: var(--panel-2);
-  border: 1px solid var(--line);
-  color: var(--text);
-  border-radius: 8px;
-  padding: 8px 11px;
-  font: inherit;
-  font-size: 0.9rem;
-}
-.log-start p { flex-basis: 100%; margin: 0; }
-.log-candidates { display: flex; flex-wrap: wrap; gap: 7px; margin-bottom: 14px; }
-.log-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 7px;
-  background: var(--panel-2);
-  border: 1px solid var(--line);
-  color: var(--text);
-  border-radius: 999px;
-  padding: 5px 13px 5px 5px;
-  font: inherit;
-  font-size: 0.85rem;
-  cursor: pointer;
-}
-.log-chip:not(:disabled):hover { border-color: var(--accent); }
-.log-chip-score {
-  display: inline-block;
-  min-width: 26px;
-  text-align: center;
-  border-radius: 999px;
-  padding: 1px 6px;
-  color: #10141d;
-  font-weight: 700;
-  font-size: 0.75rem;
-}
-.log-chip-done { opacity: 0.5; cursor: default; border-color: var(--good); }
-.log-freetext { display: flex; gap: 10px; margin-bottom: 14px; }
 
 /* --- location manager ----------------------------------------------------
    A modal rather than an inline panel: adding a site is a detour from the
@@ -1843,7 +1800,6 @@ table.targets td {
   border-bottom: 1px solid rgba(255, 255, 255, 0.05);
   padding: 11px 8px;
 }
-table.targets tr.charted { background: var(--accent-soft); }
 .group { border-top: 1px solid var(--line); }
 .group-head { padding: 15px 0; font-weight: 500; }
 .group-head:hover { color: var(--accent); }
@@ -1949,8 +1905,6 @@ table.targets tr.charted { background: var(--accent-soft); }
 .skeleton-tabs { width: 240px; height: 28px; }
 .skeleton-row-text { flex: 1; display: flex; flex-direction: column; }
 .skeleton-row-sub { display: none; }
-
-}
 .skeleton-row {
   display: flex;
   align-items: center;
@@ -1992,6 +1946,7 @@ main#main, .dashboard-skeleton { display: flex; flex-direction: column; gap: 36p
   .skeleton-tabs { width: 100%; height: 44px; border-radius: 999px; }
   .skeleton-row { padding: 14px 0; align-items: flex-start; }
   .skeleton-row-sub { display: block; width: 50%; height: 10px; }
+}
 
 /* The site and date are the controls used every visit, so they get the size.
    They were 34px and 36px -- not even matching -- beside a switch of the
@@ -2164,8 +2119,174 @@ button.left-tab { background: rgba(255, 255, 255, 0.05); border-radius: 999px; }
 :root[data-night-vision="on"] .finder-canvas {
   filter: grayscale(1) sepia(1) hue-rotate(-28deg) saturate(4) brightness(0.9);
 }
-/* A row brought into view from the chart, briefly marked so the eye finds it. */
-tr.revealed > td { background: var(--accent-soft, rgba(10, 132, 255, 0.14)); transition: background 0.4s ease; }
+/* A row brought into view from the chart, briefly marked so the eye finds it.
+   On the row rather than its cells: a phone lays the cells out as a grid,
+   and tinted cells left dark gaps between and under them. */
+table.targets tbody tr { transition: background-color 0.4s ease; }
+table.targets tbody tr.revealed { background-color: var(--accent-soft, rgba(10, 132, 255, 0.14)); }
+
+/* A row's chart button while its chart is showing. */
+.finder-open.on { background: var(--accent); color: #fff; }
+
+/* The one sky chart, wherever it has been put. */
+.finder-host, .finder-slot { display: block; min-width: 0; }
+
+/* Where the layout is one column, the chart sits in the list above its row,
+   and the chart and the row read as one block: one tint, the chart's card
+   open at the bottom onto the row, and the details under both. */
+tr.finder-slot-row > td { padding: 14px 0 0; border-bottom: none; }
+.finder-inline {
+  border-radius: var(--radius-sm, 12px) var(--radius-sm, 12px) 0 0;
+  background: rgba(255, 255, 255, 0.035);
+  padding: 10px 10px 12px;
+}
+table.targets tbody tr.has-chart:not(.revealed) { background-color: rgba(255, 255, 255, 0.035); }
+.finder-inline-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+.finder-inline-title {
+  font-size: 0.68rem;
+  font-weight: 600;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--muted-text);
+}
+.finder-inline-close {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 30px;
+  padding: 0 12px;
+  border: none;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.07);
+  color: var(--text);
+  font: inherit;
+  font-size: 0.8rem;
+  cursor: pointer;
+}
+.finder-inline-close:hover { background: rgba(255, 255, 255, 0.14); }
+.finder-inline-close span { font-size: 1rem; line-height: 1; }
+
+/* The fold at the foot of the constellation list, where it is part of the
+   page: a full-width pill, easy to hit and easy to see past. */
+.groups-fold {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 44px;
+  margin: 6px 0 4px;
+  border: none;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--text);
+  font: inherit;
+  font-size: 0.88rem;
+  font-weight: 500;
+  cursor: pointer;
+}
+.groups-fold:hover { background: rgba(255, 255, 255, 0.11); }
+.groups-fold .caret { width: auto; }
+
+/* --- history --------------------------------------------------------------
+   The targets opened, night by night, each with a note. */
+.history-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  border-top: 1px solid var(--line);
+}
+.history-head .group-head { width: auto; }
+.history-head .group-head .muted { font-weight: 400; font-size: 0.85rem; }
+.history-clear { font-size: 0.85rem; }
+.history-confirm { display: inline-flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.history-confirm button {
+  border-radius: 999px;
+  padding: 5px 12px;
+  font: inherit;
+  font-size: 0.8rem;
+  cursor: pointer;
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.07);
+  color: var(--text);
+}
+.history-confirm button.danger { border-color: var(--bad); color: var(--bad); font-weight: 600; }
+.history-confirm button.danger:hover { background: var(--bad); color: #0b0e14; }
+.history-empty { max-width: 60ch; margin: 4px 0 0; }
+
+.history-night { margin-top: 18px; }
+.history-night-head {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin: 0 0 6px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--line);
+  font-size: 0.95rem;
+  font-weight: 600;
+}
+.history-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  /* Two columns of entries where the page is wide enough to hold them. */
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 420px), 1fr));
+  column-gap: 32px;
+}
+.history-item { padding: 10px 0; border-bottom: 1px solid rgba(255, 255, 255, 0.05); }
+.history-item-line { display: flex; align-items: flex-start; gap: 12px; }
+.history-time { flex: none; width: 3.2em; padding-top: 2px; font-variant-numeric: tabular-nums; }
+.history-what { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.history-name, .history-name-static {
+  align-self: flex-start;
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--text);
+  font: inherit;
+  font-weight: 600;
+  text-align: left;
+  overflow-wrap: anywhere;
+}
+.history-name { cursor: pointer; }
+.history-name:hover { color: var(--accent); }
+.history-delete { flex: none; }
+.history-note {
+  display: block;
+  width: calc(100% - 3.2em - 12px);
+  margin: 6px 0 0 calc(3.2em + 12px);
+  min-height: 34px;
+  resize: none;
+  overflow: hidden;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid transparent;
+  border-radius: 10px;
+  color: var(--text);
+  font: inherit;
+  font-size: 0.88rem;
+  line-height: 1.45;
+  padding: 7px 11px;
+}
+.history-note::placeholder { color: var(--muted-text); }
+.history-note:focus { border-color: var(--accent); background: rgba(255, 255, 255, 0.08); outline: none; }
+
+/* Stacked into one column, the lists are part of the page rather than a box
+   scrolling inside it -- as on a phone. The theme's 620px cap, above, had
+   left tablets with a short scrolling box under a full-width chart, and an
+   inline sky chart has to fit in the list. */
+@media (max-width: 1180px) {
+  .tab-body { max-height: none; overflow-y: visible; padding-right: 0; }
+}
 
 /* A clicked star's card, over the sky chart. */
 .star-card {
@@ -2268,10 +2389,6 @@ tr.revealed > td { background: var(--accent-soft, rgba(10, 132, 255, 0.14)); tra
 /* --- phones ---------------------------------------------------------------
    From a mobile audit on an emulated iPhone. */
 @media (max-width: 860px) {
-  /* The site button sits at the right of the header here, so its menu opens
-     leftward; opening rightward, as on a wide screen, it ran off the page. */
-  .location-menu { left: auto; right: 0; }
-
   /* A constellation's row wraps its visibility and hours onto a second line
      rather than running off the edge -- which also left the list's scroll
      box free to slide sideways under a thumb. */
@@ -2351,6 +2468,45 @@ tr.revealed > td { background: var(--accent-soft, rgba(10, 132, 255, 0.14)); tra
   .tag { font-size: 0.75rem; }
 }
 
+/* The events tables as rows of cards on a phone, like the others: the date,
+   the name and the figure on one line, the rest under the name. As tables,
+   a shower's rate was cut off at the screen's edge and a conjunction's note
+   stood one word to a line. */
+@media (max-width: 860px) {
+  table.targets.showers, table.targets.conjunctions { overflow: visible; }
+  table.targets.showers tbody, table.targets.conjunctions tbody { display: block; }
+  table.targets.showers tr, table.targets.conjunctions tr {
+    display: grid;
+    /* The date column one width for every row, so the names line up. */
+    grid-template-columns: 6.6em minmax(0, 1fr) auto;
+    column-gap: 4px;
+    border-bottom: 1px solid var(--line);
+  }
+  table.targets.showers td, table.targets.conjunctions td { border-bottom: none; }
+  table.targets.showers td:nth-child(2), table.targets.conjunctions td:nth-child(2) {
+    white-space: normal;
+  }
+  table.targets.showers td:nth-child(3) { text-align: right; }
+  table.targets.showers td:nth-child(4),
+  table.targets.conjunctions td:nth-child(4) {
+    grid-column: 2 / -1;
+    padding-top: 0;
+    color: var(--muted-text);
+    font-size: 0.8rem;
+  }
+  table.targets.showers td:nth-child(4)::before { content: "Best "; }
+}
+
+/* On a phone the site menu is as wide as the screen allows; LocationPicker
+   keeps it on the screen. */
+@media (max-width: 600px) {
+  .location-menu { min-width: 0; width: min(420px, calc(100vw - 24px)); }
+}
+
+/* An inline chart on a tablet would be as tall as it is wide -- most of the
+   screen -- and push its own row off the bottom. */
+.finder-inline .finder-canvas { max-height: min(62vh, 620px); }
+
 /* Safari on iPhone zooms the whole page when a field with text under 16px
    is focused, and leaves it zoomed. */
 @media (pointer: coarse) {
@@ -2373,6 +2529,10 @@ tr.revealed > td { background: var(--accent-soft, rgba(10, 132, 255, 0.14)); tra
   .target-name { min-height: 32px; }
   .finder-layer { min-height: 34px; }
   .left-tab-close { min-width: 32px; min-height: 32px; }
+  .icon-button { width: 34px; height: 34px; }
+  .finder-inline-close { height: 36px; }
+  .history-name { min-height: 32px; }
+  .history-confirm button { min-height: 34px; }
 }
 
 /* The altitude chart drawn at a phone's own width: a sideways drag reads it,

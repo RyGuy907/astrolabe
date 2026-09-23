@@ -11,6 +11,7 @@ layer. The API never emits local times.
 
 from __future__ import annotations
 
+import functools
 import threading
 from contextlib import asynccontextmanager
 
@@ -20,8 +21,9 @@ from fastapi import FastAPI, HTTPException, Query
 from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
+from pydantic import ValidationError
 
-from db import observations, store
+from db import store
 from engine import geocode
 from engine.catalog.loader import find_object, load_catalog
 from engine.ephem import (Interval, altaz_series, chart_span, fixed_altaz_series,
@@ -38,7 +40,7 @@ from engine.events import (
 )
 from engine.constellations import (assess_constellations, centroid, centroids,
                                    constellation_name)
-from engine.horizon import build as build_horizon
+from engine.horizon import build as build_horizon, serialise as serialise_horizon
 from engine.locations import Location, LocationError, atlas_sqm_for
 from engine.planets import ALL_PLANETS, report_all, report_moon
 from engine.scoring import score_night, verdict
@@ -153,8 +155,86 @@ app.add_middleware(
 
 # --- helpers ----------------------------------------------------------------
 
-def _resolve_location(key: str | None) -> Location:
-    """YAML sites plus runtime additions; 404 with the known keys on a miss."""
+def _site_query():
+    """The `site` parameter every per-site endpoint takes."""
+    return Query(
+        None, alias="site",
+        description="The observing site itself, as the JSON of a "
+                    "NewLocationRequest with lat and lon. The web UI keeps its "
+                    "sites in the browser and sends one with every request, so "
+                    "the server stores nothing. Takes precedence over "
+                    "`location`, which names a site in config/locations.yaml.",
+    )
+
+
+def _build_location(request: NewLocationRequest) -> Location:
+    """A `Location` from a request, geocoding a query if there are no
+    coordinates. Raises HTTPException for anything it cannot build."""
+    lat, lon = request.lat, request.lon
+    name = request.name
+    elevation = request.elevation_m
+
+    if lat is None or lon is None:
+        if not request.query:
+            raise HTTPException(
+                status_code=422,
+                detail="provide either lat and lon, or a query to geocode",
+            )
+        candidates = geocode.search(request.query, count=1)
+        if not candidates:
+            raise HTTPException(
+                status_code=404,
+                detail=f"no match for {request.query!r} "
+                       "(the geocoder may also be unreachable)",
+            )
+        best = candidates[0]
+        lat, lon = best.lat, best.lon
+        name = name or best.label
+        elevation = elevation if elevation is not None else best.elevation_m
+
+    key = request.key or (name or "location").lower().replace(" ", "_")
+    key = "".join(c if c.isalnum() or c == "_" else "_" for c in key).strip("_")
+    if not key:
+        raise HTTPException(status_code=422, detail="could not derive a key")
+
+    from engine.locations import _resolve_tz
+
+    try:
+        return Location(
+            key=key, name=name or key, lat=lat, lon=lon,
+            elevation_m=elevation or 0.0, bortle=request.bortle,
+            tz=_resolve_tz(lat, lon),
+            horizon=build_horizon(request.horizon, request.horizon_facing),
+            atlas_sqm=atlas_sqm_for(lat, lon, request.bortle),
+        )
+    except (ValueError, KeyError, TypeError) as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+
+
+@functools.lru_cache(maxsize=256)
+def _site_location(raw: str) -> Location:
+    """Parse a `site` parameter. Cached on the raw text: the same site arrives
+    with every request of a page load, and building one reads the atlas.
+
+    A site with no coordinates is refused rather than geocoded: the browser
+    always sends the numbers it saved, and a lookup per request would make
+    every answer depend on a third-party service being up.
+    """
+    try:
+        request = NewLocationRequest.model_validate_json(raw)
+    except ValidationError as exc:
+        raise HTTPException(status_code=422, detail=f"site: {exc.errors()}")
+    if request.lat is None or request.lon is None:
+        raise HTTPException(status_code=422, detail="site: lat and lon are required")
+    return _build_location(request)
+
+
+def _resolve_location(key: str | None, site: str | None = None) -> Location:
+    """The site a request is about: `site` if one was sent, else a configured
+    one by key -- 404 with the known keys on a miss."""
+    if site:
+        return _site_location(site)
+
     locations = store.all_locations()
 
     # No sites at all is an ordinary starting state, not a malformed request:
@@ -163,9 +243,9 @@ def _resolve_location(key: str | None) -> Location:
     if not locations:
         raise HTTPException(
             status_code=404,
-            detail="no observing sites yet. Add one with the \"Sites...\" "
-                   "button, which can place a site from a map, a place name, "
-                   "or raw coordinates.",
+            detail="no observing site: send one as `site`, or add one to "
+                   "config/locations.yaml. The web UI's site menu can place "
+                   "one from a map, a place name, or raw coordinates.",
         )
 
     if not key:
@@ -201,8 +281,11 @@ def _resolve_date(raw: str | None, location: Location) -> date:
     return day
 
 
-def _location_model(location: Location, source: str = "config") -> LocationModel:
-    stored = store.stored_locations()
+def _location_model(location: Location, source: str | None = None) -> LocationModel:
+    """`source` is "browser" for a site sent with the request; left out, it is
+    worked out from where a configured site came from."""
+    if source is None:
+        source = "stored" if location.key in store.stored_locations() else "config"
     return LocationModel(
         key=location.key,
         name=location.name,
@@ -226,7 +309,8 @@ def _location_model(location: Location, source: str = "config") -> LocationModel
         horizon_facing=location.horizon.facing,
         horizon_binds=(location.horizon.max_obstruction_deg
                        > DEFAULT_MIN_ALTITUDE_DEG),
-        source="stored" if location.key in stored else source,
+        horizon_spec=serialise_horizon(location.horizon),
+        source=source,
     )
 
 
@@ -291,6 +375,7 @@ def _session_model(window, session, *, asked: bool) -> ObservingWindowModel | No
 @app.get("/api/night", response_model=NightResponse, tags=["night"])
 def get_night(date_: str | None = Query(None, alias="date"),
               location: str | None = None,
+              site_spec: str | None = _site_query(),
               session_start: str | None = Query(
                   None, description="ISO-8601 UTC start of the observing "
                                     "session. Defaults to astronomical dusk."),
@@ -303,7 +388,7 @@ def get_night(date_: str | None = Query(None, alias="date"),
     `engine/session.py` for why: averaging conditions over hours nobody will
     be outside for describes the night rather than the plan.
     """
-    site = _resolve_location(location)
+    site = _resolve_location(location, site_spec)
     night_date = _resolve_date(date_, site)
     window = night_window(night_date, site)
     session = resolve_session(window,
@@ -354,7 +439,7 @@ def get_night(date_: str | None = Query(None, alias="date"),
                                asked=bool(session_start or session_end)),
         window=NightWindowModel(
             date=window.date,
-            location=_location_model(site),
+            location=_location_model(site, "browser" if site_spec else None),
             sunset=window.sunset_utc,
             sunrise=window.sunrise_utc,
             civil_dusk=window.civil_dusk_utc,
@@ -408,6 +493,7 @@ def get_night(date_: str | None = Query(None, alias="date"),
 @app.get("/api/targets", response_model=TargetsResponse, tags=["targets"])
 def get_targets(date_: str | None = Query(None, alias="date"),
                 location: str | None = None,
+                site_spec: str | None = _site_query(),
                 scope: str | None = None,
                 groups: str | None = Query(None,
                                            description="Comma-separated group names."),
@@ -430,7 +516,7 @@ def get_targets(date_: str | None = Query(None, alias="date"),
                 session_end: str | None = Query(None),
                 ) -> TargetsResponse:
     """Ranked deep-sky targets, grouped by object type."""
-    site = _resolve_location(location)
+    site = _resolve_location(location, site_spec)
     night_date = _resolve_date(date_, site)
     kit = load_equipment()
     try:
@@ -446,7 +532,10 @@ def get_targets(date_: str | None = Query(None, alias="date"),
     assessments = assess_targets(window, kit, selected_scope,
                                  min_altitude_deg=min_altitude,
                                  session=session,
-                                 logged=observations.logged_object_ids(),
+                                 # No log context: the server keeps no
+                                 # record of what anyone has observed, so
+                                 # there is no novelty bonus to apply.
+                                 logged=None,
                                  include_too_faint=True)
     if include_all:
         entries = group_catalog(load_catalog(), assessments, by=group_by)
@@ -527,7 +616,7 @@ def get_targets(date_: str | None = Query(None, alias="date"),
         session=_session_model(window, session,
                                asked=bool(session_start or session_end)),
         date=night_date,
-        location=_location_model(site),
+        location=_location_model(site, "browser" if site_spec else None),
         scope=selected_scope.name,
         min_altitude_deg=min_altitude,
         total_passing=sum(1 for a in assessments if not a.too_faint),
@@ -610,6 +699,7 @@ def _group_info(grouped: dict, group_by: str, site=None, window=None,
 @app.get("/api/planets", response_model=PlanetsResponse, tags=["planets"])
 def get_planets(date_: str | None = Query(None, alias="date"),
                 location: str | None = None,
+                site_spec: str | None = _site_query(),
                 min_altitude: float = Query(DEFAULT_MIN_ALTITUDE_DEG,
                                             ge=0.0, le=89.0),
                 find_next: bool = Query(
@@ -627,7 +717,7 @@ def get_planets(date_: str | None = Query(None, alias="date"),
     around tonight", which is a different question from "what can I point at
     between nine and one".
     """
-    site = _resolve_location(location)
+    site = _resolve_location(location, site_spec)
     night_date = _resolve_date(date_, site)
     window = night_window(night_date, site)
 
@@ -636,7 +726,7 @@ def get_planets(date_: str | None = Query(None, alias="date"),
     moon = report_moon(site, window, min_altitude_deg=min_altitude)
     return PlanetsResponse(
         date=night_date,
-        location=_location_model(site),
+        location=_location_model(site, "browser" if site_spec else None),
         min_altitude_deg=min_altitude,
         planets=[
             PlanetModel(
@@ -695,9 +785,10 @@ def get_planets(date_: str | None = Query(None, alias="date"),
 @app.get("/api/events", response_model=EventsResponse, tags=["events"])
 def get_events(from_: str | None = Query(None, alias="from"),
                days: int = Query(90, ge=1, le=730),
-               location: str | None = None) -> EventsResponse:
+               location: str | None = None,
+               site_spec: str | None = _site_query()) -> EventsResponse:
     """Meteor showers, lunar eclipses and conjunctions in a forward window."""
-    site = _resolve_location(location)
+    site = _resolve_location(location, site_spec)
     start = _resolve_date(from_, site)
 
     showers = []
@@ -715,7 +806,8 @@ def get_events(from_: str | None = Query(None, alias="from"),
         ))
 
     return EventsResponse(
-        from_date=start, days=days, location=_location_model(site),
+        from_date=start, days=days,
+        location=_location_model(site, "browser" if site_spec else None),
         showers=showers,
         lunar_eclipses=[
             EclipseModel(time=e.time_utc, kind=e.kind,
@@ -753,6 +845,7 @@ def _planet_facts_model(name: str) -> PlanetFactsModel | None:
 @app.get("/api/altitude", response_model=AltitudeResponse, tags=["night"])
 def get_altitude(date_: str | None = Query(None, alias="date"),
                  location: str | None = None,
+                 site_spec: str | None = _site_query(),
                  bodies: str = Query(
                      "moon,saturn,jupiter",
                      description="Comma-separated planets, plus sun/moon.",
@@ -770,7 +863,7 @@ def get_altitude(date_: str | None = Query(None, alias="date"),
                  min_altitude: float = Query(DEFAULT_MIN_ALTITUDE_DEG,
                                              ge=0.0, le=89.0)) -> AltitudeResponse:
     """Altitude-vs-time curves — PLAN.md §4's highest-value visual."""
-    site = _resolve_location(location)
+    site = _resolve_location(location, site_spec)
     night_date = _resolve_date(date_, site)
     window = night_window(night_date, site)
 
@@ -815,7 +908,8 @@ def get_altitude(date_: str | None = Query(None, alias="date"),
         ))
 
     return AltitudeResponse(
-        date=night_date, location=_location_model(site),
+        date=night_date,
+        location=_location_model(site, "browser" if site_spec else None),
         start=start, end=end,
         astronomical_night=[_interval(s) for s in window.astronomical_night],
         dark_intervals=[_interval(s) for s in window.dark_intervals],
@@ -832,7 +926,13 @@ def get_altitude(date_: str | None = Query(None, alias="date"),
 
 @app.get("/api/locations", response_model=list[LocationModel], tags=["locations"])
 def list_locations() -> list[LocationModel]:
-    """Configured sites plus any added at runtime."""
+    """Sites configured on this server, read-only.
+
+    Sites are the browser's now; this is what it imports on its first visit,
+    so a self-hosted install's config/locations.local.yaml -- and any site
+    saved by an older version into a local database -- carries over. A
+    database is only read if one already exists: the server never makes one.
+    """
     return [_location_model(loc) for loc in
             sorted(store.all_locations().values(), key=lambda x: x.key)]
 
@@ -856,67 +956,18 @@ def elevation(lat: float = Query(..., ge=-90.0, le=90.0),
     return ElevationReading(elevation_m=geocode.elevation_at(lat, lon))
 
 
-@app.post("/api/locations", response_model=LocationModel, status_code=201,
-          tags=["locations"])
-def create_location(request: NewLocationRequest) -> LocationModel:
-    """Add a site, either by explicit coordinates or by geocoding a name."""
-    lat, lon = request.lat, request.lon
-    name = request.name
-    elevation = request.elevation_m
+@app.post("/api/sites/resolve", response_model=LocationModel, tags=["locations"])
+def resolve_site(request: NewLocationRequest) -> LocationModel:
+    """Check a site and fill in what follows from its coordinates -- the
+    timezone, the atlas's sky brightness, the horizon's peak -- without
+    storing anything.
 
-    if lat is None or lon is None:
-        if not request.query:
-            raise HTTPException(
-                status_code=422,
-                detail="provide either lat and lon, or a query to geocode",
-            )
-        candidates = geocode.search(request.query, count=1)
-        if not candidates:
-            raise HTTPException(
-                status_code=404,
-                detail=f"no match for {request.query!r} "
-                       "(the geocoder may also be unreachable)",
-            )
-        best = candidates[0]
-        lat, lon = best.lat, best.lon
-        name = name or best.label
-        elevation = elevation if elevation is not None else best.elevation_m
-
-    key = request.key or (name or "location").lower().replace(" ", "_")
-    key = "".join(c if c.isalnum() or c == "_" else "_" for c in key).strip("_")
-    if not key:
-        raise HTTPException(status_code=422, detail="could not derive a key")
-
-    from engine.locations import _resolve_tz
-
-    try:
-        location = Location(
-            key=key, name=name or key, lat=lat, lon=lon,
-            elevation_m=elevation or 0.0, bortle=request.bortle,
-            tz=_resolve_tz(lat, lon),
-            horizon=build_horizon(request.horizon, request.horizon_facing),
-            atlas_sqm=atlas_sqm_for(lat, lon, request.bortle),
-        )
-    except (ValueError, KeyError) as exc:
-        raise HTTPException(status_code=422, detail=str(exc))
-
-    store.save_location(location)
-    return _location_model(location, source="stored")
-
-
-@app.delete("/api/locations/{key}", status_code=204, tags=["locations"])
-def remove_location(key: str) -> None:
-    """Delete a runtime-added site. YAML-configured sites cannot be deleted."""
-    from engine.locations import load_locations
-
-    if key in load_locations():
-        raise HTTPException(
-            status_code=409,
-            detail=f"{key!r} is defined in config/locations.yaml; "
-                   "edit that file to remove it",
-        )
-    if not store.delete_location(key):
-        raise HTTPException(status_code=404, detail=f"unknown location {key!r}")
+    The web UI keeps its sites in the browser. This is how it validates one
+    before saving it there, and how it learns a saved site's timezone before
+    asking about any night. Either explicit coordinates or a place name to
+    geocode.
+    """
+    return _location_model(_build_location(request), "browser")
 
 
 @app.get("/api/skybrightness", response_model=SkyBrightnessCoverage,
@@ -1087,6 +1138,7 @@ def get_star(index: int) -> dict:
 
 @app.get("/api/sky/frame", tags=["targets"])
 def get_sky_frame(location: str | None = None,
+                  site_spec: str | None = _site_query(),
                   at: str = Query(..., description="ISO-8601 UTC instant.")) -> dict:
     """The J2000-to-horizon rotation for this site and moment, and the bodies.
 
@@ -1095,7 +1147,7 @@ def get_sky_frame(location: str | None = None,
     """
     from engine.starchart import sky_frame
 
-    site = _resolve_location(location)
+    site = _resolve_location(location, site_spec)
     try:
         when = datetime.fromisoformat(at.replace("Z", "+00:00"))
     except ValueError:
@@ -1120,10 +1172,3 @@ def health() -> dict:
         "ephemeris_cached": ephemeris_is_cached(),
         "catalog_objects": len(load_catalog()),
     }
-
-
-# Log routes live in their own module now that the API covers five domains.
-# They reuse the resolvers above so location and date handling stays identical.
-from .log_routes import register as _register_log_routes  # noqa: E402
-
-_register_log_routes(app, _resolve_location, _resolve_date)

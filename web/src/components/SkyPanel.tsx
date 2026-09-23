@@ -12,12 +12,23 @@
  * dashboard to a handful of regions and lets this column sit beside the
  * altitude chart, so you can add something to the chart and see it appear
  * without scrolling.
+ *
+ * **One target open at a time.** Opening a target -- its details, or its sky
+ * chart -- closes whatever target and constellation were open before, so the
+ * list never fills with a trail of dropdowns. Where the layout is one column
+ * the chart sits in the list, directly above its target's row (see
+ * `FinderSlot`), and the three read as one block: chart, row, details. Once a
+ * chart is open it follows: opening another target's details moves it there,
+ * and picking an object on the chart moves the block to that object's row,
+ * keeping the chart where it was on screen. Every target opened either way
+ * goes into the history.
  */
 
 import {
-  createContext, useContext, useDeferredValue, useEffect, useLayoutEffect, useMemo, useRef, useState,
+  useDeferredValue, useEffect, useLayoutEffect, useMemo, useRef, useState,
 } from "react";
 import type { FinderSubject } from "./FinderChart";
+import { FinderSlot } from "./FinderSlot";
 import { PlanetImage } from "./PlanetImage";
 import { TargetImage } from "./TargetImage";
 import {
@@ -38,6 +49,7 @@ import type {
   TargetModel,
   TargetsResponse,
 } from "../api";
+import { history } from "../history";
 import {
   formatDate,
   formatDegrees,
@@ -49,6 +61,17 @@ import {
 } from "../format";
 
 type Tab = "targets" | "planets" | "events";
+
+/** An object picked on the chart or suggested: open its row. `seq` changes
+ *  on every request, so the same object twice works. `keepTop` is where the
+ *  chart was on screen when the pick was made, so an inline chart moving to
+ *  the new row can stay put under the finger that picked. */
+export interface Reveal {
+  kind: "target" | "body";
+  id: string;
+  seq: number;
+  keepTop?: number;
+}
 
 interface Props {
   targets: TargetsResponse | null;
@@ -69,11 +92,21 @@ interface Props {
   /** True while /api/targets is in flight. It is much slower than the other
    *  calls, so the tab needs to say so rather than looking empty. */
   targetsPending: boolean;
-  /** Opens a finder chart over the altitude chart. */
-  onOpenFinder?: (subject: FinderSubject) => void;
-  /** Bring one row into view and open it -- an object clicked on the sky
-   *  chart. `seq` changes on every request, so the same object twice works. */
-  reveal?: { kind: "target" | "body"; id: string; seq: number } | null;
+  /** The sky chart's subject, if a chart is open. */
+  finder: FinderSubject | null;
+  /** The chart is on screen now, not just open behind the altitude tab. */
+  finderShown: boolean;
+  /** One-column layout: the chart goes in the list, above its row. */
+  chartInline: boolean;
+  onOpenFinder: (subject: FinderSubject) => void;
+  onCloseFinder: () => void;
+  /** A row's details were opened. An open chart follows it there. */
+  onFocus: (subject: FinderSubject) => void;
+  reveal?: Reveal | null;
+  /** The night and site a history entry is filed under. */
+  night: string;
+  siteKey: string;
+  siteName: string;
 }
 
 /** The nearest ancestor that scrolls vertically, or null when it is the page. */
@@ -85,6 +118,12 @@ function scrollBox(el: HTMLElement): HTMLElement | null {
     }
   }
   return null;
+}
+
+function viewOf(box: HTMLElement | null) {
+  return box
+    ? box.getBoundingClientRect()
+    : { top: 0, bottom: window.innerHeight, height: window.innerHeight };
 }
 
 /**
@@ -109,9 +148,7 @@ function bringIntoView(row: HTMLTableRowElement, center: boolean) {
   const top = row.getBoundingClientRect().top;
   const bottom = (detail ?? row).getBoundingClientRect().bottom;
   const box = scrollBox(row);
-  const view = box
-    ? box.getBoundingClientRect()
-    : { top: 0, bottom: window.innerHeight, height: window.innerHeight };
+  const view = viewOf(box);
   const margin = 12;
   const room = view.bottom - view.top - 2 * margin;
   let delta: number;
@@ -153,85 +190,53 @@ function centreWhileSettling(row: HTMLTableRowElement): () => void {
   return stop;
 }
 
-/** The latest reveal's sequence number, whichever row it was for. */
-const LatestReveal = createContext(0);
-
-/** A row that opens into a dropdown: brings the pair into view when opened,
- *  and when asked to reveal it (an object clicked on the chart) opens it,
- *  centres it and flashes it. */
-function useRowOpen(seq: number | undefined) {
-  const ref = useRef<HTMLTableRowElement>(null);
-  // A row that mounts as the one being revealed (its group was just opened,
-  // or its tab just shown) starts open, so it opens in the same render the
-  // last revealed row closes in -- not one render later, which would paint
-  // the list with neither open for a frame.
-  const [open, setOpenState] = useState(Boolean(seq));
-  const [flash, setFlash] = useState(Boolean(seq));
-  // Set on opening, consumed once the dropdown has rendered.
-  const pending = useRef<"center" | "nearest" | null>(seq ? "center" : null);
-  const settling = useRef<(() => void) | null>(null);
-  // Opened by a reveal rather than by hand: closed again when the next
-  // reveal goes to another row, so stepping through suggestions doesn't
-  // leave a trail of open dropdowns. One opened by hand stays open.
-  const openedByReveal = useRef(Boolean(seq));
-  const handled = useRef(seq);
-  const latest = useContext(LatestReveal);
-
-  const setOpen = (next: boolean) => {
-    if (next && !open) pending.current = "nearest";
-    openedByReveal.current = false;
-    setOpenState(next);
-  };
-
-  useEffect(() => {
-    if (!seq) return;
-    if (handled.current !== seq) {           // not already opened on mount
-      handled.current = seq;
-      pending.current = "center";
-      openedByReveal.current = true;
-      setOpenState(true);
-      setFlash(true);
-    }
-    const done = window.setTimeout(() => setFlash(false), 1600);
-    return () => window.clearTimeout(done);
-  }, [seq]);
-
-  useEffect(() => {
-    if (openedByReveal.current && latest && latest !== seq) {
-      openedByReveal.current = false;
-      setOpenState(false);
-    }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [latest]);
-
-  // After the render that drew the dropdown, so its height counts, and
-  // before the browser paints it: a layout effect, so the list is never seen
-  // in between -- the row opening (and the last revealed one closing above
-  // it) and the scroll that follows land in one frame, not a jump and then
-  // a glide. Runs after every render and consumes `pending` once.
-  useLayoutEffect(() => {
-    const how = pending.current;
-    if (!how || !ref.current) return;
-    pending.current = null;
-    const row = ref.current;
-    settling.current?.();
-    settling.current = null;
-    if (how === "center") settling.current = centreWhileSettling(row);
-    else bringIntoView(row, false);
+/**
+ * Put an inline chart, and the row under it, on screen.
+ *
+ * After a pick on the chart (`keepTop` set) the chart goes back exactly
+ * where it was: it has moved in the page -- to another row, maybe another
+ * constellation, with the old one folded away above it -- and without this
+ * the finger that picked would be left over whatever slid in underneath.
+ * Everything else about the block is below the chart, so it never shifts it.
+ *
+ * Otherwise, opened from the list or suggested: the chart's top goes to the
+ * top of the screen, unless the chart and its row are on screen already. At
+ * once for a long way, gliding for a short one, as for a row.
+ */
+function anchorChart(chartRow: HTMLElement, row: HTMLElement, keepTop?: number) {
+  const box = scrollBox(chartRow);
+  const scroller = box ?? window;
+  if (keepTop !== undefined) {
+    const slot = chartRow.querySelector(".finder-slot") ?? chartRow;
+    const delta = slot.getBoundingClientRect().top - keepTop;
+    if (Math.abs(delta) >= 1) scroller.scrollBy({ top: delta, behavior: "instant" });
+    return;
+  }
+  const view = viewOf(box);
+  const margin = 8;
+  const top = chartRow.getBoundingClientRect().top;
+  const bottom = row.getBoundingClientRect().bottom;
+  if (top >= view.top + margin && bottom <= view.bottom - margin) return;
+  const delta = top - (view.top + margin);
+  if (Math.abs(delta) < 1) return;
+  scroller.scrollBy({
+    top: delta,
+    behavior: Math.abs(delta) > view.bottom - view.top ? "instant" : "smooth",
   });
-  useEffect(() => () => settling.current?.(), []);
-
-  return { ref, open, setOpen, flash };
 }
 
 const EVENT_HORIZONS = [30, 90, 365];
 
-/** Opens this row's finder chart over the altitude chart. */
-function FinderButton({ label, onClick }: { label: string; onClick: () => void }) {
+/** Opens this row's sky chart -- beside the lists, or above the row where
+ *  the layout is one column -- and closes it again. */
+function FinderButton({ label, on, onClick }: {
+  label: string; on: boolean; onClick: () => void;
+}) {
   return (
-    <button className="finder-open" onClick={onClick}
-            title="Finder chart for star hopping"
-            aria-label={`Finder chart for ${label}`}>
+    <button className={`finder-open ${on ? "on" : ""}`} onClick={onClick}
+            title={on ? "Close the sky chart" : "Sky chart, for star hopping"}
+            aria-label={on ? `Close the sky chart for ${label}` : `Sky chart for ${label}`}
+            aria-pressed={on}>
       <svg viewBox="0 0 16 16" aria-hidden="true">
         <circle cx="8" cy="8" r="5.2" />
         <path d="M8 0.8v3.6M8 11.6v3.6M0.8 8h3.6M11.6 8h3.6" />
@@ -240,11 +245,36 @@ function FinderButton({ label, onClick }: { label: string; onClick: () => void }
   );
 }
 
+/** The inline chart's place in a table: a full-width row above the
+ *  object's own, headed so it can be closed from where it is. */
+function ChartRow({ span, label, onClose }: {
+  span: number; label: string; onClose: () => void;
+}) {
+  return (
+    <tr className="finder-slot-row">
+      <td colSpan={span}>
+        <div className="finder-inline">
+          <div className="finder-inline-head">
+            <span className="finder-inline-title">Sky chart</span>
+            <button className="finder-inline-close" onClick={onClose}
+                    aria-label={`Close the sky chart for ${label}`}>
+              Close <span aria-hidden="true">×</span>
+            </button>
+          </div>
+          <FinderSlot kind="inline" />
+        </div>
+      </td>
+    </tr>
+  );
+}
+
 // Search expands every matching group at once, so both of these are render
 // bounds rather than result limits: the counts shown are always the true
 // totals, only the rows drawn are capped.
 const SEARCH_ROWS_PER_GROUP = 25;
 const SEARCH_GROUPS = 15;
+/** Constellations shown before the list folds, where it is part of the page. */
+const GROUPS_FOLDED = 8;
 
 /**
  * A short label whose meaning is not hover-only.
@@ -281,24 +311,47 @@ const CONSTELLATION_MEANING: Record<string, string> = {
   none: "Never clears the horizon tonight",
 };
 
-function TargetRow({ target, timeZone, showAll, onFinder, revealSeq }: {
+/** What every openable row is told by the panel that owns its state. */
+interface RowState {
+  /** Its details are open. */
+  open: boolean;
+  onToggle: () => void;
+  /** Just revealed: marked for a moment so the eye finds it. */
+  flash: boolean;
+  rowRef: (el: HTMLTableRowElement | null) => void;
+  /** Its sky chart is showing. */
+  finderOn: boolean;
+  onFinder: () => void;
+  /** Its chart is inline, in the row above it. */
+  chartHere: boolean;
+  onCloseChart: () => void;
+}
+
+function rowClass(dim: boolean, state: RowState) {
+  return [dim ? "dim" : "", state.flash ? "revealed" : "",
+          state.chartHere ? "has-chart" : "", state.open ? "is-open" : ""]
+    .filter(Boolean).join(" ") || undefined;
+}
+
+function TargetRow({ target, timeZone, showAll, state }: {
   target: TargetModel;
   timeZone: string;
   showAll: boolean;
-  onFinder?: () => void;
-  revealSeq?: number;
+  state: RowState;
 }) {
-  // Per row, and closed by default. The image is only requested once a row is
-  // opened, so browsing a 270-row list costs nothing.
-  const { ref, open, setOpen, flash } = useRowOpen(revealSeq);
+  // Closed by default. The image is only requested once a row is opened, so
+  // browsing a 270-row list costs nothing.
+  const { open } = state;
   //: Component magnitudes are only set for the curated doubles, and a couple
   //: of the usual rows do not apply to a pair of stars.
   const isDouble = target.component_mags !== null;
   return (
     <>
-    <tr ref={ref}
-        className={[target.visible_tonight && !target.too_faint ? "" : "dim",
-                    flash ? "revealed" : ""].join(" ").trim() || undefined}>
+    {state.chartHere && (
+      <ChartRow span={5} label={target.display_name} onClose={state.onCloseChart} />
+    )}
+    <tr ref={state.rowRef}
+        className={rowClass(!target.visible_tonight || target.too_faint, state)}>
       <td>
         {target.score === null ? (
           <span className="score-pill score-pill-none">—</span>
@@ -311,14 +364,15 @@ function TargetRow({ target, timeZone, showAll, onFinder, revealSeq }: {
       <td>
         <button
           className="target-name"
-          onClick={() => setOpen(!open)}
+          onClick={state.onToggle}
           aria-expanded={open}
-          title={open ? "Hide the survey image" : "Show a survey image"}
+          title={open ? "Hide the details" : "Show the details"}
         >
           <span className="caret">{open ? "▾" : "▸"}</span>
           <strong>{target.display_name}</strong>
         </button>
-        {onFinder && <FinderButton label={target.display_name} onClick={onFinder} />}
+        <FinderButton label={target.display_name} on={state.finderOn}
+                      onClick={state.onFinder} />
         <span className="muted"> · {target.object_type}</span>
         {/* "visible late" is the badge that changes plans, so it shows in
             both modes. "visible tonight" only earns space in the unfiltered
@@ -443,24 +497,24 @@ function TargetRow({ target, timeZone, showAll, onFinder, revealSeq }: {
  * table. Unlike a target there is nothing to fetch — the disc is drawn from
  * numbers already in the response, so opening one costs nothing.
  */
-function PlanetRow({ planet, charted, onToggleChart, minAltitude, onFinder, revealSeq }: {
+function PlanetRow({ planet, charted, onToggleChart, minAltitude, state }: {
   planet: PlanetModel;
   charted: string[];
   onToggleChart: (id: string, label: string,
                   kind: "body" | "constellation") => void;
   minAltitude: number;
-  onFinder?: () => void;
-  revealSeq?: number;
+  state: RowState;
 }) {
-  const { ref, open, setOpen, flash } = useRowOpen(revealSeq);
+  const { open } = state;
   const onChart = charted.includes(planet.name);
   const facts = planet.facts;
 
   return (
     <>
-      <tr ref={ref}
-          className={[planet.observable ? "" : "dim", flash ? "revealed" : ""]
-            .join(" ").trim() || undefined}>
+      {state.chartHere && (
+        <ChartRow span={6} label={titleCase(planet.name)} onClose={state.onCloseChart} />
+      )}
+      <tr ref={state.rowRef} className={rowClass(!planet.observable, state)}>
         <td>
           <button
             className={`chip ${onChart ? "chip-on" : ""}`}
@@ -468,8 +522,8 @@ function PlanetRow({ planet, charted, onToggleChart, minAltitude, onFinder, reve
             title="Toggle on the altitude chart"
             aria-label={
               onChart
-                ? `Remove ${titleCase(planet.name)} from the chart`
-                : `Chart ${titleCase(planet.name)}`
+                ? `Remove ${titleCase(planet.name)} from the altitude chart`
+                : `Add ${titleCase(planet.name)} to the altitude chart`
             }
             aria-pressed={onChart}
           >
@@ -479,14 +533,15 @@ function PlanetRow({ planet, charted, onToggleChart, minAltitude, onFinder, reve
         <td>
           <button
             className="target-name"
-            onClick={() => setOpen(!open)}
+            onClick={state.onToggle}
             aria-expanded={open}
             title={open ? "Hide the details" : "Show the details"}
           >
             <span className="caret">{open ? "▾" : "▸"}</span>
             <strong>{titleCase(planet.name)}</strong>
           </button>
-          {onFinder && <FinderButton label={titleCase(planet.name)} onClick={onFinder} />}
+          <FinderButton label={titleCase(planet.name)} on={state.finderOn}
+                        onClick={state.onFinder} />
           {planet.ring_tilt_deg !== null && (
             <div className="target-notes">
               rings {planet.ring_tilt_deg.toFixed(1)}°
@@ -595,32 +650,34 @@ function formatLightSeconds(km: number): string {
  * decides whether it is tonight's target or the thing washing out every
  * other target. Times are the site's clock, formatted here and nowhere else.
  */
-function MoonRow({ moon, charted, onToggleChart, minAltitude, timeZone, onFinder, revealSeq }: {
+function MoonRow({ moon, charted, onToggleChart, minAltitude, timeZone, state }: {
   moon: MoonModel;
   charted: string[];
   onToggleChart: (id: string, label: string,
                   kind: "body" | "constellation") => void;
   minAltitude: number;
   timeZone: string;
-  onFinder?: () => void;
-  revealSeq?: number;
+  state: RowState;
 }) {
-  const { ref, open, setOpen, flash } = useRowOpen(revealSeq);
+  const { open } = state;
   const onChart = charted.includes("moon");
   const phase = moonPhaseName(moon.illuminated_fraction, moon.waxing);
   const facts = moon.facts;
 
   return (
     <>
-      <tr ref={ref}
-          className={[moon.observable ? "" : "dim", flash ? "revealed" : ""]
-            .join(" ").trim() || undefined}>
+      {state.chartHere && (
+        <ChartRow span={6} label="the Moon" onClose={state.onCloseChart} />
+      )}
+      <tr ref={state.rowRef} className={rowClass(!moon.observable, state)}>
         <td>
           <button
             className={`chip ${onChart ? "chip-on" : ""}`}
             onClick={() => onToggleChart("moon", "moon", "body")}
             title="Toggle on the altitude chart"
-            aria-label={onChart ? "Remove the Moon from the chart" : "Chart the Moon"}
+            aria-label={onChart
+              ? "Remove the Moon from the altitude chart"
+              : "Add the Moon to the altitude chart"}
             aria-pressed={onChart}
           >
             {onChart ? "✓" : "+"}
@@ -629,14 +686,14 @@ function MoonRow({ moon, charted, onToggleChart, minAltitude, timeZone, onFinder
         <td>
           <button
             className="target-name"
-            onClick={() => setOpen(!open)}
+            onClick={state.onToggle}
             aria-expanded={open}
             title={open ? "Hide the details" : "Show the details"}
           >
             <span className="caret">{open ? "▾" : "▸"}</span>
             <strong>Moon</strong>
           </button>
-          {onFinder && <FinderButton label="the Moon" onClick={onFinder} />}
+          <FinderButton label="the Moon" on={state.finderOn} onClick={state.onFinder} />
           <div className="target-notes">
             {(moon.illuminated_fraction * 100).toFixed(0)}% lit
           </div>
@@ -726,14 +783,29 @@ function MoonRow({ moon, charted, onToggleChart, minAltitude, timeZone, onFinder
   );
 }
 
+const rowKey = (kind: "target" | "body", id: string) => `${kind}:${id}`;
+
+/** Where the list should scroll once a row it opened has rendered. */
+interface PendingScroll {
+  key: string;
+  how: "center" | "nearest" | "chart";
+  keepTop?: number;
+}
+
 export function SkyPanel({
   targets, planets, events, eventsError, timeZone, charted, onToggleChart,
   eventDays, onEventDaysChange, showAll, onShowAllChange,
-  popularOnly, onPopularOnlyChange, targetsPending, onOpenFinder, reveal,
+  popularOnly, onPopularOnlyChange, targetsPending,
+  finder, finderShown, chartInline, onOpenFinder, onCloseFinder, onFocus, reveal,
+  night, siteKey, siteName,
 }: Props) {
   const [tab, setTab] = useState<Tab>("targets");
   const [openGroups, setOpenGroups] = useState<Record<string, boolean>>({});
   const [search, setSearch] = useState("");
+  //: The one row whose details are open, as `rowKey` makes it.
+  const [openRow, setOpenRow] = useState<string | null>(null);
+  //: The row just revealed from the chart, marked for a moment.
+  const [flashKey, setFlashKey] = useState<string | null>(null);
 
   // The typed value updates instantly; the expensive filter runs against the
   // deferred one, so keystrokes never wait on a re-render of the list.
@@ -765,6 +837,16 @@ export function SkyPanel({
           ].join(" ").toLowerCase(),
         );
       }
+    }
+    return map;
+  }, [targets]);
+
+  // Which constellation each object is filed under, for opening and closing
+  // groups around a target.
+  const groupOf = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const [group, rows] of Object.entries(targets?.groups ?? {})) {
+      for (const target of rows) map.set(target.name, group);
     }
     return map;
   }, [targets]);
@@ -832,45 +914,226 @@ export function SkyPanel({
   // constellation is invisible and the search looks broken. But it opens
   // them -- it does not nail them open: an explicit click still wins, so a
   // 40-constellation match can be collapsed down to the one you wanted.
-  // `openGroups` is keyed per group and only holds groups actually clicked,
-  // so the default returns as soon as the query changes.
   //
-  // Without a search, every group starts closed. The first used to open by
-  // default, which meant whatever sorted first -- Andromeda, alphabetically
-  // -- was always open, and it is no more likely to be the one you want.
+  // Without a search, one constellation is open at a time, and every group
+  // starts closed. The first used to open by default, which meant whatever
+  // sorted first -- Andromeda, alphabetically -- was always open, and it is
+  // no more likely to be the one you want.
   const isGroupOpen = (name: string) =>
     openGroups[name] ?? Boolean(query);
 
-  // An object clicked on the sky chart: its tab, its group open, and the
-  // filters loosened if they are what is hiding it.
-  useEffect(() => {
-    if (!reveal) return;
-    if (reveal.kind === "body") {
-      setTab("planets");
-      setSearch("");
+  // Where the lists are part of the page (one column), all 88 constellations
+  // stood between the chart and everything below them -- the history was a
+  // long scroll away. So the list folds to the first few, which are the best
+  // placed tonight, with a button for the rest. An open constellation always
+  // shows, wherever it sorts, so a chart or a pick is never folded away. On
+  // a wide screen the list is a box of its own and nothing needs folding.
+  const [allGroupsShown, setAllGroupsShown] = useState(false);
+  const foldable = chartInline && !query && groupNames.length > GROUPS_FOLDED + 2;
+  const shownGroups = foldable && !allGroupsShown
+    ? groupNames.filter((group, i) => i < GROUPS_FOLDED || isGroupOpen(group))
+    : groupNames;
+  // Folding the list back up from its foot would leave the page far below
+  // it; keep the button where it was on screen instead.
+  const foldButton = useRef<HTMLButtonElement>(null);
+  const foldFrom = useRef<number | null>(null);
+  useLayoutEffect(() => {
+    const top = foldFrom.current;
+    const button = foldButton.current;
+    foldFrom.current = null;
+    if (top === null || !button) return;
+    const delta = button.getBoundingClientRect().top - top;
+    if (Math.abs(delta) >= 1) window.scrollBy({ top: delta, behavior: "instant" });
+  }, [allGroupsShown]);
+  function toggleFold() {
+    if (allGroupsShown) foldFrom.current = foldButton.current?.getBoundingClientRect().top ?? null;
+    setAllGroupsShown(!allGroupsShown);
+  }
+
+  // --- the history ---
+  const record = (kind: "target" | "body", id: string, label: string,
+                  detail: string | null) => {
+    if (!night || !siteKey) return;
+    history.record({ night, kind, objectId: id, label, detail,
+                     siteKey, siteName, timeZone });
+  };
+  const recordTarget = (target: TargetModel) =>
+    record("target", target.name, target.display_name,
+           [target.object_type, target.constellation].filter(Boolean).join(" · ") || null);
+  const recordBody = (name: string) =>
+    record("body", name, name === "moon" ? "Moon" : titleCase(name),
+           name === "moon" ? "Moon" : "Planet");
+
+  // --- what a chart opened from a row is centred on ---
+  const targetSubject = (target: TargetModel): FinderSubject => ({
+    kind: "target", id: target.name, label: target.display_name,
+    ra: target.ra_deg, dec: target.dec_deg,
+    // Its best time tonight; for something not up during the session, the
+    // session's start.
+    at: target.peak_time ?? targets?.session?.start ?? new Date().toISOString(),
+  });
+  const bodySubject = (name: string, peak: string | null): FinderSubject => ({
+    kind: "body", id: name, label: name === "moon" ? "Moon" : titleCase(name),
+    at: peak ?? new Date().toISOString(),
+  });
+
+  // --- opening and closing rows ---
+  const finderKey = finder ? rowKey(finder.kind, finder.id) : null;
+  const pendingScroll = useRef<PendingScroll | null>(null);
+  const settling = useRef<(() => void) | null>(null);
+  useEffect(() => () => settling.current?.(), []);
+
+  // Each rendered row's element, by key, for scrolling to once it opens.
+  const rowEls = useRef(new Map<string, HTMLTableRowElement>());
+  const rowRefs = useRef(new Map<string, (el: HTMLTableRowElement | null) => void>());
+  const rowRefFor = (key: string) => {
+    let ref = rowRefs.current.get(key);
+    if (!ref) {
+      ref = (el) => {
+        if (el) rowEls.current.set(key, el);
+        else rowEls.current.delete(key);
+      };
+      rowRefs.current.set(key, ref);
+    }
+    return ref;
+  };
+
+  /** Open this group alone -- unless a search has every match open. */
+  const focusGroup = (group: string | undefined) => {
+    if (group && !query) setOpenGroups({ [group]: true });
+  };
+
+  /** A row's name: open its details, closing any others. An open chart
+   *  follows it. */
+  function toggleDetails(key: string, group: string | undefined,
+                         subject: FinderSubject, log: () => void) {
+    if (openRow === key) {
+      setOpenRow(null);
       return;
     }
-    setTab("targets");
-    setSearch("");
-    const entry = Object.entries(targets?.groups ?? {})
-      .find(([, rows]) => rows.some((t) => t.name === reveal.id));
-    if (!entry) return;
-    const [group, rows] = entry;
-    const row = rows.find((t) => t.name === reveal.id)!;
-    if (!showAll && !row.visible_tonight) onShowAllChange(true);
-    if (popularOnly && !row.showpiece) onPopularOnlyChange(false);
-    setOpenGroups((current) => ({ ...current, [group]: true }));
+    setOpenRow(key);
+    focusGroup(group);
+    const chartMoves = finder !== null && finderKey !== key;
+    pendingScroll.current = {
+      key, how: chartInline && finder ? "chart" : "nearest",
+    };
+    log();
+    if (chartMoves) onFocus(subject);
+  }
+
+  /** A row's chart button: open its chart -- closing any other target's
+   *  details -- or close the chart if it is already this row's. */
+  function toggleChart(key: string, group: string | undefined,
+                       subject: FinderSubject, log: () => void) {
+    if (finderKey === key && finderShown) {
+      onCloseFinder();
+      return;
+    }
+    if (openRow !== null && openRow !== key) setOpenRow(null);
+    focusGroup(group);
+    if (chartInline) pendingScroll.current = { key, how: "chart" };
+    log();
+    onOpenFinder(subject);
+  }
+
+  /** A constellation's heading. Opening one closes the one before; closing
+   *  one closes what was open inside it -- and a chart in the list with it,
+   *  since the chart lives above its row. */
+  function toggleGroup(group: string) {
+    const open = isGroupOpen(group);
+    const next = query ? { ...openGroups, [group]: !open } : open ? {} : { [group]: true };
+    setOpenGroups(next);
+    const stillOpen = (g: string | undefined) => !!g && (next[g] ?? Boolean(query));
+    if (openRow?.startsWith("target:") && !stillOpen(groupOf.get(openRow.slice(7)))) {
+      setOpenRow(null);
+    }
+    if (chartInline && finder?.kind === "target" && !stillOpen(groupOf.get(finder.id))) {
+      onCloseFinder();
+    }
+  }
+
+  function rowState(kind: "target" | "body", id: string, group: string | undefined,
+                    subject: () => FinderSubject, log: () => void): RowState {
+    const key = rowKey(kind, id);
+    return {
+      open: openRow === key,
+      onToggle: () => toggleDetails(key, group, subject(), log),
+      flash: flashKey === key,
+      rowRef: rowRefFor(key),
+      finderOn: finderKey === key && finderShown,
+      onFinder: () => toggleChart(key, group, subject(), log),
+      chartHere: chartInline && finderKey === key,
+      onCloseChart: onCloseFinder,
+    };
+  }
+
+  // After the render that drew what was opened, so its height counts, and
+  // before the browser paints it: a layout effect, so the list is never seen
+  // in between -- the row opening (and the last one closing above it) and
+  // the scroll that follows land in one frame, not a jump and then a glide.
+  // Runs after every render and consumes the request once its row exists.
+  // Declared before the reveal effect below, so a reveal's scroll waits for
+  // the render its state changes cause rather than measuring the one before.
+  useLayoutEffect(() => {
+    const pending = pendingScroll.current;
+    if (!pending) return;
+    const row = rowEls.current.get(pending.key);
+    if (!row) return;
+    pendingScroll.current = null;
+    settling.current?.();
+    settling.current = null;
+    const above = row.previousElementSibling;
+    const chartRow = above instanceof HTMLElement &&
+      above.classList.contains("finder-slot-row") ? above : null;
+    if (pending.how === "chart" && chartRow) anchorChart(chartRow, row, pending.keepTop);
+    else if (pending.how === "nearest") bringIntoView(row, false);
+    else settling.current = centreWhileSettling(row);
+  });
+
+  // An object clicked on the sky chart, or suggested: its tab, its group
+  // open, the filters loosened if they are what is hiding it, and its
+  // details open. A layout effect, so all of that renders before the
+  // browser paints -- an inline chart is never seen stranded between rows.
+  useLayoutEffect(() => {
+    if (!reveal) return;
+    const key = rowKey(reveal.kind, reveal.id);
+    if (reveal.kind === "body") {
+      const known = reveal.id === "moon" ? planets?.moon
+        : planets?.planets.find((p) => p.name === reveal.id);
+      if (!known) return;
+      setTab("planets");
+      setSearch("");
+      recordBody(reveal.id);
+    } else {
+      const group = groupOf.get(reveal.id);
+      const row = group ? targets?.groups[group]?.find((t) => t.name === reveal.id) : undefined;
+      if (!group || !row) return;
+      setTab("targets");
+      setSearch("");
+      if (!showAll && !row.visible_tonight) onShowAllChange(true);
+      if (popularOnly && !row.showpiece) onPopularOnlyChange(false);
+      setOpenGroups({ [group]: true });
+      recordTarget(row);
+    }
+    setOpenRow(key);
+    setFlashKey(key);
+    pendingScroll.current = {
+      key, how: chartInline ? "chart" : "center", keepTop: reveal.keepTop,
+    };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [reveal?.seq]);
-  const revealSeqFor = (kind: "target" | "body", id: string) =>
-    reveal && reveal.kind === kind && reveal.id === id ? reveal.seq : undefined;
+
+  useEffect(() => {
+    if (!flashKey) return;
+    const done = window.setTimeout(() => setFlashKey(null), 1600);
+    return () => window.clearTimeout(done);
+  }, [flashKey]);
 
   const eventCount = events
     ? events.showers.length + events.lunar_eclipses.length + events.conjunctions.length
     : 0;
 
   return (
-    <LatestReveal.Provider value={reveal?.seq ?? 0}>
     <section className="panel sky-panel" aria-labelledby="sky-heading">
       <h2 id="sky-heading" className="visually-hidden">
         Deep sky, solar system and events
@@ -985,7 +1248,7 @@ export function SkyPanel({
               </p>
             )}
 
-            {groupNames.map((group) => {
+            {shownGroups.map((group) => {
               const rows = filteredGroups[group];
               const open = isGroupOpen(group);
               const info = targets.group_info?.[group];
@@ -994,7 +1257,7 @@ export function SkyPanel({
               const onChart = charted.includes(group);
 
               return (
-                <div key={group} className="group">
+                <div key={group} className={`group ${open ? "open" : ""}`}>
                   <div className="group-head-row">
                     {/* The constellation is the chartable unit now: everything
                         in it rises and sets together, so one curve answers
@@ -1005,16 +1268,16 @@ export function SkyPanel({
                         onClick={() => onToggleChart(group, label, "constellation")}
                         title={
                           onChart
-                            ? `Remove ${label} from the chart`
-                            : `Chart ${label}`
+                            ? `Remove ${label} from the altitude chart`
+                            : `Add ${label} to the altitude chart`
                         }
                         // The visible text is "+" or a tick, which names
                         // nothing on its own; title is not a reliable
                         // accessible name, so state it explicitly.
                         aria-label={
                           onChart
-                            ? `Remove ${label} from the chart`
-                            : `Chart ${label}`
+                            ? `Remove ${label} from the altitude chart`
+                            : `Add ${label} to the altitude chart`
                         }
                         aria-pressed={onChart}
                       >
@@ -1023,9 +1286,7 @@ export function SkyPanel({
                     )}
                     <button
                       className="group-head"
-                      onClick={() =>
-                        setOpenGroups({ ...openGroups, [group]: !open })
-                      }
+                      onClick={() => toggleGroup(group)}
                       aria-expanded={open}
                     >
                       <span className="caret">{open ? "▾" : "▸"}</span>
@@ -1112,16 +1373,9 @@ export function SkyPanel({
                               target={target}
                               timeZone={timeZone}
                               showAll={showAll}
-                              revealSeq={revealSeqFor("target", target.name)}
-                              onFinder={onOpenFinder && (() => onOpenFinder({
-                                kind: "target", id: target.name,
-                                label: target.display_name,
-                                ra: target.ra_deg, dec: target.dec_deg,
-                                // Its best time tonight; for something not up
-                                // during the session, the session's start.
-                                at: target.peak_time ?? targets?.session?.start
-                                    ?? new Date().toISOString(),
-                              }))}
+                              state={rowState("target", target.name, group,
+                                              () => targetSubject(target),
+                                              () => recordTarget(target))}
                             />
                           ))}
                         </tbody>
@@ -1137,6 +1391,16 @@ export function SkyPanel({
                 </div>
               );
             })}
+
+            {foldable && (
+              <button ref={foldButton} className="groups-fold" onClick={toggleFold}
+                      aria-expanded={allGroupsShown}>
+                <span className="caret" aria-hidden="true">{allGroupsShown ? "▴" : "▾"}</span>
+                {allGroupsShown
+                  ? "Show fewer constellations"
+                  : `Show ${groupNames.length - shownGroups.length} more constellations`}
+              </button>
+            )}
           </>
         )}
 
@@ -1145,7 +1409,7 @@ export function SkyPanel({
             <table className="targets planets">
               <thead>
                 <tr>
-                  <th aria-label="Chart" />
+                  <th aria-label="On the altitude chart" />
                   <th>Body</th>
                   <th>Mag</th>
                   <th>Size</th>
@@ -1169,11 +1433,9 @@ export function SkyPanel({
                     onToggleChart={onToggleChart}
                     minAltitude={planets.min_altitude_deg}
                     timeZone={timeZone}
-                    revealSeq={revealSeqFor("body", "moon")}
-                    onFinder={onOpenFinder && (() => onOpenFinder({
-                      kind: "body", id: "moon", label: "Moon",
-                      at: planets.moon!.peak_time ?? new Date().toISOString(),
-                    }))}
+                    state={rowState("body", "moon", undefined,
+                                    () => bodySubject("moon", planets.moon!.peak_time),
+                                    () => recordBody("moon"))}
                   />
                 </tbody>
               )}
@@ -1196,11 +1458,9 @@ export function SkyPanel({
                       charted={charted}
                       onToggleChart={onToggleChart}
                       minAltitude={planets.min_altitude_deg}
-                      revealSeq={revealSeqFor("body", planet.name)}
-                      onFinder={onOpenFinder && (() => onOpenFinder({
-                        kind: "body", id: planet.name, label: titleCase(planet.name),
-                        at: planet.peak_time ?? new Date().toISOString(),
-                      }))}
+                      state={rowState("body", planet.name, undefined,
+                                      () => bodySubject(planet.name, planet.peak_time),
+                                      () => recordBody(planet.name))}
                     />
                 ))}
               </tbody>
@@ -1237,7 +1497,7 @@ export function SkyPanel({
                   <p className="muted">None peaking in this window.</p>
                 ) : (
                   <div className="table-scroll">
-                    <table className="targets">
+                    <table className="targets showers">
                       <tbody>
                         {events.showers
                           .filter((s) => !query ||
@@ -1260,7 +1520,7 @@ export function SkyPanel({
                               </strong>
                               <div className="target-notes">ZHR {shower.zhr}</div>
                             </td>
-                            <td className="nowrap">
+                            <td className="nowrap" title="When the radiant is highest in the dark">
                               {formatTime(shower.best_time, timeZone)}
                             </td>
                           </tr>
@@ -1313,7 +1573,7 @@ export function SkyPanel({
                   <p className="muted">None under the thresholds.</p>
                 ) : (
                   <div className="table-scroll">
-                    <table className="targets">
+                    <table className="targets conjunctions">
                       <tbody>
                         {events.conjunctions
                           .filter((c) => !query ||
@@ -1355,6 +1615,5 @@ export function SkyPanel({
         )}
       </div>
     </section>
-    </LatestReveal.Provider>
   );
 }

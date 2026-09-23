@@ -33,6 +33,11 @@ export interface LocationModel {
    *  therefore change which targets are listed. A profile below the floor is
    *  inert — worth saying outright rather than letting the user assume. */
   horizon_binds: boolean;
+  /** The profile as one string, as a request's `horizon` takes it back --
+   *  what the browser stores with the site. */
+  horizon_spec: string | null;
+  /** "browser" for a site sent with the request; "config" or "stored" for
+   *  one the server has, which the browser imports on its first visit. */
   source: string;
 }
 
@@ -137,7 +142,7 @@ export interface NewLocationRequest {
   lon?: number;
   elevation_m?: number;
   bortle?: number | null;
-  horizon?: string;
+  horizon?: string | null;
   /** Bearing of the obstruction, for the directional presets. */
   horizon_facing?: number | null;
   query?: string;
@@ -491,49 +496,6 @@ export interface AltitudeResponse {
   series: AltitudeSeriesModel[];
 }
 
-export interface ObservationModel {
-  id: number | null;
-  session_id: number | null;
-  object_id: string | null;
-  object_name: string;
-  observed_at_utc: string | null;
-  eyepiece: string | null;
-  notes: string | null;
-  rating: number | null;
-  sketch_path: string | null;
-}
-
-export interface SessionModel {
-  id: number | null;
-  date: string;
-  location_key: string;
-  start_utc: string | null;
-  end_utc: string | null;
-  scope_key: string | null;
-  conditions: Record<string, any> | null;
-  seeing_actual: number | null;
-  transparency_actual: number | null;
-  notes: string | null;
-  observations: ObservationModel[];
-}
-
-export interface LogCandidateModel {
-  object_id: string;
-  object_name: string;
-  group: string;
-  score: number;
-  peak_altitude_deg: number;
-  already_logged: boolean;
-}
-
-export interface LogPrefillResponse {
-  date: string;
-  location_key: string;
-  scope_key: string | null;
-  candidates: LogCandidateModel[];
-  conditions: Record<string, any> | null;
-}
-
 export class ApiError extends Error {
   status: number;
   constructor(status: number, message: string) {
@@ -592,8 +554,19 @@ function query(params: Record<string, string | number | undefined | null>): stri
   return encoded ? `?${encoded}` : "";
 }
 
+/*
+ * `site` below is always `siteParam(...)` from sites.ts: the observing site
+ * itself, sent with every request, because the server keeps no list of them.
+ */
 export const api = {
+  /** Sites configured on the server, imported on a browser's first visit. */
   locations: () => get<LocationModel[]>("/api/locations"),
+
+  /** Check a site and fill in what follows from its coordinates, without
+   *  anything being stored. How a site is validated before it is saved in
+   *  the browser, and how a saved one learns its timezone. */
+  resolveSite: (body: NewLocationRequest) =>
+    post<LocationModel>("/api/sites/resolve", body),
 
   /** Place name -> candidates. Returns [] both when there is no match and
    *  when the geocoder is unreachable; the API cannot tell those apart. */
@@ -620,92 +593,52 @@ export const api = {
       `/api/skybrightness/at${query({ lat, lon })}`, signal,
     ),
 
-  createLocation: (body: NewLocationRequest) =>
-    post<LocationModel>("/api/locations", body),
-
-  /** 409 for YAML-defined sites, which are config-owned. */
-  deleteLocation: (key: string) =>
-    request<void>(`/api/locations/${encodeURIComponent(key)}`, {
-      method: "DELETE",
-    }),
-
   /** `session` is a [startIso, endIso] pair; omit it for the server default
    *  of astronomical dusk to 01:00 local. */
-  night: (date: string, location: string, session?: [string, string]) =>
+  night: (date: string, site: string, session?: [string, string]) =>
     get<NightResponse>(`/api/night${query({
-      date, location,
+      date, site,
       session_start: session?.[0], session_end: session?.[1],
     })}`),
 
   /** `minAltitude` defaults to 0 here, not to the engine's 25: the site's own
    *  obstruction horizon is the floor, so a universal one would only ever
    *  override what the observer measured. */
-  targets: (date: string, location: string, limit = 8, minAltitude = 0,
+  targets: (date: string, site: string, limit = 8, minAltitude = 0,
             groupBy: "type" | "constellation" = "constellation",
             sort: "score" | "brightness" = "brightness",
             includeAll = false, session?: [string, string]) =>
     get<TargetsResponse>(
-      `/api/targets${query({ date, location, limit, min_altitude: minAltitude,
+      `/api/targets${query({ date, site, limit, min_altitude: minAltitude,
                              group_by: groupBy, sort,
                              include_all: includeAll ? "true" : undefined,
                              session_start: session?.[0],
                              session_end: session?.[1] })}`,
     ),
 
-  planets: (date: string, location: string, findNext = false,
+  planets: (date: string, site: string, findNext = false,
             minAltitude = 0) =>
     get<PlanetsResponse>(
-      `/api/planets${query({ date, location, find_next: String(findNext),
+      `/api/planets${query({ date, site, find_next: String(findNext),
                              min_altitude: minAltitude })}`,
     ),
 
-  events: (from: string, location: string, days = 90) =>
-    get<EventsResponse>(`/api/events${query({ from, location, days })}`),
+  events: (from: string, site: string, days = 90) =>
+    get<EventsResponse>(`/api/events${query({ from, site, days })}`),
 
-  altitude: (date: string, location: string, bodies: string,
+  altitude: (date: string, site: string, bodies: string,
              objects?: string, constellations?: string, minAltitude = 0) =>
     get<AltitudeResponse>(
-      `/api/altitude${query({ date, location, bodies, objects, constellations,
+      `/api/altitude${query({ date, site, bodies, objects, constellations,
                               min_altitude: minAltitude })}`,
     ),
 
 
   skyCatalog: () => get<SkyCatalog>("/api/sky/catalog"),
 
-  skyFrame: (location: string, at: string, signal?: AbortSignal) =>
-    get<SkyFrame>(`/api/sky/frame${query({ location, at })}`, signal),
+  skyFrame: (site: string, at: string, signal?: AbortSignal) =>
+    get<SkyFrame>(`/api/sky/frame${query({ site, at })}`, signal),
 
   star: (index: number, signal?: AbortSignal) =>
     get<StarProfile>(`/api/sky/star/${index}`, signal),
-
-  // --- observation log ---
-  logPrefill: (date: string, location: string, limit = 6) =>
-    get<LogPrefillResponse>(`/api/log/prefill${query({ date, location, limit })}`),
-
-  sessions: (limit = 10, filter: { date?: string; location?: string } = {},
-             signal?: AbortSignal) =>
-    get<SessionModel[]>(`/api/sessions${query({ limit, ...filter })}`, signal),
-
-  session: (id: number) => get<SessionModel>(`/api/sessions/${id}`),
-
-  createSession: (body: {
-    date: string;
-    location: string;
-    notes?: string;
-  }) => post<SessionModel>("/api/sessions", body),
-
-  addObservation: (
-    sessionId: number,
-    body: {
-      object_id?: string;
-      object_name: string;
-      eyepiece?: string;
-      notes?: string;
-      rating?: number;
-      observed_at_utc?: string;
-    },
-  ) => post<ObservationModel>(`/api/sessions/${sessionId}/observations`, body),
-
-  deleteObservation: (id: number) =>
-    request<void>(`/api/observations/${id}`, { method: "DELETE" }),
 };

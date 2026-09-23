@@ -1,9 +1,10 @@
 /**
- * Add and remove observing sites (HANDOFF item 1).
+ * Add and edit observing sites (HANDOFF item 1).
  *
- * `POST /api/locations` and `/api/geocode` have existed and been tested since
- * Phase 4; nothing in the UI called them, so a new site meant editing
- * `config/locations.yaml` or POSTing by hand. This is that missing surface.
+ * Sites are kept in the browser (`sites.ts`). Saving one sends it to
+ * `POST /api/sites/resolve`, which checks it and fills in what follows from
+ * the coordinates -- the timezone, the atlas's reading -- without storing
+ * anything, and the app keeps what comes back.
  *
  * Three things here are deliberate rather than incidental:
  *
@@ -92,12 +93,13 @@ interface Props {
   /** The site being edited, or null when adding a new one. */
   editingKey: string | null;
   onClose: () => void;
-  /** Called with the saved key so the dashboard can select it. */
-  onCreated: (key: string) => void;
+  /** Called with the checked site, for the app to keep and select. */
+  onSaved: (site: LocationModel) => void;
 }
 
 /** Selector for things a keyboard can reach. `:not([disabled])` matters — a
- *  disabled Delete button on a config-owned site must not swallow a Tab. */
+ *  disabled button, like Save before the form is complete, must not swallow
+ *  a Tab. */
 const FOCUSABLE =
   'a[href], button:not([disabled]), input:not([disabled]), ' +
   'select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
@@ -209,7 +211,7 @@ function normaliseKey(raw: string): string {
   return cleaned.replace(/_+/g, "_").replace(/^_|_$/g, "");
 }
 
-export function LocationManager({ locations, editingKey, onClose, onCreated }: Props) {
+export function LocationManager({ locations, editingKey, onClose, onSaved }: Props) {
   // "map" leads: it is the only mode that can reach a site with no name,
   // which is most dark-sky sites.
   const [entry, setEntry] = useState<"map" | "search" | "manual">("map");
@@ -270,10 +272,8 @@ export function LocationManager({ locations, editingKey, onClose, onCreated }: P
     ? locations.find((l) => l.key === editingKey) ?? null
     : null;
 
-  // Load the site being edited into the form, once. `POST /api/locations`
-  // is an upsert -- `db/store.save_location` is INSERT OR REPLACE -- so
-  // saving under the same key edits in place, and there is no second
-  // endpoint to keep in step with this one.
+  // Load the site being edited into the form, once. Saving under the same
+  // key replaces it in place, and under a new key renames it.
   //
   // A measured horizon is loaded back in as it was saved, so an edit that
   // does not touch it -- a rename, a corrected elevation -- sends the same
@@ -616,7 +616,7 @@ export function LocationManager({ locations, editingKey, onClose, onCreated }: P
     setBusy(true);
     setError(null);
     try {
-      const created = await api.createLocation({
+      const saved = await api.resolveSite({
         key: normaliseKey(key),
         name: name.trim(),
         lat: latValue,
@@ -634,7 +634,7 @@ export function LocationManager({ locations, editingKey, onClose, onCreated }: P
         horizon_facing: null,
       });
       resetForm();
-      onCreated(created.key);
+      onSaved(saved);
     } catch (e) {
       setError(e instanceof ApiError ? e.message : String(e));
     } finally {

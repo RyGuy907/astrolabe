@@ -57,7 +57,8 @@ export interface FinderSubject {
 
 interface Props {
   subject: FinderSubject;
-  location: string;
+  /** The observing site, as the API's `site` parameter. */
+  site: string;
   timeZone: string;
   /** The night's bounds, so the time stepper stays inside it. */
   nightStart: string | null;
@@ -138,7 +139,7 @@ function hitAt(hits: Hit[], px: number, py: number): Hit | null {
   return best;
 }
 
-export function FinderChart({ subject, location, timeZone, nightStart, nightEnd,
+export function FinderChart({ subject, site, timeZone, nightStart, nightEnd,
                               onSelect }: Props) {
   const [catalog, setCatalog] = useState<SkyCatalog | null>(null);
   const [frame, setFrame] = useState<SkyFrame | null>(null);
@@ -177,7 +178,7 @@ export function FinderChart({ subject, location, timeZone, nightStart, nightEnd,
     const controller = new AbortController();
     // A success clears any earlier failure's warning, which otherwise stayed
     // up through every later time step.
-    api.skyFrame(location, at, controller.signal)
+    api.skyFrame(site, at, controller.signal)
       .then((next) => { setFrame(next); setError(null); })
       .catch((e) => {
         if ((e as Error)?.name !== "AbortError") {
@@ -185,7 +186,7 @@ export function FinderChart({ subject, location, timeZone, nightStart, nightEnd,
         }
       });
     return () => controller.abort();
-  }, [location, at]);
+  }, [site, at]);
 
   // The subject's J2000 direction: its catalogue position, or for a body
   // wherever the frame says it is at this moment.

@@ -42,6 +42,17 @@ export function formatDate(isoDate: string | null, timeZone?: string): string {
   }).format(date);
 }
 
+/** A night by its calendar date, weekday first: "Wed 23 Sept 2026". */
+export function formatNight(isoDate: string): string {
+  return new Intl.DateTimeFormat("en-GB", {
+    timeZone: "UTC",
+    weekday: "short",
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+  }).format(new Date(`${isoDate}T12:00:00Z`)).replace(",", "");
+}
+
 export function timeZoneAbbreviation(timeZone: string): string {
   const parts = new Intl.DateTimeFormat("en-US", {
     timeZone,

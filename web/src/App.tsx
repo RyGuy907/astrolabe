@@ -4,16 +4,20 @@
  * Layout, top to bottom: controls, an alert for anything in the next week,
  * the score-and-night panel, then a two-column row with the altitude chart
  * beside the Deep Sky/Solar System/Events panel — so adding something to the chart
- * and seeing it appear happens without scrolling. Conditions and the log sit
- * below.
+ * and seeing it appear happens without scrolling. The history sits below.
  *
  * Chart contents are state, not a fixed list. On each new night the chart is
  * auto-filled with what is actually worth looking at — the Moon, every planet
  * with any chance of being seen, and the highest-scoring deep-sky objects —
  * and every series can then be removed or added back.
+ *
+ * Nothing about the observer is kept on the server. The sites live in this
+ * browser (`sites.ts`) and every request carries the one it is about; the
+ * history does too (`history.ts`).
  */
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import {
   api,
   ApiError,
@@ -27,21 +31,31 @@ import {
 import { AltitudeChart } from "./components/AltitudeChart";
 import { DashboardSkeleton } from "./components/DashboardSkeleton";
 import { DEFAULT_FOV, FinderChart, type FinderSubject } from "./components/FinderChart";
+import { FinderSlot, FinderSlotProvider, useFinderHost } from "./components/FinderSlot";
 import { SPLIT_DEFAULT, SPLIT_MAX, SPLIT_MIN, Splitter } from "./components/Splitter";
 import { EventAlert } from "./components/EventAlert";
+import { History } from "./components/History";
 import { LocationManager } from "./components/LocationManager";
 import { LocationPicker } from "./components/LocationPicker";
-import { ObservationLog } from "./components/ObservationLog";
 import { ScorePanel } from "./components/ScorePanel";
-import { SkyPanel } from "./components/SkyPanel";
-import { formatDate, resolveNightDate, shiftDate } from "./format";
+import { SkyPanel, type Reveal } from "./components/SkyPanel";
+import { formatDate, resolveNightDate, shiftDate, titleCase } from "./format";
+import type { HistoryEntry } from "./history";
+import { loadSites, saveSites, siteParam, specFromModel, type SiteSpec } from "./sites";
 import { suggestTarget } from "./suggest";
+import { useMediaQuery } from "./useMediaQuery";
 
 /** The nights the planetary ephemeris (DE440s) can plan, as
  *  `engine.ephem.supported_dates` reads them from it. Fixed data, so fixed
  *  here; the API refuses anything outside them with a 422 as well. */
 const FIRST_NIGHT = "1849-12-27";
 const LAST_NIGHT = "2150-01-19";
+
+/** Where the dashboard row stacks into one column -- `.dashboard-row` in the
+ *  stylesheet. Below it the sky chart goes in the list, above its row. */
+const STACKED = "(max-width: 1180px)";
+
+const UNREACHABLE = "Could not reach the planner's server. Check your connection, then reload.";
 
 /** A curve on the altitude chart.
  *
@@ -70,7 +84,12 @@ const CHARTED_PLANETS = ["mercury", "venus", "mars", "jupiter", "saturn",
                          "uranus", "neptune"];
 
 export default function App() {
+  //: The sites as this browser keeps them, and as the server resolved them
+  //: -- timezone, sky source, horizon peak -- in the same order.
+  const [sites, setSites] = useState<SiteSpec[]>([]);
   const [locations, setLocations] = useState<LocationModel[]>([]);
+  //: False until the saved sites have been read and resolved.
+  const [sitesReady, setSitesReady] = useState(false);
   const [locationKey, setLocationKey] = useState<string>("");
   const [date, setDate] = useState<string>("");
   const [isTonight, setIsTonight] = useState(true);
@@ -131,7 +150,6 @@ export default function App() {
   const [managingSites, setManagingSites] = useState(false);
   //: The key being edited, or null when the form is adding a new site.
   const [editingSite, setEditingSite] = useState<string | null>(null);
-  const [deletingSite, setDeletingSite] = useState(false);
 
   // Which (date, location) the chart was last auto-filled for. Without this the
   // auto-fill would fight the user every time they removed a series.
@@ -142,28 +160,57 @@ export default function App() {
   const skyPanelRef = useRef<HTMLDivElement>(null);
   const rowRef = useRef<HTMLDivElement>(null);
 
+  const location = locations.find((l) => l.key === locationKey);
+  const site = sites.find((s) => s.key === locationKey);
+  //: The `site` parameter for every request about the open site. A string,
+  //: so effects keyed on it rerun when the site is edited, not only swapped.
+  const siteArg = useMemo(() => (site ? siteParam(site) : ""), [site]);
+
+  // --- the sky chart ---
+  // One chart, portalled into whichever slot wants it: the panel beside the
+  // lists on a wide screen, or the list itself -- above the object's row --
+  // where the layout is one column. See FinderSlot.
+  const stacked = useMediaQuery(STACKED);
+  const { host: finderHost, slots: finderSlots, inline: chartInline } = useFinderHost();
+
   // The finder chart open over the altitude chart, if any, and which of the
   // two tabs is showing. Kept apart so flipping back to the altitude chart
   // does not lose the finder.
   const [finder, setFinder] = useState<FinderSubject | null>(null);
   const [leftTab, setLeftTab] = useState<"altitude" | "finder">("altitude");
+  const sameSubject = (a: FinderSubject | null, b: FinderSubject) =>
+    !!a && a.kind === b.kind && a.id === b.id;
   function openFinder(subject: FinderSubject) {
-    setFinder(subject);
+    // Already this object's, behind the altitude tab: just show it, rather
+    // than starting it over at the object's best time.
+    if (!sameSubject(finder, subject)) setFinder(subject);
     setLeftTab("finder");
   }
   function closeFinder() {
     setFinder(null);
     setLeftTab("altitude");
   }
-  // An object clicked on the sky chart: the chart moves to it, and its row
-  // opens in the lists beside it.
-  const [reveal, setReveal] =
-    useState<{ kind: "target" | "body"; id: string; seq: number } | null>(null);
-  function selectOnChart(subject: FinderSubject) {
-    setFinder(subject);
-    setReveal((current) => ({ kind: subject.kind, id: subject.id,
-                              seq: (current?.seq ?? 0) + 1 }));
+  /** Another row was opened: an open chart goes with it. */
+  function followWithFinder(subject: FinderSubject) {
+    setFinder((current) => (current && !sameSubject(current, subject) ? subject : current));
   }
+  // An object clicked on the sky chart: the chart moves to it, and its row
+  // opens in the lists. Inline, the chart is kept where it is on screen as it
+  // moves to the new row.
+  const [reveal, setReveal] = useState<Reveal | null>(null);
+  const nextReveal = (subject: { kind: "target" | "body"; id: string },
+                      keepTop?: number) =>
+    setReveal((current) => ({ kind: subject.kind, id: subject.id,
+                              seq: (current?.seq ?? 0) + 1, keepTop }));
+  function selectOnChart(subject: FinderSubject) {
+    const keepTop = chartInline && finderHost.isConnected
+      ? finderHost.getBoundingClientRect().top : undefined;
+    setFinder(subject);
+    nextReveal(subject, keepTop);
+  }
+  //: Whether the chart is on screen, rather than open behind a tab or --
+  //: inline -- above a row that is not in the list just now.
+  const finderShown = finder !== null && (stacked ? chartInline : leftTab === "finder");
 
   // "Suggest a target": one of tonight's best, anywhere in the sky, opened
   // on the sky chart and in the list -- only showpieces when the list is
@@ -171,6 +218,8 @@ export default function App() {
   const suggested = useRef<Set<string>>(new Set());
   const allTargets = useMemo(
     () => (targets ? Object.values(targets.groups).flat() : []), [targets]);
+  const targetIndex = useMemo(
+    () => new Map(allTargets.map((t) => [t.name, t])), [allTargets]);
   function suggest() {
     const now = new Date().toISOString();
     const session = targets?.session;
@@ -190,7 +239,7 @@ export default function App() {
     }
     if (!pick) return;
     suggested.current.add(pick.name);
-    selectOnChart({
+    setFinder({
       kind: "target", id: pick.name, label: pick.display_name,
       ra: pick.ra_deg, dec: pick.dec_deg,
       // Now if the night is on, else at its best.
@@ -199,6 +248,7 @@ export default function App() {
       // whatever zoom the last one was left at.
       fov: DEFAULT_FOV,
     });
+    nextReveal({ kind: "target", id: pick.name });
     setLeftTab("finder");
   }
   const canSuggest = !pending.targets && allTargets.some((t) =>
@@ -213,15 +263,55 @@ export default function App() {
     </button>
   );
 
+  // --- the history ---
+  /** Whether a history entry's object is in the lists now, to be opened. */
+  function canOpenFromHistory(entry: HistoryEntry): boolean {
+    if (entry.kind === "target") return targetIndex.has(entry.objectId);
+    return entry.objectId === "moon"
+      ? !!planets?.moon
+      : !!planets?.planets.some((p) => p.name === entry.objectId);
+  }
+  /** Open an entry's object again: its row, and the chart if one is open. */
+  function openFromHistory(entry: HistoryEntry) {
+    if (finder) {
+      const target = targetIndex.get(entry.objectId);
+      if (entry.kind === "target" && target) {
+        setFinder({ kind: "target", id: target.name, label: target.display_name,
+                    ra: target.ra_deg, dec: target.dec_deg,
+                    at: target.peak_time ?? targets?.session?.start ?? new Date().toISOString() });
+      } else if (entry.kind === "body") {
+        const peak = entry.objectId === "moon" ? planets?.moon?.peak_time
+          : planets?.planets.find((p) => p.name === entry.objectId)?.peak_time;
+        setFinder({ kind: "body", id: entry.objectId,
+                    label: entry.objectId === "moon" ? "Moon" : titleCase(entry.objectId),
+                    at: peak ?? new Date().toISOString() });
+      }
+    }
+    nextReveal({ kind: entry.kind, id: entry.objectId });
+    // On a wide screen the list scrolls inside its own box, which may be
+    // off the page from down here. A window scroll, not scrollIntoView: that
+    // is thrown off course by the list's own box scrolling to the row at the
+    // same moment.
+    const panel = skyPanelRef.current;
+    if (!stacked && panel) {
+      window.scrollTo({ top: window.scrollY + panel.getBoundingClientRect().top - 16,
+                        behavior: "smooth" });
+    }
+  }
+
   // A finder drawn for one night's best time means nothing on another night
   // or from another site -- nor do custom observing hours, which are absolute
   // times: carried to the next night they fell outside it, the server quietly
   // used the defaults, and the panel still showed them as custom.
+  // The last pick goes too: the lists are rebuilt for the new night, and a
+  // reveal still standing would open that object again there -- and file it
+  // in the new night's history.
   useEffect(() => {
     closeFinder();
+    setReveal(null);
     suggested.current = new Set();
     setSession(null);
-  }, [date, locationKey]);
+  }, [date, siteArg]);
 
   // The chart's share of the chart/lists row, as the divider between them
   // leaves it. Remembered per browser, like night vision: a layout choice,
@@ -247,41 +337,77 @@ export default function App() {
     "--split-b": `${1 - split}fr`,
   } as React.CSSProperties;
 
+  // --- the sites, from this browser ---
+  // On a browser's first visit there are none saved, and the server's own
+  // configured sites (a self-hosted install's locations.local.yaml, or sites
+  // an older version stored) are brought over. After that the browser's list
+  // is the list. Each is resolved on load, so it learns its timezone and
+  // picks up whatever the atlas now says.
   useEffect(() => {
-    api
-      .locations()
-      .then((list) => {
-        setLocations(list);
-        const first = list[0];
-        // An empty list is the ordinary first run, not a failure: nothing
-        // ships preconfigured, because every answer this planner gives
-        // depends on where the observer is standing. The dashboard stays
-        // empty and asks for a site rather than inventing one.
-        if (!first) {
-          setPending({ night: false, targets: false, planets: false });
-          return;
+    let cancelled = false;
+    (async () => {
+      const saved = loadSites();
+      let specs: SiteSpec[];
+      let selected: string | null = null;
+      if (saved) {
+        specs = saved.sites;
+        selected = saved.selected;
+      } else {
+        try {
+          specs = (await api.locations()).map(specFromModel);
+          saveSites(specs, null);
+        } catch {
+          specs = [];
         }
-        setLocationKey(first.key);
-        setDate(resolveNightDate(first.timezone));
-      })
-      .catch((e) => {
-        setError(
-          e instanceof ApiError
-            ? `API error: ${e.message}`
-            : "Could not reach the API. Is it running on port 8000?",
-        );
-        // The per-request effect below never runs without a location, so
-        // clear the pending flags here or the shell shows "Loading..."
-        // forever underneath the error.
+      }
+      const results = await Promise.allSettled(specs.map((spec) => api.resolveSite(spec)));
+      if (cancelled) return;
+      // A site the server refuses is left out rather than taking the others
+      // with it; no answer at all means the server is not there.
+      const unreachable = results.find((r) =>
+        r.status === "rejected" && !(r.reason instanceof ApiError));
+      if (unreachable) {
+        setError(UNREACHABLE);
+        // The per-request effect below never runs without a site, so clear
+        // the pending flags here or the shell shows its skeleton forever
+        // underneath the error.
         setPending({ night: false, targets: false, planets: false });
+        setSitesReady(true);
+        return;
+      }
+      const kept = specs.flatMap((spec, i) => {
+        const result = results[i];
+        if (result.status === "fulfilled") return [{ spec, model: result.value }];
+        console.warn(`Saved site ${spec.key} was refused:`, result.reason);
+        return [];
       });
+      const models = kept.map((k) => k.model);
+      setSites(kept.map((k) => k.spec));
+      setLocations(models);
+      setSitesReady(true);
+      // An empty list is the ordinary first run, not a failure: nothing
+      // ships preconfigured, because every answer this planner gives depends
+      // on where the observer is standing. The dashboard stays empty and
+      // asks for a site rather than inventing one.
+      const first = models.find((m) => m.key === selected) ?? models[0];
+      if (!first) {
+        setPending({ night: false, targets: false, planets: false });
+        return;
+      }
+      setLocationKey(first.key);
+      setDate(resolveNightDate(first.timezone));
+    })();
+    return () => { cancelled = true; };
   }, []);
 
-  const location = locations.find((l) => l.key === locationKey);
+  // The site open now is remembered, so a reload comes back to it.
+  useEffect(() => {
+    if (sitesReady && locationKey) saveSites(sites, locationKey);
+  }, [sites, locationKey, sitesReady]);
 
   // --- the night's data ---
   useEffect(() => {
-    if (!locationKey || !date) return;
+    if (!siteArg || !date) return;
     let cancelled = false;
     setError(null);
 
@@ -295,7 +421,7 @@ export default function App() {
     // blanking it unmounted the panel the hours were changed in: the
     // disclosure snapped shut on every Apply. Stale-for-a-second numbers from
     // the same night are not the failure this guards against.
-    const subject = `${date}|${locationKey}`;
+    const subject = `${date}|${siteArg}`;
     if (loadedSubject.current !== subject) {
       loadedSubject.current = subject;
       setNight(null);
@@ -306,22 +432,18 @@ export default function App() {
 
     const fail = (e: unknown) => {
       if (cancelled) return;
-      setError(
-        e instanceof ApiError
-          ? `API error: ${e.message}`
-          : "Could not reach the API. Is it running on port 8000?",
-      );
+      setError(e instanceof ApiError ? `API error: ${e.message}` : UNREACHABLE);
     };
     const settle = (key: "night" | "targets" | "planets") => {
       if (!cancelled) setPending((current) => ({ ...current, [key]: false }));
     };
 
-    api.night(date, locationKey, session ?? undefined)
+    api.night(date, siteArg, session ?? undefined)
       .then((data) => !cancelled && setNight(data))
       .catch(fail)
       .finally(() => settle("night"));
 
-    api.planets(date, locationKey, false)
+    api.planets(date, siteArg, false)
       .then((data) => !cancelled && setPlanets(data))
       .catch(fail)
       .finally(() => settle("planets"));
@@ -329,7 +451,7 @@ export default function App() {
     // Always the unfiltered superset: the "visible tonight" view is derived
     // from it in SkyPanel, so switching modes costs no round-trip. Two
     // separate fetches would double a ~5 s server computation.
-    api.targets(date, locationKey, 1000, 0, "constellation",
+    api.targets(date, siteArg, 1000, 0, "constellation",
                 "brightness", true, session ?? undefined)
       .then((data) => !cancelled && setTargets(data))
       .catch(fail)
@@ -338,25 +460,25 @@ export default function App() {
     return () => {
       cancelled = true;
     };
-  }, [date, locationKey, session]);
+  }, [date, siteArg, session]);
 
   // --- events, on their own horizon ---
   useEffect(() => {
-    if (!locationKey || !date) return;
+    if (!siteArg || !date) return;
     let cancelled = false;
     // Cleared first, so a new night or look-ahead shows as loading rather
     // than leaving the last list up under the new choice.
     setEvents(null);
     setEventsError(null);
     api
-      .events(date, locationKey, eventDays)
+      .events(date, siteArg, eventDays)
       .then((data) => !cancelled && setEvents(data))
       .catch((e) => !cancelled &&
         setEventsError(e instanceof Error ? e.message : "Could not load events"));
     return () => {
       cancelled = true;
     };
-  }, [date, locationKey, eventDays]);
+  }, [date, siteArg, eventDays]);
 
   // --- auto-fill the chart: the bodies that are up while you are out ---
   // The Moon and every planet that clears the floor at some point during the
@@ -370,9 +492,9 @@ export default function App() {
   useEffect(() => {
     const hours = night?.session;
     if (!planets || !hours || !location) return;
-    const signature = `${date}|${locationKey}|${hours.start}|${hours.end}`;
+    const signature = `${date}|${siteArg}|${hours.start}|${hours.end}`;
     if (autoFilledFor.current === signature) return;
-    const sameNight = autoFilledFor.current.startsWith(`${date}|${locationKey}|`);
+    const sameNight = autoFilledFor.current.startsWith(`${date}|${siteArg}|`);
     autoFilledFor.current = signature;
 
     const candidates = ["moon", ...planets.planets
@@ -385,7 +507,7 @@ export default function App() {
 
     let cancelled = false;
     let settled = false;
-    api.altitude(date, locationKey, candidates.join(","), undefined, undefined, 0)
+    api.altitude(date, siteArg, candidates.join(","), undefined, undefined, 0)
       .then((data) => {
         if (cancelled) return;
         settled = true;
@@ -410,7 +532,7 @@ export default function App() {
       // chart empty.
       if (!settled) autoFilledFor.current = "";
     };
-  }, [planets, night?.session, date, locationKey, location]);
+  }, [planets, night?.session, date, siteArg, location]);
 
   // --- fetch the curves whenever what is charted changes ---
   // Keyed on membership, not on the series objects: showing or hiding a
@@ -425,7 +547,7 @@ export default function App() {
   }), [series.map((s) => `${s.kind}:${s.id}`).join("|")]);
 
   useEffect(() => {
-    if (!locationKey || !date) return;
+    if (!siteArg || !date) return;
     let cancelled = false;
 
     const { bodies, constellations } = members;
@@ -435,7 +557,7 @@ export default function App() {
     }
 
     api
-      .altitude(date, locationKey, bodies.join(","), undefined,
+      .altitude(date, siteArg, bodies.join(","), undefined,
                 constellations.join(",") || undefined, 0)
       .then((data) => !cancelled && setAltitude(data))
       .catch(() => !cancelled && setAltitude(null));
@@ -443,58 +565,43 @@ export default function App() {
     return () => {
       cancelled = true;
     };
-  }, [members, date, locationKey]);
+  }, [members, date, siteArg]);
 
-  /** Reload the site list after an add or a delete.
-   *
-   * `select` is the key to switch to: the new site after a create, or nothing
-   * after deleting a site that was not the active one. Deleting the *active*
-   * site leaves `locationKey` pointing at something that no longer exists, so
-   * fall back to the first remaining site rather than leaving the dashboard
-   * fetching a 404.
-   */
-  async function refreshLocations(select?: string) {
-    let list: LocationModel[];
-    try {
-      list = await api.locations();
-    } catch (e) {
-      setError(
-        e instanceof ApiError
-          ? `API error: ${e.message}`
-          : "Could not reach the API. Is it running on port 8000?",
-      );
-      return;
-    }
-    setLocations(list);
-    const target =
-      (select ? list.find((l) => l.key === select) : undefined) ??
-      list.find((l) => l.key === locationKey) ??
-      list[0];
-    if (!target || target.key === locationKey) return;
-    setLocationKey(target.key);
-    if (isTonight) setDate(resolveNightDate(target.timezone));
+  /** Keep a site the form checked: a new one at the end of the list, an
+   *  edited one where it was (under its new key, if that changed). Then open
+   *  it. */
+  function saveSite(model: LocationModel, replacing: string | null) {
+    const spec = specFromModel(model);
+    const at = replacing ? sites.findIndex((s) => s.key === replacing) : -1;
+    const keep = (key: string) => key !== spec.key && key !== replacing;
+    const nextSites = sites.filter((s) => keep(s.key));
+    const nextModels = locations.filter((l) => keep(l.key));
+    const index = at >= 0 ? Math.min(at, nextSites.length) : nextSites.length;
+    nextSites.splice(index, 0, spec);
+    nextModels.splice(index, 0, model);
+    setSites(nextSites);
+    setLocations(nextModels);
+    saveSites(nextSites, spec.key);
+    setLocationKey(spec.key);
+    if (isTonight || !date) setDate(resolveNightDate(model.timezone));
   }
 
   /** Remove a site from the picker row, then re-point the dashboard. */
-  async function deleteLocation(key: string) {
-    setDeletingSite(true);
-    try {
-      await api.deleteLocation(key);
-      const list = await api.locations();
-      setLocations(list);
-      if (key === locationKey) {
-        const next = list[0];
-        setLocationKey(next ? next.key : "");
-        if (next) setDate(resolveNightDate(next.timezone));
-        else setPending({ night: false, targets: false, planets: false });
+  function deleteLocation(key: string) {
+    const nextSites = sites.filter((s) => s.key !== key);
+    const nextModels = locations.filter((l) => l.key !== key);
+    setSites(nextSites);
+    setLocations(nextModels);
+    if (key === locationKey) {
+      const next = nextModels[0];
+      setLocationKey(next ? next.key : "");
+      if (next) setDate(resolveNightDate(next.timezone));
+      else {
+        setNight(null);
+        setPending({ night: false, targets: false, planets: false });
       }
-    } catch (e) {
-      setError(e instanceof ApiError
-        ? `Could not delete that site: ${e.message}`
-        : "Could not reach the API. Is it running on port 8000?");
-    } finally {
-      setDeletingSite(false);
     }
+    saveSites(nextSites, key === locationKey ? nextModels[0]?.key ?? null : locationKey);
   }
 
   function changeDate(next: string) {
@@ -542,12 +649,15 @@ export default function App() {
   const chartedIds = series.map((s) => s.id);
   const hiddenLabels = series.filter((s) => !s.visible).map((s) => s.label);
   const visibleCount = series.length - hiddenLabels.length;
+  //: Where the layout is one column the chart is in the list, so the panel
+  //: here is only ever the altitude chart.
+  const panelFinder = finder !== null && !stacked;
 
   return (
     <div className="app">
       {/* First thing in the tab order. The page has ~115 focusable elements in
           one flat sequence -- most of them target rows -- so without this,
-          reaching the observation log by keyboard means tabbing past all of
+          reaching the history by keyboard means tabbing past all of
           them. */}
       <a className="skip-link" href="#main">
         Skip to tonight's plan
@@ -600,7 +710,6 @@ export default function App() {
           <LocationPicker
             locations={locations}
             selected={locationKey}
-            busy={deletingSite}
             onSelect={(key) => {
               setLocationKey(key);
               const next = locations.find((l) => l.key === key);
@@ -614,7 +723,7 @@ export default function App() {
               setEditingSite(key);
               setManagingSites(true);
             }}
-            onDelete={(key) => void deleteLocation(key)}
+            onDelete={deleteLocation}
           />
 
           {hasSites && (
@@ -663,20 +772,20 @@ export default function App() {
             setManagingSites(false);
             setEditingSite(null);
           }}
-          onCreated={(key) => {
-            void refreshLocations(key);
+          onSaved={(model) => {
+            saveSite(model, editingSite);
             setManagingSites(false);
             setEditingSite(null);
           }}
         />
       )}
 
-      {error && <div className="panel error">{error}</div>}
+      {error && <div className="panel error" role="alert">{error}</div>}
 
       {/* First run. Nothing is preconfigured, so the dashboard asks where you
           are instead of assuming somewhere and quietly being wrong about the
           darkness, the horizon and half the target list. */}
-      {!error && locations.length === 0 && !pending.night && (
+      {!error && sitesReady && locations.length === 0 && (
         <section className="panel empty-state">
           <h2>Where are you observing?</h2>
           <button
@@ -688,13 +797,16 @@ export default function App() {
           >
             Add an observing site
           </button>
+          <p className="muted small">
+            Your sites and history are kept in this browser, not on a server.
+          </p>
         </section>
       )}
 
       {/* The dashboard's outline while the night loads, not a one-line
           "Loading…" -- that collapsed the page and then snapped a full
           screen of dashboard in underneath it on every site or date change. */}
-      {!error && pending.night && !night && locations.length > 0 && (
+      {!error && !night && (!sitesReady || (pending.night && locations.length > 0)) && (
         <DashboardSkeleton splitStyle={splitStyle} />
       )}
 
@@ -716,9 +828,10 @@ export default function App() {
             onSessionChange={setSession}
           />
 
+          <FinderSlotProvider value={finderSlots}>
           <div className="dashboard-row resizable" ref={rowRef} style={splitStyle}>
             <section className="panel chart-panel">
-              {finder ? (
+              {panelFinder ? (
                 // A finder open: the head becomes a pair of tabs, and the
                 // finder covers the altitude chart until it is closed.
                 <div className="panel-head left-tabs" role="tablist">
@@ -734,7 +847,7 @@ export default function App() {
                       {finder.label}
                     </button>
                     <button className="left-tab-close" onClick={closeFinder}
-                            aria-label="Close the finder chart">
+                            aria-label="Close the sky chart">
                       ×
                     </button>
                   </span>
@@ -749,15 +862,8 @@ export default function App() {
                   <span className="panel-head-end">{suggestButton}</span>
                 </div>
               )}
-              {finder && leftTab === "finder" ? (
-                <FinderChart
-                  subject={finder}
-                  location={locationKey}
-                  timeZone={location.timezone}
-                  nightStart={night.window.sunset}
-                  nightEnd={night.window.sunrise}
-                  onSelect={selectOnChart}
-                />
+              {panelFinder && leftTab === "finder" ? (
+                <FinderSlot kind="panel" />
               ) : altitude ? (
                 <AltitudeChart
                   data={altitude}
@@ -773,8 +879,7 @@ export default function App() {
               ) : (
                 <p className="muted">
                   Nothing charted. Add constellations from Deep Sky or the
-                  Moon and planets from Solar System, in the panel beside this
-                  one.
+                  Moon and planets from Solar System, with the + beside each.
                 </p>
               )}
             </section>
@@ -797,16 +902,38 @@ export default function App() {
                 popularOnly={popularOnly}
                 onPopularOnlyChange={setPopularOnly}
                 targetsPending={pending.targets}
+                finder={finder}
+                finderShown={finderShown}
+                chartInline={stacked}
                 onOpenFinder={openFinder}
+                onCloseFinder={closeFinder}
+                onFocus={followWithFinder}
                 reveal={reveal}
+                night={date}
+                siteKey={location.key}
+                siteName={location.name}
               />
             </div>
           </div>
+          </FinderSlotProvider>
 
-          <ObservationLog
-            date={date}
-            locationKey={locationKey}
-            timeZone={location.timezone}
+          {/* The one sky chart, placed by whichever slot above holds it. */}
+          {finder && createPortal(
+            <FinderChart
+              subject={finder}
+              site={siteArg}
+              timeZone={location.timezone}
+              nightStart={night.window.sunset}
+              nightEnd={night.window.sunrise}
+              onSelect={selectOnChart}
+            />,
+            finderHost,
+          )}
+
+          <History
+            tonight={resolveNightDate(location.timezone)}
+            onOpen={openFromHistory}
+            canOpen={canOpenFromHistory}
           />
         </main>
       )}
@@ -818,7 +945,8 @@ export default function App() {
         <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noreferrer">
           OpenStreetMap
         </a>{" "}
-        contributors. All times shown in the observing site's timezone.
+        contributors. All times shown in the observing site's timezone. Your
+        sites and history stay in this browser.
       </footer>
     </div>
   );

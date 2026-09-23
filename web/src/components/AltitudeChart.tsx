@@ -8,7 +8,7 @@
  * and a crosshair that reads every series at once.
  */
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
 import type { AltitudeResponse, ObservingWindow } from "../api";
 import { formatTime, zoneOffsetMinutes } from "../format";
 
@@ -161,6 +161,7 @@ export function AltitudeChart({
 }: Props) {
   const svgRef = useRef<SVGSVGElement>(null);
   const figureRef = useRef<HTMLElement>(null);
+  const clipId = `plot-${useId().replace(/:/g, "")}`;
   const layout = layoutFor(useWidth(figureRef));
   const { width: W, height: H, margin: M, plotWidth: PLOT_WIDTH, plotHeight: PLOT_HEIGHT } = layout;
   const [hoverX, setHoverX] = useState<number | null>(null);
@@ -438,17 +439,25 @@ export function AltitudeChart({
             </g>
           ))}
 
-          {paths
-            .filter((path) => !hidden.includes(path.label))
-            .map((path) => (
-              <path
-                key={path.label}
-                d={path.d}
-                className={`chart-line chart-line-${path.kind}${
-                  FAINT_BODIES.has(path.label.toLowerCase()) ? " chart-line-faint" : ""}`}
-                style={{ stroke: path.color }}
-              />
-            ))}
+          {/* Clipped to the plot: a curve that sets below -10 degrees
+              leaves through the bottom edge, rather than running on down
+              through the hour labels. */}
+          <clipPath id={clipId}>
+            <rect width={PLOT_WIDTH} height={PLOT_HEIGHT} />
+          </clipPath>
+          <g clipPath={`url(#${clipId})`}>
+            {paths
+              .filter((path) => !hidden.includes(path.label))
+              .map((path) => (
+                <path
+                  key={path.label}
+                  d={path.d}
+                  className={`chart-line chart-line-${path.kind}${
+                    FAINT_BODIES.has(path.label.toLowerCase()) ? " chart-line-faint" : ""}`}
+                  style={{ stroke: path.color }}
+                />
+              ))}
+          </g>
 
           {hoverX !== null && (
             <line x1={hoverX} x2={hoverX} y1={0} y2={PLOT_HEIGHT} className="chart-cursor" />

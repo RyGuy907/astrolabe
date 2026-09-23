@@ -6,8 +6,8 @@
 # are standing, and a plausible-looking default for somebody else's back garden
 # is worse than no answer at all.
 #
-# Add a site with the "Sites..." button in the web UI, which can place one from
-# a map, a place name, or raw coordinates. Or add one here by hand:
+# Add a site from the site menu in the web UI, which can place one from a map,
+# a place name, or raw coordinates. Or add one here by hand:
 #
 # default: home
 # locations:
@@ -31,8 +31,9 @@
 #     # not a survey of your site, and are labelled as such throughout.
 #     horizon: {preset: ridge, facing: 250}
 #
-# Sites you add through the UI are stored separately and are not written here,
-# so this file stays yours. Your own sites can also go in
+# Sites you add through the web UI are kept in your browser, never written
+# here, so this file stays yours; a browser imports the sites here on its first
+# visit. Your own sites can also go in
 # config/locations.local.yaml, which is gitignored -- worth doing, because an
 # observing site is often a home address to four decimal places.
 

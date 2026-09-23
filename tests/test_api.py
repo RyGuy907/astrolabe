@@ -60,7 +60,7 @@ def test_openapi_schema_is_generated(client):
     assert response.status_code == 200
     paths = response.json()["paths"]
     for path in ("/api/night", "/api/targets", "/api/planets", "/api/events",
-                 "/api/locations"):
+                 "/api/locations", "/api/sites/resolve"):
         assert path in paths, f"{path} missing from the OpenAPI schema"
 
 
@@ -310,31 +310,85 @@ def test_bad_date_is_422(client):
     assert response.status_code == 422
 
 
-def test_create_location_from_coordinates(client):
+def _site(**fields) -> str:
+    """A `site` parameter, as the browser sends one."""
+    return json.dumps({"key": "api_site", "name": "API Site",
+                       "lat": 36.6, "lon": -118.06, **fields})
+
+
+def test_resolve_site_from_coordinates(client):
     payload = {"key": "api_test_site", "name": "API Test Site",
                "lat": 36.6, "lon": -118.06, "elevation_m": 1130,
                "bortle": 2, "horizon": "ridge"}
-    response = client.post("/api/locations", json=payload)
-    assert response.status_code == 201
+    response = client.post("/api/sites/resolve", json=payload)
+    assert response.status_code == 200
 
     body = response.json()
     assert body["key"] == "api_test_site"
     assert body["timezone"] == "America/Los_Angeles"      # resolved, not supplied
     assert body["horizon_name"] == "ridge"
-    assert body["source"] == "stored"
+    assert body["horizon_spec"] == "ridge"
+    assert body["source"] == "browser"
 
-    assert client.delete("/api/locations/api_test_site").status_code == 204
+    # Checked, not kept: the browser stores its sites, the server nothing.
+    listed = {loc["key"] for loc in client.get("/api/locations").json()}
+    assert "api_test_site" not in listed
 
 
-def test_created_location_is_immediately_usable(client):
-    client.post("/api/locations", json={"key": "api_usable", "name": "Usable",
-                                        "lat": 36.6, "lon": -118.06})
-    try:
-        response = client.get("/api/night?location=api_usable&date=2026-09-15")
-        assert response.status_code == 200
-        assert response.json()["window"]["dark_hours"] > 0
-    finally:
-        client.delete("/api/locations/api_usable")
+@requires_ephemeris
+def test_a_site_sent_with_the_request_is_used(client):
+    response = client.get("/api/night", params={"site": _site(name="Usable"),
+                                                "date": "2026-09-15"})
+    assert response.status_code == 200
+    body = response.json()
+    assert body["window"]["dark_hours"] > 0
+    assert body["window"]["location"]["name"] == "Usable"
+    assert body["window"]["location"]["source"] == "browser"
+
+
+@requires_ephemeris
+def test_a_site_outranks_a_location_key(client):
+    """The browser's own copy of a site is the one that counts."""
+    body = client.get("/api/planets", params={
+        "location": "home", "site": _site(lat=-33.9, lon=151.2),
+        "date": "2026-09-15", "find_next": "false"}).json()
+    assert body["location"]["timezone"] == "Australia/Sydney"
+
+
+@pytest.mark.parametrize("site", ["not json", json.dumps({"name": "No coordinates"}),
+                                  json.dumps({"lat": 95, "lon": 0})])
+def test_an_unusable_site_is_422(client, site):
+    response = client.get("/api/night", params={"site": site, "date": "2026-09-15"})
+    assert response.status_code == 422
+
+
+@requires_ephemeris
+def test_every_per_site_endpoint_takes_a_site(client):
+    site = _site()
+    for path, extra in [("/api/night", {}), ("/api/planets", {"find_next": "false"}),
+                        ("/api/events", {"days": 7}), ("/api/altitude", {"bodies": "moon"}),
+                        ("/api/sky/frame", {"at": "2026-09-16T05:00:00Z"}),
+                        ("/api/targets", {"limit": 1})]:
+        response = client.get(path, params={"site": site, "date": "2026-09-15",
+                                            "from": "2026-09-15", **extra})
+        assert response.status_code == 200, path
+
+
+@requires_ephemeris
+def test_the_api_stores_nothing(client, monkeypatch, tmp_path):
+    """No database appears on a server that is only ever sent sites."""
+    import db.store
+
+    path = tmp_path / "planner.sqlite3"
+    monkeypatch.setattr(db.store, "database_path", lambda: path)
+    client.get("/api/locations")
+    client.post("/api/sites/resolve", json={"lat": 36.6, "lon": -118.06})
+    client.get("/api/night", params={"site": _site(), "date": "2026-09-15"})
+    assert not path.exists()
+
+    for method, url in [("post", "/api/locations"), ("delete", "/api/locations/home"),
+                        ("post", "/api/sessions"), ("get", "/api/log/prefill")]:
+        assert getattr(client, method)(url).status_code in (404, 405), url
 
 
 def test_skybrightness_coverage_reports_whether_an_atlas_is_configured(client):
@@ -440,27 +494,23 @@ def test_a_reading_carries_the_decimal_class(client, configured_map):
     assert round(body["bortle_decimal"]) == body["bortle"]
 
 
-def test_create_location_with_a_directional_horizon(client):
-    """The bearing has to survive the API and the store, not just the engine."""
+def test_resolve_a_directional_horizon(client):
+    """The bearing has to survive the API and the browser's copy, not just
+    the engine."""
     payload = {"key": "api_facing_site", "name": "Facing Site",
                "lat": 36.6, "lon": -118.06, "bortle": 3,
                "horizon": "ridge", "horizon_facing": 250}
-    response = client.post("/api/locations", json=payload)
-    assert response.status_code == 201
-
-    body = response.json()
+    body = client.post("/api/sites/resolve", json=payload).json()
     assert body["horizon_name"] == "ridge"
     assert body["horizon_facing"] == 250
     assert body["horizon_is_generic"] is True
 
-    try:
-        # and it is still there after a reload from SQLite
-        listed = next(loc for loc in client.get("/api/locations").json()
-                      if loc["key"] == "api_facing_site")
-        assert listed["horizon_facing"] == 250
-        assert listed["horizon_name"] == "ridge"
-    finally:
-        client.delete("/api/locations/api_facing_site")
+    # What the browser stores is `horizon_spec`, sent back as `horizon`.
+    again = client.post("/api/sites/resolve",
+                        json={**payload, "horizon": body["horizon_spec"],
+                              "horizon_facing": None}).json()
+    assert again["horizon_facing"] == 250
+    assert again["horizon_name"] == "ridge"
 
 
 def test_a_measured_horizon_round_trips_through_an_edit(client):
@@ -473,41 +523,33 @@ def test_a_measured_horizon_round_trips_through_an_edit(client):
     measured = {"0": 12.5, "90": 4.0, "180": 20.0, "270": 0.0}
     base = {"key": "api_measured_site", "name": "Measured",
             "lat": 36.6, "lon": -118.06, "bortle": 3}
-    try:
-        client.post("/api/locations",
-                    json={**base, "horizon": json.dumps(measured)})
-        listed = next(loc for loc in client.get("/api/locations").json()
-                      if loc["key"] == "api_measured_site")
-        assert listed["horizon_points"] == measured
-        assert listed["horizon_is_generic"] is False
+    listed = client.post("/api/sites/resolve",
+                         json={**base, "horizon": json.dumps(measured)}).json()
+    assert listed["horizon_points"] == measured
+    assert listed["horizon_is_generic"] is False
 
-        # An edit that renames the site and resends what it was given.
-        client.post("/api/locations",
-                    json={**base, "name": "Renamed",
-                          "horizon": json.dumps(listed["horizon_points"])})
-        edited = next(loc for loc in client.get("/api/locations").json()
-                      if loc["key"] == "api_measured_site")
-        assert edited["name"] == "Renamed"
-        assert edited["horizon_points"] == measured
-        assert edited["horizon_max_deg"] == 20.0
-    finally:
-        client.delete("/api/locations/api_measured_site")
+    # An edit that renames the site and resends what it was given.
+    edited = client.post("/api/sites/resolve",
+                         json={**base, "name": "Renamed",
+                               "horizon": json.dumps(listed["horizon_points"])}).json()
+    assert edited["name"] == "Renamed"
+    assert edited["horizon_points"] == measured
+    assert edited["horizon_max_deg"] == 20.0
+
+    # And the spec the browser stores is the same profile again.
+    spec = client.post("/api/sites/resolve",
+                       json={**base, "horizon": listed["horizon_spec"]}).json()
+    assert spec["horizon_points"] == measured
 
 
 @pytest.mark.parametrize("horizon", ["0", "10", "ridge"])
 def test_only_a_measured_horizon_reports_points(client, horizon):
     """A clear horizon, a uniform angle or a preset has nothing to resend --
     and a clear one reporting {0: 0} would read to the editor as a survey."""
-    key = f"api_unmeasured_{horizon}"
-    try:
-        client.post("/api/locations", json={
-            "key": key, "name": key, "lat": 36.6, "lon": -118.06,
-            "bortle": 3, "horizon": horizon})
-        listed = next(loc for loc in client.get("/api/locations").json()
-                      if loc["key"] == key)
-        assert listed["horizon_points"] is None
-    finally:
-        client.delete(f"/api/locations/{key}")
+    listed = client.post("/api/sites/resolve", json={
+        "key": "api_unmeasured", "name": "Unmeasured", "lat": 36.6,
+        "lon": -118.06, "bortle": 3, "horizon": horizon}).json()
+    assert listed["horizon_points"] is None
 
 
 def test_horizon_binds_says_whether_a_profile_can_change_anything(client):
@@ -518,27 +560,22 @@ def test_horizon_binds_says_whether_a_profile_can_change_anything(client):
     # home uses `hilly`, which tops out at 12 deg under a 25 deg floor
     assert home["horizon_binds"] is False
 
-    client.post("/api/locations", json={"key": "api_binding_site",
-                                        "name": "Binding", "lat": 36.6,
-                                        "lon": -118.06, "horizon": "ridge"})
-    try:
-        listed = next(loc for loc in client.get("/api/locations").json()
-                      if loc["key"] == "api_binding_site")
-        assert listed["horizon_binds"] is True
-    finally:
-        client.delete("/api/locations/api_binding_site")
+    listed = client.post("/api/sites/resolve", json={
+        "key": "api_binding_site", "name": "Binding", "lat": 36.6,
+        "lon": -118.06, "horizon": "ridge"}).json()
+    assert listed["horizon_binds"] is True
 
 
 def test_an_out_of_range_bearing_is_rejected(client):
-    response = client.post("/api/locations",
+    response = client.post("/api/sites/resolve",
                            json={"key": "api_bad_bearing", "name": "Bad",
                                  "lat": 36.6, "lon": -118.06,
                                  "horizon": "ridge", "horizon_facing": 400})
     assert response.status_code == 422
 
 
-def test_create_location_without_coordinates_or_query_is_422(client):
-    assert client.post("/api/locations", json={"name": "Nowhere"}).status_code == 422
+def test_resolve_without_coordinates_or_query_is_422(client):
+    assert client.post("/api/sites/resolve", json={"name": "Nowhere"}).status_code == 422
 
 
 def test_geocoding_offline_returns_empty_not_an_error(client):
@@ -548,150 +585,10 @@ def test_geocoding_offline_returns_empty_not_an_error(client):
     assert response.json() == []
 
 
-def test_create_by_query_while_offline_is_404_not_a_crash(client):
-    response = client.post("/api/locations", json={"query": "Lone Pine"})
+def test_resolve_by_query_while_offline_is_404_not_a_crash(client):
+    response = client.post("/api/sites/resolve", json={"query": "Lone Pine"})
     assert response.status_code == 404
     assert "unreachable" in response.json()["detail"]
-
-
-def test_yaml_locations_cannot_be_deleted(client):
-    """Config is the source of truth; the API must not silently shadow it."""
-    response = client.delete("/api/locations/home")
-    assert response.status_code == 409
-    assert "locations.yaml" in response.json()["detail"]
-
-
-def test_deleting_an_unknown_location_is_404(client):
-    assert client.delete("/api/locations/never_existed").status_code == 404
-
-
-# --- observation log (PLAN.md 5) --------------------------------------------
-
-@pytest.fixture
-def clean_log():
-    """Remove any sessions this test file creates, whatever the outcome."""
-    from db import observations
-
-    before = {s.id for s in observations.list_sessions(limit=500)}
-    yield
-    for session in observations.list_sessions(limit=500):
-        if session.id not in before:
-            observations.delete_session(session.id)
-
-
-@requires_ephemeris
-def test_log_prefill_offers_the_nights_targets(client):
-    """PLAN.md 5's key UX move, over HTTP."""
-    # Bortle 4 site, for the same reason as test_targets_still_rank_m31_first.
-    response = client.get(
-        "/api/log/prefill?date=2026-09-15&location=santa_monica_mtns&limit=4"
-    )
-    assert response.status_code == 200
-
-    body = response.json()
-    assert body["candidates"], "prefill should offer the recommended targets"
-    assert body["conditions"] is not None
-
-    names = [c["object_name"] for c in body["candidates"]]
-    assert any("M31" in name for name in names)
-    for candidate in body["candidates"]:
-        assert candidate["object_id"]
-        assert 0.0 <= candidate["score"] <= 100.0
-
-
-@requires_ephemeris
-def test_prefill_conditions_record_missing_weather(client):
-    body = client.get("/api/log/prefill?date=2026-09-15&location=home").json()
-    conditions = body["conditions"]
-    assert conditions["weather_available"] is False
-    assert conditions["is_gradeable"] is False
-
-
-@requires_ephemeris
-def test_full_log_round_trip(client, clean_log):
-    created = client.post("/api/sessions", json={
-        "date": "2026-09-15", "location": "home", "notes": "api round trip",
-    })
-    assert created.status_code == 201
-    session = created.json()
-    session_id = session["id"]
-    assert session["conditions"] is not None
-
-    added = client.post(f"/api/sessions/{session_id}/observations", json={
-        "object_id": "NGC0224", "object_name": "M31 (Andromeda Galaxy)",
-        "rating": 5,
-    })
-    assert added.status_code == 201
-
-    fetched = client.get(f"/api/sessions/{session_id}").json()
-    assert len(fetched["observations"]) == 1
-    assert fetched["observations"][0]["rating"] == 5
-
-    history = client.get("/api/objects/NGC0224/history").json()
-    assert history["times_observed"] >= 1
-
-    assert client.delete(f"/api/sessions/{session_id}").status_code == 204
-    assert client.get(f"/api/sessions/{session_id}").status_code == 404
-
-
-@requires_ephemeris
-def test_logging_marks_the_object_as_seen_in_later_prefills(client, clean_log):
-    """The loop closing: what you logged shows as already seen next time."""
-    session_id = client.post("/api/sessions", json={
-        "date": "2026-09-15", "location": "home",
-    }).json()["id"]
-
-    before = client.get("/api/log/prefill?date=2026-09-15&location=home").json()
-    target = before["candidates"][0]
-    assert target["already_logged"] is False
-
-    client.post(f"/api/sessions/{session_id}/observations", json={
-        "object_id": target["object_id"], "object_name": target["object_name"],
-    })
-
-    after = client.get("/api/log/prefill?date=2026-09-15&location=home").json()
-    match = next(c for c in after["candidates"]
-                 if c["object_id"] == target["object_id"])
-    assert match["already_logged"] is True
-
-
-def test_observation_on_a_missing_session_is_404(client):
-    response = client.post("/api/sessions/99999/observations",
-                           json={"object_name": "M31"})
-    assert response.status_code == 404
-
-
-def test_an_out_of_range_rating_is_rejected(client, clean_log):
-    session_id = client.post("/api/sessions", json={
-        "date": "2026-09-15", "location": "home", "snapshot_conditions": False,
-    }).json()["id"]
-
-    response = client.post(f"/api/sessions/{session_id}/observations",
-                           json={"object_name": "M31", "rating": 9})
-    assert response.status_code == 422
-
-
-def test_deleting_a_missing_session_is_404(client):
-    assert client.delete("/api/sessions/99999").status_code == 404
-
-
-def test_log_stats_endpoint(client):
-    body = client.get("/api/log/stats").json()
-    assert set(body) == {"sessions", "observations", "distinct_objects",
-                         "first_session", "last_session"}
-
-
-@requires_ephemeris
-def test_session_datetimes_are_utc(client, clean_log):
-    session_id = client.post("/api/sessions", json={
-        "date": "2026-09-15", "location": "home", "snapshot_conditions": False,
-    }).json()["id"]
-    client.post(f"/api/sessions/{session_id}/observations", json={
-        "object_name": "M31", "observed_at_utc": "2026-09-16T04:30:00+00:00",
-    })
-
-    observation = client.get(f"/api/sessions/{session_id}").json()["observations"][0]
-    assert _is_utc_iso(observation["observed_at_utc"])
 
 
 # ---------------------------------------------------------------------------
@@ -757,14 +654,11 @@ def test_a_measured_horizon_is_not_flagged_generic(client):
     payload = {"key": "api_measured_site", "name": "Measured Site",
                "lat": 39.09, "lon": -110.9, "bortle": 2,
                "horizon": '{"0": 24.0, "90": 0.0, "180": 22.5, "270": 18.1}'}
-    response = client.post("/api/locations", json=payload)
-    assert response.status_code == 201
-    try:
-        body = response.json()
-        assert body["horizon_is_generic"] is False
-        assert body["horizon_max_deg"] == pytest.approx(24.0, abs=0.1)
-    finally:
-        client.delete("/api/locations/api_measured_site")
+    response = client.post("/api/sites/resolve", json=payload)
+    assert response.status_code == 200
+    body = response.json()
+    assert body["horizon_is_generic"] is False
+    assert body["horizon_max_deg"] == pytest.approx(24.0, abs=0.1)
 
 
 @requires_ephemeris
@@ -793,28 +687,27 @@ def test_a_uniform_obstruction_angle_survives_the_api(client):
     outrank a measured horizon in every warning the UI prints."""
     payload = {"key": "api_angle_site", "name": "Angle Site",
                "lat": 39.09, "lon": -110.9, "bortle": 3, "horizon": "30"}
-    response = client.post("/api/locations", json=payload)
-    assert response.status_code == 201
-    try:
-        body = response.json()
-        assert body["horizon_is_generic"] is True
-        assert body["horizon_max_deg"] == pytest.approx(30.0)
-        # 30 deg clears the 25 deg altitude floor, so it actually constrains.
-        assert body["horizon_binds"] is True
+    response = client.post("/api/sites/resolve", json=payload)
+    assert response.status_code == 200
+    body = response.json()
+    assert body["horizon_is_generic"] is True
+    assert body["horizon_max_deg"] == pytest.approx(30.0)
+    # 30 deg clears the 25 deg altitude floor, so it actually constrains.
+    assert body["horizon_binds"] is True
 
-        reloaded = next(site for site in client.get("/api/locations").json()
-                        if site["key"] == "api_angle_site")
-        assert reloaded["horizon_max_deg"] == pytest.approx(30.0)
-        assert reloaded["horizon_is_generic"] is True
-    finally:
-        client.delete("/api/locations/api_angle_site")
+    # Sent back as the browser stores it, it is the same ring.
+    reloaded = client.get("/api/planets", params={
+        "site": _site(horizon=body["horizon_spec"]), "date": "2026-09-15",
+        "find_next": "false"}).json()["location"]
+    assert reloaded["horizon_max_deg"] == pytest.approx(30.0)
+    assert reloaded["horizon_is_generic"] is True
 
 
 def test_an_impossible_obstruction_angle_is_refused(client):
     """A 422 rather than a site whose horizon excludes the whole sky."""
     payload = {"key": "api_bad_angle", "name": "Bad Angle",
                "lat": 39.09, "lon": -110.9, "bortle": 3, "horizon": "120"}
-    assert client.post("/api/locations", json=payload).status_code == 422
+    assert client.post("/api/sites/resolve", json=payload).status_code == 422
 
 
 @requires_ephemeris
@@ -914,20 +807,16 @@ def test_the_site_horizon_alone_can_be_the_floor(client):
     """`min_altitude=0` is what the web UI sends: the site's own obstruction
     angle decides, rather than a universal 25 deg overriding what the
     observer measured."""
-    payload = {"key": "api_floor_site", "name": "Floor Site",
-               "lat": 34.0, "lon": -118.5, "bortle": 4, "horizon": "0"}
-    assert client.post("/api/locations", json=payload).status_code == 201
-    try:
-        open_sky = client.get(
-            "/api/targets?date=2026-09-15&location=api_floor_site"
-            "&min_altitude=0&limit=1000").json()
-        with_floor = client.get(
-            "/api/targets?date=2026-09-15&location=api_floor_site"
-            "&min_altitude=25&limit=1000").json()
-        # A clear horizon reaches lower than 25 deg, so it must admit more.
-        assert open_sky["total_passing"] > with_floor["total_passing"]
-    finally:
-        client.delete("/api/locations/api_floor_site")
+    site = _site(key="api_floor_site", name="Floor Site", lat=34.0, lon=-118.5,
+                 bortle=4, horizon="0")
+    open_sky = client.get("/api/targets", params={
+        "date": "2026-09-15", "site": site, "min_altitude": 0,
+        "limit": 1000}).json()
+    with_floor = client.get("/api/targets", params={
+        "date": "2026-09-15", "site": site, "min_altitude": 25,
+        "limit": 1000}).json()
+    # A clear horizon reaches lower than 25 deg, so it must admit more.
+    assert open_sky["total_passing"] > with_floor["total_passing"]
 
 
 @requires_ephemeris

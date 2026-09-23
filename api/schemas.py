@@ -73,8 +73,17 @@ class LocationModel(BaseModel):
                     "A profile below the floor is inert, which is worth "
                     "saying rather than leaving the user to infer.",
     )
+    horizon_spec: str | None = Field(
+        default=None,
+        description="The profile as one string -- a preset (`ridge@250`), an "
+                    "angle (`10`), or a measured map as JSON -- which is what "
+                    "the `horizon` field of a request takes back. The browser "
+                    "stores this with the site.",
+    )
     source: str = Field(default="config",
-                        description="config (YAML) or stored (added at runtime)")
+                        description='config (YAML), stored (a database from '
+                                    'an older version) or browser (sent with '
+                                    'the request)')
 
 
 class IntervalModel(BaseModel):
@@ -627,95 +636,3 @@ class GeocodeCandidate(BaseModel):
     lon: float
     elevation_m: float
     suggested_key: str
-
-
-# --- observation log (PLAN.md §5) -------------------------------------------
-
-class ObservationModel(BaseModel):
-    id: int | None = None
-    session_id: int | None = None
-    object_id: str | None = None
-    object_name: str
-    observed_at_utc: datetime | None = None
-    eyepiece: str | None = None
-    notes: str | None = None
-    rating: int | None = Field(default=None, ge=1, le=5)
-    sketch_path: str | None = None
-
-
-class SessionModel(BaseModel):
-    id: int | None = None
-    date: date
-    location_key: str
-    start_utc: datetime | None = None
-    end_utc: datetime | None = None
-    scope_key: str | None = None
-    conditions: dict | None = Field(
-        default=None,
-        description="Conditions frozen at session time. A forecast expires; "
-                    "this keeps the entry meaningful afterwards.",
-    )
-    seeing_actual: int | None = Field(default=None, ge=1, le=5)
-    transparency_actual: int | None = Field(default=None, ge=1, le=5)
-    notes: str | None = None
-    observations: list[ObservationModel] = Field(default_factory=list)
-
-
-class NewSessionRequest(BaseModel):
-    date: str | None = None
-    location: str | None = None
-    scope: str | None = None
-    notes: str | None = None
-    seeing_actual: int | None = Field(default=None, ge=1, le=5)
-    transparency_actual: int | None = Field(default=None, ge=1, le=5)
-    snapshot_conditions: bool = Field(
-        default=True,
-        description="Compute and freeze the night's conditions on the session.",
-    )
-
-
-class NewObservationRequest(BaseModel):
-    object_name: str
-    object_id: str | None = None
-    observed_at_utc: datetime | None = None
-    eyepiece: str | None = None
-    notes: str | None = None
-    rating: int | None = Field(default=None, ge=1, le=5)
-    sketch_path: str | None = None
-
-
-class LogCandidateModel(BaseModel):
-    """A target from the night's computed list, offered for one-click logging.
-
-    PLAN.md §5 calls this the key UX move: pre-populate the log from what was
-    actually recommended, rather than making the observer retype it.
-    """
-
-    object_id: str
-    object_name: str
-    group: str
-    score: float
-    peak_altitude_deg: float
-    already_logged: bool
-
-
-class LogPrefillResponse(BaseModel):
-    date: date
-    location_key: str
-    scope_key: str | None
-    candidates: list[LogCandidateModel]
-    conditions: dict | None
-
-
-class ObjectHistoryModel(BaseModel):
-    object_id: str
-    times_observed: int
-    entries: list[dict]
-
-
-class LogStatsModel(BaseModel):
-    sessions: int
-    observations: int
-    distinct_objects: int
-    first_session: str | None
-    last_session: str | None

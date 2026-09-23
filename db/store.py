@@ -75,7 +75,14 @@ def _row_to_location(row: sqlite3.Row) -> Location:
 
 
 def stored_locations(path: Path | None = None) -> dict[str, Location]:
-    """Locations added at runtime. Empty dict if the database is unusable."""
+    """Locations added at runtime. Empty dict if the database is unusable.
+
+    Reading never creates the database. The API calls this on every request
+    that names a configured site, and a server that stores nothing -- the
+    web UI keeps its sites in the browser -- should not grow a file for it.
+    """
+    if not (path or database_path()).exists():
+        return {}
     try:
         connection = connect(path)
     except sqlite3.DatabaseError:

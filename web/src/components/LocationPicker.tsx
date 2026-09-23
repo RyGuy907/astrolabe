@@ -9,7 +9,7 @@
  * in the toolbar.
  */
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { LocationModel } from "../api";
 
 interface Props {
@@ -19,8 +19,6 @@ interface Props {
   onAdd: () => void;
   onEdit: (key: string) => void;
   onDelete: (key: string) => void;
-  /** Set while a delete is in flight, to stop a second click. */
-  busy?: boolean;
 }
 
 /** How a site's sky reads on a row: three different degrees of knowing. */
@@ -36,14 +34,44 @@ function skyLabel(site: LocationModel): string {
 }
 
 export function LocationPicker({
-  locations, selected, onSelect, onAdd, onEdit, onDelete, busy,
+  locations, selected, onSelect, onAdd, onEdit, onDelete,
 }: Props) {
   const [open, setOpen] = useState(false);
   // Deleting a site is not undoable, so the row asks once. Held here rather
-  // than in the parent so closing the popover forgets it.
+  // than in the parent so closing the popover forgets it. Every site is this
+  // browser's own, so every one can be edited and deleted.
   const [confirming, setConfirming] = useState<string | null>(null);
   const wrapper = useRef<HTMLDivElement>(null);
   const trigger = useRef<HTMLButtonElement>(null);
+  const menu = useRef<HTMLDivElement>(null);
+
+  // Opened under the button, starting at its left edge -- and slid left as
+  // far as it must to stay on the screen. Where the button sits moves with
+  // the layout (the right of the header on a tablet, the left on a phone),
+  // and a menu anchored to one side for one layout ran off the page in the
+  // other.
+  useLayoutEffect(() => {
+    const list = menu.current;
+    const button = wrapper.current;
+    if (!open || !list || !button) return;
+    const place = () => {
+      const box = button.getBoundingClientRect();
+      const gutter = 12;
+      const room = document.documentElement.clientWidth - gutter;
+      const overhang = box.left + list.offsetWidth - room;
+      list.style.left = `${overhang > 0 ? Math.max(gutter - box.left, -overhang) : 0}px`;
+    };
+    place();
+    // Again if the header reflows while it is open -- the date arriving
+    // beside the button on a first load, or the window turning.
+    const observer = new ResizeObserver(place);
+    observer.observe(button);
+    window.addEventListener("resize", place);
+    return () => {
+      observer.disconnect();
+      window.removeEventListener("resize", place);
+    };
+  }, [open]);
 
   const current = locations.find((l) => l.key === selected);
 
@@ -87,12 +115,9 @@ export function LocationPicker({
       </button>
 
       {open && (
-        <div className="location-menu" role="listbox">
+        <div className="location-menu" role="listbox" ref={menu}>
           {locations.map((site) => {
             const isConfirming = confirming === site.key;
-            // YAML-defined sites are owned by a file the app must not edit
-            // behind the user's back.
-            const fromConfig = site.source === "config";
             return (
               <div
                 key={site.key}
@@ -118,7 +143,6 @@ export function LocationPicker({
                   <span className="location-confirm">
                     <button
                       className="danger"
-                      disabled={busy}
                       onClick={() => {
                         onDelete(site.key);
                         setConfirming(null);
@@ -137,11 +161,8 @@ export function LocationPicker({
                   <span className="location-row-actions">
                     <button
                       className="icon-button"
-                      title={fromConfig
-                        ? "Defined in config/locations.yaml"
-                        : `Edit ${site.name}`}
+                      title={`Edit ${site.name}`}
                       aria-label={`Edit ${site.name}`}
-                      disabled={fromConfig}
                       onClick={() => {
                         onEdit(site.key);
                         setOpen(false);
@@ -151,11 +172,8 @@ export function LocationPicker({
                     </button>
                     <button
                       className="icon-button"
-                      title={fromConfig
-                        ? "Defined in config/locations.yaml"
-                        : `Remove ${site.name}`}
+                      title={`Remove ${site.name}`}
                       aria-label={`Remove ${site.name}`}
-                      disabled={fromConfig || busy}
                       onClick={() => setConfirming(site.key)}
                     >
                       ✕

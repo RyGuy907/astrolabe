@@ -78,9 +78,11 @@ a SQLite cache next to the ephemeris. Both are local file reads.
 ## Layout
 
 ```
-api/        FastAPI adapter over the engine; computes no astronomy itself
-db/         SQLite: runtime locations, sessions, observations
-web/        React + TypeScript + Vite, desktop-first
+api/        FastAPI adapter over the engine; computes no astronomy and stores
+            nothing -- every request carries the site it is about
+db/         SQLite for the CLI: its sessions and observations, and sites saved
+            by older versions (the API only ever reads these)
+web/        React + TypeScript + Vite; sites and history live in the browser
 engine/     pure Python; no web imports, no I/O beyond local caches
   timeutil.py    tz-aware-UTC invariant, "tonight" resolution
   locations.py   locations.yaml -> Location, timezone from coordinates
@@ -120,7 +122,7 @@ tests/
 | Planets and apparitions | `planner planets` | `/api/planets` | Planets |
 | **Showers, eclipses, conjunctions** | `planner events` | `/api/events` | **Upcoming events** |
 | Altitude vs time | — | `/api/altitude` | Altitude chart |
-| Observation log | `planner log …` | `/api/sessions` | Observation log |
+| Observation log | `planner log …` | — | History (in the browser) |
 
 ## No eyepiece calculations
 
@@ -138,20 +140,29 @@ where the eyepiece suggestion used to be.
 The observation log still has an `eyepiece` field — a free-text record of what
 you actually used, not a calculation or a suggestion. Nothing pre-fills it.
 
-## Observation log
+## History (web) and the observation log (CLI)
 
+The web UI's **History** panel lists every target whose details or sky chart
+you opened, grouped by the night the dashboard was on, with a note field on
+each and a delete button, plus "Clear all history". Opening the same object
+twice on one night is one entry. It is kept in the browser's localStorage and
+never sent anywhere; the name of an entry opens that object in the lists
+again.
+
+The CLI keeps its own observation log in a local SQLite file.
 `planner log start` opens a session and freezes the night's conditions onto
 it. `planner log suggest` lists what to look at; `planner log add <id> M31
---rating 5` records it. The web panel does the same with one click per target.
+--rating 5` records it.
 
-Two things the log does deliberately:
+Two things the CLI log does deliberately:
 
 - **The snapshot records what was *not* known.** Alongside the scores it stores
   `weather_available` and `is_gradeable`, so an entry can never read as a
   confident verdict on a night that had no forecast.
 - **It feeds back into ranking.** Objects you have never logged get a small
   novelty bonus (PLAN.md §3.3.4). It is 3 points — enough to nudge, not enough
-  to put a faint smudge above a well-placed showpiece.
+  to put a faint smudge above a well-placed showpiece. The CLI applies it; the
+  API has no log to consult, so web scores carry no bonus.
 
 ## No site is configured for you
 
@@ -162,10 +173,30 @@ default belonging to somebody else produces a complete, confident and entirely
 wrong night. The CLI says so, and the web UI opens on a prompt to add a site
 rather than a dashboard for a place you have never been.
 
+## Where your sites and history are kept
+
+In the browser, not on the server. The API is stateless: each request carries
+the site it is about as a `site` parameter (the JSON of the add-site form --
+coordinates, elevation, Bortle class, horizon), and the server works out the
+timezone, the atlas reading and the horizon's peak afresh each time. The site
+list, the site last open, and the history are in `localStorage` under
+`astro:sites` and `astro:history`. Nothing needs a database to deploy, and one
+visitor's sites are never another's.
+
+On a browser's first visit, whatever sites the server itself knows about --
+`config/locations.local.yaml` on a self-hosted install, or sites an older
+version saved to its SQLite store -- are imported once, so upgrading loses
+nothing. `POST /api/sites/resolve` checks a site without storing it; the old
+`POST`/`DELETE /api/locations` and the `/api/sessions` routes are gone.
+
+Clearing the browser's site data clears both. The `location=` parameter still
+works for sites in `config/locations.yaml`, which is what the CLI and the tests
+use.
+
 ## Adding an observing site
 
-The web UI's **Sites…** dialog offers three ways in, because no single one
-covers real observing sites:
+The web UI's site menu offers three ways in, because no single one covers real
+observing sites:
 
 - **Pick on map** — click a point. Most dark-sky sites have no name a
   gazetteer would know: during testing, `Lone Pine, Calif` returned zero
@@ -582,6 +613,27 @@ Only one common name is on display — M17 is labelled the Checkmark Nebula —
 but the catalogue often carries several, and the ones it does not show are
 the ones people type. Every alias is sent to the browser and searched, so
 "swan nebula" and "omega nebula" both find M17 and it keeps the label it had.
+
+## The sky chart and the lists
+
+One target is open at a time. Opening a target — its details, or its sky chart
+with the crosshair button — closes whatever target and constellation were open
+before, and files it in the History.
+
+On a wide screen the sky chart sits beside the lists. Below 1180 px, where the
+dashboard stacks into one column, it sits in the list itself, directly above
+its target's row, with the row's details below: chart, row and details are one
+block, so nothing has to be scrolled between. Once a chart is open it follows
+the open target — opening another row's details moves it there — and clicking
+an object on the chart opens that object's row and details and moves the whole
+block to it, keeping the chart where it was on screen. The chart is one
+component moved between places (`web/src/components/FinderSlot.tsx`), so its
+zoom, time and orientation survive the move.
+
+In that one-column layout the constellation list also folds to its first eight
+— the best placed tonight — with a button for the rest, so the History is not
+88 constellations further down. An open constellation always shows, wherever
+it sorts.
 
 ## Popular targets
 
