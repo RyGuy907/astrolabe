@@ -16,9 +16,10 @@ from zoneinfo import ZoneInfo
 
 UTC = timezone.utc
 
-# Local clock hour that splits "the night ahead" from "the night in progress".
-# PLAN.md 3.1: before local noon you are mid-session, planning nothing new.
-NIGHT_ROLLOVER_HOUR = 12
+# Local clock hour that splits "the night in progress" from "the night ahead".
+# PLAN.md 3.1: in the small hours you are mid-session; once the night is over
+# (by 06:00 dawn has ended any serious observing) you are planning tonight.
+NIGHT_ROLLOVER_HOUR = 6
 
 
 class NaiveDatetimeError(ValueError):
@@ -82,7 +83,7 @@ def local_midnight_utc(day: date, tz: str | ZoneInfo) -> datetime:
 def resolve_night_date(now: datetime, tz: str | ZoneInfo) -> date:
     """Which night is "tonight", per PLAN.md 3.1.
 
-    Before local noon, the night in progress started yesterday. From local noon
+    Before 06:00 local, the night in progress started yesterday. From 06:00
     onward, tonight is the upcoming night of today.
 
     `now` must be tz-aware; it is interpreted in `tz` after conversion.

@@ -71,10 +71,13 @@ export function siteToday(timeZone: string): string {
   }).format(new Date());
 }
 
+/** Local hour at which "tonight" rolls over; mirrors `NIGHT_ROLLOVER_HOUR`. */
+const NIGHT_ROLLOVER_HOUR = 6;
+
 /**
  * Which night is "tonight" at this site (PLAN.md §3.1).
  *
- * Before local noon you are mid-session, so the night in progress is the one
+ * Before 06:00 local you are mid-session, so the night in progress is the one
  * that began yesterday. This mirrors `engine.timeutil.resolve_night_date`; the
  * two must agree or the UI and CLI would disagree about what "tonight" means.
  */
@@ -87,7 +90,7 @@ export function resolveNightDate(timeZone: string): string {
     }).format(new Date()),
   );
   const today = siteToday(timeZone);
-  if (hour >= 12) return today;
+  if (hour >= NIGHT_ROLLOVER_HOUR) return today;
 
   const [year, month, day] = today.split("-").map(Number);
   const yesterday = new Date(Date.UTC(year, month - 1, day - 1));

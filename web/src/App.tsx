@@ -760,6 +760,18 @@ export default function App() {
                 button's aria-label keeps its name either way. */}
             <span className="night-vision-label" aria-hidden="true">Night vision</span>
           </button>
+
+          {/* Floats under the switch, over the top of the score band. */}
+          {night && location && (
+            <EventAlert
+              events={events}
+              fromDate={date}
+              timeZone={location.timezone}
+              onOpenEvents={() =>
+                skyPanelRef.current?.scrollIntoView({ behavior: "smooth", block: "center" })
+              }
+            />
+          )}
         </div>
 
       </header>
@@ -812,15 +824,6 @@ export default function App() {
 
       {night && location && (
         <main id="main" tabIndex={-1}>
-          <EventAlert
-            events={events}
-            fromDate={date}
-            timeZone={location.timezone}
-            onOpenEvents={() =>
-              skyPanelRef.current?.scrollIntoView({ behavior: "smooth", block: "center" })
-            }
-          />
-
           <ScorePanel
             score={night.score}
             window={night.window}

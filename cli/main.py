@@ -144,7 +144,7 @@ def _print_night(window: NightWindow, tz: str, defaulted: bool) -> None:
 def night(
     date_str: str = typer.Option(
         None, "--date", "-d", metavar="YYYY-MM-DD",
-        help="Night to plan. Defaults to tonight (before local noon means the night in progress).",
+        help="Night to plan. Defaults to tonight (before 06:00 local means the night in progress).",
     ),
     location_key: str = typer.Option(
         None, "--location", "-l",

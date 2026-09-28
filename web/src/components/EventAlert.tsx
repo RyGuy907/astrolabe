@@ -1,10 +1,11 @@
 /**
- * Top-of-page alert for anything happening in the next seven days.
+ * Floating alert for anything happening in the next seven days.
  *
  * These are the things you can miss by not looking: a shower peaks on one
  * night, an eclipse happens once. Everything else on this dashboard is about
  * tonight and will still be there tomorrow, so this is the one thing that
- * earns a position above the fold.
+ * earns a place above the fold -- as a small card pinned to the top right,
+ * not a banner that pushes the night's score down the page.
  *
  * Renders nothing when there is nothing imminent — an always-present empty
  * banner would train you to ignore it.
@@ -12,7 +13,7 @@
 
 import { useEffect, useState } from "react";
 import type { EventsResponse } from "../api";
-import { formatDate, titleCase } from "../format";
+import { titleCase } from "../format";
 
 const ALERT_DAYS = 7;
 
@@ -27,6 +28,18 @@ function daysUntil(iso: string, from: string): number {
   const target = new Date(`${iso.slice(0, 10)}T12:00:00Z`).getTime();
   const start = new Date(`${from.slice(0, 10)}T12:00:00Z`).getTime();
   return Math.round((target - start) / 86_400_000);
+}
+
+/** "Mon 5 Oct": everything here is within the week, so the year is noise
+ *  and the weekday is the useful part. Same parsing rule as `formatDate`. */
+function shortDate(iso: string, timeZone: string): string {
+  const date = iso.length === 10 ? new Date(`${iso}T12:00:00Z`) : new Date(iso);
+  return new Intl.DateTimeFormat("en-GB", {
+    timeZone,
+    weekday: "short",
+    month: "short",
+    day: "numeric",
+  }).format(date);
 }
 
 function when(days: number): string {
@@ -107,17 +120,22 @@ export function EventAlert({ events, fromDate, timeZone, onOpenEvents }: {
 
   return (
     <div className="event-alert" role="status">
-      <div className="event-alert-label">
-        <span className="event-alert-icon" aria-hidden="true">
-          ★
-        </span>
-        Next {ALERT_DAYS} days
+      <div className="event-alert-head">
+        <span className="event-alert-label">Next {ALERT_DAYS} days</span>
+        <button
+          className="event-alert-close"
+          onClick={() => setDismissed(signature)}
+          title="Dismiss until these events change"
+          aria-label="Dismiss this alert"
+        >
+          ×
+        </button>
       </div>
       <ul>
         {items.map((item) => (
           <li key={item.key} className={item.urgent ? "urgent" : undefined}>
             <span className="event-alert-date">
-              {formatDate(item.date, timeZone)}
+              {shortDate(item.date, timeZone)}
             </span>
             {item.text}
           </li>
@@ -125,14 +143,6 @@ export function EventAlert({ events, fromDate, timeZone, onOpenEvents }: {
       </ul>
       <button className="link-button" onClick={onOpenEvents}>
         All events
-      </button>
-      <button
-        className="event-alert-close"
-        onClick={() => setDismissed(signature)}
-        title="Dismiss until these events change"
-        aria-label="Dismiss this alert"
-      >
-        ×
       </button>
     </div>
   );

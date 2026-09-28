@@ -63,7 +63,7 @@ Supplement with:
 ## 3. Core computations
 
 ### 3.1 Night window
-Define **the night of date D** as sunset(D) → sunrise(D+1). Resolve "tonight" as: if local time is before 12:00, D = today; if after midnight but before noon, D = yesterday (you're mid-session, not planning the next one).
+Define **the night of date D** as sunset(D) → sunrise(D+1). Resolve "tonight" as: if local time is 06:00 or later, D = today; if after midnight but before 06:00, D = yesterday (you're mid-session, not planning the next one).
 
 Compute and expose all of:
 - Sunset / sunrise

@@ -67,7 +67,7 @@ npm --prefix web run dev
 ```
 
 `--date` defaults to tonight and `--location` to the configured default.
-"Tonight" follows PLAN.md §3.1: before local noon you are mid-session, so the
+"Tonight" follows PLAN.md §3.1: before 06:00 local you are mid-session, so the
 night in progress is the one that began yesterday.
 
 Also available: `planner locations`.

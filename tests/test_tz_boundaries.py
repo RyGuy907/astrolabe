@@ -140,16 +140,18 @@ def test_altaz_series_rejects_reversed_span(home):
 @pytest.mark.parametrize(
     "local_clock, expected",
     [
-        # After local noon: tonight is the night of today.
+        # From 06:00 local: tonight is the night of today.
+        (datetime(2026, 9, 15, 9, 0, tzinfo=PDT), date(2026, 9, 15)),
         (datetime(2026, 9, 15, 12, 1, tzinfo=PDT), date(2026, 9, 15)),
         (datetime(2026, 9, 15, 21, 0, tzinfo=PDT), date(2026, 9, 15)),
         (datetime(2026, 9, 15, 23, 59, tzinfo=PDT), date(2026, 9, 15)),
-        # After midnight but before noon: still the night that began yesterday.
+        # After midnight but before 06:00: still the night that began yesterday.
         (datetime(2026, 9, 16, 0, 1, tzinfo=PDT), date(2026, 9, 15)),
         (datetime(2026, 9, 16, 2, 0, tzinfo=PDT), date(2026, 9, 15)),
-        (datetime(2026, 9, 16, 11, 59, tzinfo=PDT), date(2026, 9, 15)),
-        # Noon exactly rolls over to the upcoming night.
-        (datetime(2026, 9, 16, 12, 0, tzinfo=PDT), date(2026, 9, 16)),
+        (datetime(2026, 9, 16, 5, 59, tzinfo=PDT), date(2026, 9, 15)),
+        # 06:00 exactly rolls over to the upcoming night.
+        (datetime(2026, 9, 16, 6, 0, tzinfo=PDT), date(2026, 9, 16)),
+        (datetime(2026, 9, 16, 11, 59, tzinfo=PDT), date(2026, 9, 16)),
     ],
 )
 def test_resolve_night_date(local_clock, expected):
@@ -171,7 +173,7 @@ def test_resolve_night_date_uses_target_zone_not_input_zone():
 
 
 def test_resolve_night_date_across_dst_fall_back():
-    """US DST ends 2026-11-01. 01:30 local is ambiguous but still pre-noon."""
+    """US DST ends 2026-11-01. 01:30 local is ambiguous but still pre-rollover."""
     assert resolve_night_date(
         datetime(2026, 11, 1, 1, 30, tzinfo=PDT), "America/Los_Angeles"
     ) == date(2026, 10, 31)
