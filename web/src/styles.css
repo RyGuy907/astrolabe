@@ -270,8 +270,11 @@ button.secondary:not(:disabled):hover { border-color: var(--accent); }
   border-radius: 4px;
 }
 .event-alert-close:hover { color: var(--text); background: rgba(255,255,255,0.07); }
-/* On a phone there is no spare corner to float in; it sits in the flow. */
+/* On a phone there is no spare corner to float in; it sits in the flow. The
+   controls stop being a positioning box too, or they would capture the
+   night-vision switch, which is pinned to the header's corner there. */
 @media (max-width: 600px) {
+  .controls { position: static; }
   .event-alert { position: static; width: auto; flex: 1 1 100%; }
 }
 

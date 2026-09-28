@@ -54,7 +54,12 @@ function Dial({ label, score, grade, mean, gradeable }: {
 }) {
   const radius = 46;
   const circumference = 2 * Math.PI * radius;
-  const offset = circumference * (1 - (gradeable ? score : 0) / 100);
+  // A score of 0 would draw a zero-length arc, which looks like the dial
+  // failed to load rather than a real (terrible) score. A sliver of red at
+  // the top says "this is a score, and it is zero".
+  const MIN_ARC = 3;
+  const shown = gradeable ? Math.max(score, MIN_ARC) : 0;
+  const offset = circumference * (1 - shown / 100);
 
   return (
     <div className="dial">
