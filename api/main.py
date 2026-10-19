@@ -46,7 +46,8 @@ from engine.constellations import (assess_constellations, centroid, centroids,
 from engine.horizon import build as build_horizon, serialise as serialise_horizon
 from engine.locations import Location, LocationError, atlas_sqm_for
 from engine.planets import ALL_PLANETS, report_all, report_moon
-from engine.scoring import score_night, verdict
+from engine.outlook import DEFAULT_NIGHTS, MAX_NIGHTS, week_outlook
+from engine.scoring import limiting_factor, score_night, verdict
 from engine.session import dark_overlap_hours, resolve_session
 from engine.reference import MOON_FACTS, deep_sky_facts, planet_facts
 from engine.showpieces import showpiece_ids
@@ -94,6 +95,8 @@ from .schemas import (
     SlotModel,
     TargetModel,
     TargetsResponse,
+    WeekNightModel,
+    WeekResponse,
 )
 
 def _warm_caches() -> None:
@@ -166,7 +169,11 @@ app.add_middleware(
 # requests, and zooming the site map a few dozen tiles.
 
 #: Endpoints that can make a request to another service on a cache miss.
-_REACHES_OUT = frozenset({"/api/night", "/api/geocode", "/api/elevation", "/api/sites/resolve"})
+#: /api/sites/resolve is not one of them by path: it only reaches out when it
+#: has a name to geocode, and the page resolves every saved site, coordinates
+#: and all, on each load. It charges the limit itself when it geocodes.
+_REACHES_OUT = frozenset({"/api/night", "/api/week", "/api/geocode",
+                          "/api/elevation"})
 _EVERY_REQUEST = SlidingWindow(limit=300)
 _REACHING_OUT = SlidingWindow(limit=40)
 
@@ -203,6 +210,19 @@ async def per_visitor_limit(request: Request, call_next):
                                    f"Try again in {seconds} s."},
             )
     return await call_next(request)
+
+
+def _charge_reaching_out(request: Request) -> None:
+    """Count one outbound-capable call against this visitor, for an endpoint
+    that only sometimes reaches out; 429 if they are over the limit."""
+    wait = _REACHING_OUT.hit(_visitor(request))
+    if wait is not None:
+        seconds = math.ceil(wait)
+        raise HTTPException(
+            status_code=429,
+            headers={"Retry-After": str(seconds)},
+            detail=f"Too many requests from your address. Try again in {seconds} s.",
+        )
 
 
 def reset_limits() -> None:
@@ -461,14 +481,8 @@ def get_night(date_: str | None = Query(None, alias="date"),
     score = score_night(window, forecast, session=session)
 
     peak = max(score.slots, key=lambda s: s.deep_sky) if score.slots else None
-    # Over the night, not at the peak. The peak slot is the least cloudy one
-    # by construction, so reading the limiting factor off it meant cloud could
-    # never be blamed on a night that clouds over halfway through -- which is
-    # the commonest way a night goes wrong.
-    limiting = None
-    if score.slots:
-        name, value = score.mean_factors_deep_sky.weakest()
-        limiting = name if value < 0.99 else None
+    # Over the night, not at the peak; see `engine.scoring.limiting_factor`.
+    limiting = limiting_factor(score)
 
     def _factors(breakdown) -> FactorsModel:
         return FactorsModel(clear=breakdown.clear,
@@ -530,6 +544,8 @@ def get_night(date_: str | None = Query(None, alias="date"),
             weather_available=score.weather_available,
             weather_note=score.weather_note,
             weather_sources=list(forecast.sources),
+            weather_stale_since=forecast.stale_since,
+            weather_stale_reason=forecast.stale_reason,
             seeing_estimated=score.seeing_estimated,
             dew_warning=score.dew_warning,
             verdict=verdict(score, window),
@@ -543,6 +559,62 @@ def get_night(date_: str | None = Query(None, alias="date"),
             limiting_factor=limiting,
             slots=slots,
         ),
+    )
+
+
+@app.get("/api/week", response_model=WeekResponse, tags=["night"])
+def get_week(date_: str | None = Query(
+                 None, alias="date",
+                 description="The first night. Defaults to tonight."),
+             location: str | None = None,
+             site_spec: str | None = _site_query(),
+             nights: int = Query(DEFAULT_NIGHTS, ge=1, le=MAX_NIGHTS),
+             ) -> WeekResponse:
+    """Several nights side by side, each scored over its default session.
+
+    The figures for any one night are what `/api/night` gives for it with no
+    session chosen -- see `engine/outlook.py`. One forecast is fetched and
+    shared, so a week costs the same outbound request as a single night, and
+    usually none at all: the night's own request has just cached it.
+    """
+    site = _resolve_location(location, site_spec)
+    first = _resolve_date(date_, site)
+    # A run starting near the far end of the ephemeris stops at its edge
+    # rather than failing on the nights past it.
+    last = supported_dates()[1]
+    nights = max(1, min(nights, (last - first).days + 1))
+
+    forecast = get_forecast(site)
+    outlook = week_outlook(site, first, forecast, nights)
+    return WeekResponse(
+        location=_location_model(site, "browser" if site_spec else None),
+        first_date=first,
+        weather_sources=list(forecast.sources),
+        nights=[
+            WeekNightModel(
+                date=n.date,
+                session=_interval(n.session) if n.session else None,
+                deep_sky_peak=n.deep_sky_peak,
+                deep_sky_mean=n.deep_sky_mean,
+                planetary_peak=n.planetary_peak,
+                planetary_mean=n.planetary_mean,
+                best_window=_interval(n.best_window) if n.best_window else None,
+                best_window_score=n.best_window_score,
+                deep_sky_grade=n.deep_sky_grade,
+                planetary_grade=n.planetary_grade,
+                is_gradeable=n.is_gradeable,
+                weather_available=n.weather_available,
+                weather_note=n.weather_note,
+                seeing_estimated=n.seeing_estimated,
+                limiting_factor=n.limiting_factor,
+                cloud_mean_pct=n.cloud_mean_pct,
+                temperature_low_c=n.temperature_low_c,
+                moon_illumination=n.moon_illumination,
+                moon_waxing=n.moon_waxing,
+                dark_hours=n.dark_hours,
+            )
+            for n in outlook
+        ],
     )
 
 
@@ -1015,7 +1087,7 @@ def elevation(lat: float = Query(..., ge=-90.0, le=90.0),
 
 
 @app.post("/api/sites/resolve", response_model=LocationModel, tags=["locations"])
-def resolve_site(request: NewLocationRequest) -> LocationModel:
+def resolve_site(request: NewLocationRequest, http: Request) -> LocationModel:
     """Check a site and fill in what follows from its coordinates -- the
     timezone, the atlas's sky brightness, the horizon's peak -- without
     storing anything.
@@ -1025,6 +1097,8 @@ def resolve_site(request: NewLocationRequest) -> LocationModel:
     asking about any night. Either explicit coordinates or a place name to
     geocode.
     """
+    if request.lat is None or request.lon is None:
+        _charge_reaching_out(http)
     return _location_model(_build_location(request), "browser")
 
 
@@ -1094,10 +1168,16 @@ def skybrightness_at(lat: float = Query(..., ge=-90.0, le=90.0),
     recall one. Outside coverage the answer is null, which the form treats as
     "you will have to tell me" rather than quietly assuming a suburban sky.
     """
-    from engine.skybrightness import (bortle_decimal_from_sqm, bortle_from_sqm,
+    from engine.skybrightness import (SkyBrightnessUnavailable,
+                                      bortle_decimal_from_sqm, bortle_from_sqm,
                                       source_label, sqm_at)
 
-    sqm = sqm_at(lat, lon)
+    try:
+        sqm = sqm_at(lat, lon)
+    except SkyBrightnessUnavailable:
+        # A raster is configured but cannot be read (missing file, no
+        # rasterio). Same answer as outside coverage: the form asks instead.
+        sqm = None
     return SkyBrightnessReading(
         sqm=sqm,
         bortle=None if sqm is None else bortle_from_sqm(sqm),

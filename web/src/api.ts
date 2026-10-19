@@ -211,6 +211,9 @@ export interface ScoreModel {
   weather_available: boolean;
   weather_note: string | null;
   weather_sources: string[];
+  /** ISO time an older forecast was fetched, when a refresh failed. */
+  weather_stale_since: string | null;
+  weather_stale_reason: string | null;
   seeing_estimated: boolean;
   dew_warning: boolean;
   verdict: string;
@@ -228,6 +231,40 @@ export interface NightResponse {
   session: ObservingWindow | null;
   window: NightWindowModel;
   score: ScoreModel;
+}
+
+/** One night of the week ahead, scored over its default session exactly as
+ *  its own dashboard scores it -- see `engine/outlook.py`. */
+export interface WeekNightModel {
+  date: string;
+  session: IntervalModel | null;
+  deep_sky_peak: number;
+  deep_sky_mean: number;
+  planetary_peak: number;
+  planetary_mean: number;
+  best_window: IntervalModel | null;
+  best_window_score: number;
+  deep_sky_grade: string;
+  planetary_grade: string;
+  /** False when the forecast does not reach the night. */
+  is_gradeable: boolean;
+  weather_available: boolean;
+  weather_note: string | null;
+  /** Past 7Timer's 72 hours: seeing and transparency are estimated. */
+  seeing_estimated: boolean;
+  limiting_factor: string | null;
+  cloud_mean_pct: number | null;
+  temperature_low_c: number | null;
+  moon_illumination: number;
+  moon_waxing: boolean;
+  dark_hours: number;
+}
+
+export interface WeekResponse {
+  location: LocationModel;
+  first_date: string;
+  nights: WeekNightModel[];
+  weather_sources: string[];
 }
 
 export interface TargetModel {
@@ -615,6 +652,11 @@ export const api = {
                              session_start: session?.[0],
                              session_end: session?.[1] })}`,
     ),
+
+  /** Several nights side by side from `date` (tonight when omitted), each
+   *  over its default session. One forecast serves them all. */
+  week: (site: string, date?: string, nights = 7) =>
+    get<WeekResponse>(`/api/week${query({ site, date, nights })}`),
 
   planets: (date: string, site: string, findNext = false,
             minAltitude = 0) =>

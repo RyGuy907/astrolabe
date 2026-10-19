@@ -91,7 +91,7 @@ services it calls are protected at two layers (`engine/ratelimit.py`):
 | 7Timer | 10 a minute, 300 a day |
 | A service answering 429 or 503 | left alone for its Retry-After (1-60 min; 10 by default) |
 | Three failures in a row | left alone for 5 minutes |
-| One visitor (IPv6 by /64) | 300 API requests a minute; 40 to the four that can reach out -- `/api/night`, `/api/geocode`, `/api/elevation`, `/api/sites/resolve` |
+| One visitor (IPv6 by /64) | 300 API requests a minute; 40 to the five that can reach out -- `/api/night`, `/api/week`, `/api/geocode`, `/api/elevation`, `/api/sites/resolve` |
 
 Over a service's budget the app behaves as it does offline, and says why:
 the forecast reads "today's Open-Meteo request budget is spent", not
@@ -119,11 +119,9 @@ engine/     pure Python; no web imports, no I/O beyond local caches
   planets.py     apparitions, oppositions, elongations, next visibility
   events.py      meteor showers, lunar eclipses, conjunctions
   scoring.py     dual deep-sky/planetary condition scores
+  outlook.py     the week ahead: several nights scored side by side
   weather.py     Open-Meteo + 7Timer (networked; degrades to unavailable)
   geocode.py     place name -> coordinates (networked; degrades to empty)
-  events.py      showers and eclipses are local; comet elements come from the
-                 MPC through Skyfield's loader (networked; degrades to
-                 "MPC unavailable"). No astronomy depends on it.
   horizon.py     obstruction horizon profiles
   session.py     the hours you plan to be outside, and the default (dusk-01:00)
   showpieces.py  the curated "popular targets" list, and why each entry is on
@@ -145,6 +143,7 @@ tests/
 |---|---|---|---|
 | Night window, twilights, moon | `planner night` | `/api/night` | The night |
 | Condition scores + breakdown | `planner tonight` | `/api/night` | Score panel |
+| The next seven nights | — | `/api/week` | Next 7 nights, in the score panel |
 | Deep-sky targets | `planner targets` | `/api/targets` | Targets |
 | Planets and apparitions | `planner planets` | `/api/planets` | Planets |
 | **Showers, eclipses, conjunctions** | `planner events` | `/api/events` | **Upcoming events** |
@@ -287,7 +286,10 @@ atlas's light-propagation model and running it on newer satellite data:
    1.5 km). The molecules thin from sea level; the haze from the surrounding
    valley floor, since it is the air a town sits in wherever that is. That is linear in the per-ring weights, so they come from a
    non-negative least-squares fit of the 2014 lights to the atlas. The
-   convolutions run by FFT on an equal-area plane.
+   convolutions run by FFT on an equal-area plane. In the committed kernel
+   (`scripts/skyglow_kernel.json`) that fit gives the haze layer no weight at
+   any distance, so the glow is carried by the molecular layer alone, and the
+   valley-floor height only matters again if a refit gives haze some weight.
 3. **apply** runs the latest year's lights through the fitted kernel and
    writes `data/skyglow/skybrightness_us.tif` (~27 MB).
 4. **tiles** draws that map once as web-map tiles (zooms 3-7, ~3 MB), which
@@ -308,7 +310,7 @@ streets have gone LED (Kyba et al. 2023, *Science*, found skies brightening
 several times faster to observers on the ground than to the satellite). The
 factor is fitted to 519 Globe at Night sky-meter readings from 2024-25, and it
 errs toward a brighter sky than the atlas, which is the safe side for planning
-a drive. Together with the valley-floor haze, it puts Salt Lake City at SQM
+a drive. With it, the map puts Salt Lake City at SQM
 17.4 (Bortle 9), Provo at 18.2 (8) and a Kansas farm at 20.6 (4), and the
 high-elevation cities within about 0.15 of Lorenz's independent model.
 
@@ -526,9 +528,9 @@ reported a clear factor of 0.97 next to an hourly row reading 100%, and the
 verdict blamed whatever came second, because cloud could never be the weakest
 factor of the clearest slot. The verdict, the limiting factor and the left-hand
 factor column are now the night's averages; the right-hand column is still the
-best slot, labelled as such. When the best window covers less than 60% of the
-dark time the verdict says how long it is, because "Workable" describing a
-single clear hour is true and useless.
+best slot, labelled as such. When the night's average score is under 70% of
+the best window's, the verdict says how long that window is, because
+"Workable" describing a single clear hour is true and useless.
 
 **Large bright objects are judged on their cores.** The contrast test compares
 the sky to an object's *mean* surface brightness over its full catalogued
@@ -836,8 +838,9 @@ wants a vendored NASA Five Millennium Canon slice; writing eclipse dates from
 memory would be the exact failure §7 warns about. `planner events` prints
 "not implemented" instead of an empty list that reads as "none".
 
-**Incomplete:** comet magnitude filtering needs per-comet orbit propagation
-from the MPC elements, which is not done.
+**Removed:** comets. They were once counted from the MPC's orbital elements,
+but never shown; a real feature needs each orbit propagated for a predicted
+magnitude (see `engine/events.py`).
 
 ## Tests
 

@@ -27,6 +27,7 @@ import {
   type NightResponse,
   type PlanetsResponse,
   type TargetsResponse,
+  type WeekNightModel,
 } from "./api";
 import { AltitudeChart } from "./components/AltitudeChart";
 import { DashboardSkeleton } from "./components/DashboardSkeleton";
@@ -462,6 +463,41 @@ export default function App() {
     };
   }, [date, siteArg, session]);
 
+  // --- the week ahead, from tonight ---
+  // Anchored to tonight, not to the night on screen: it answers "which night
+  // this week?", and opening Thursday from it should not slide the week
+  // along under the cursor. Once per site, and only after the night itself
+  // has answered: one forecast serves all seven nights, and asking for both
+  // at once made each miss the cache and fetch it separately.
+  // Kept with the site it is for, so a site change never shows the last
+  // site's week under the new one's name while the new one loads.
+  const [week, setWeek] = useState<{ site: string; nights: WeekNightModel[] } | null>(null);
+  const weekFor = useRef<string>("");
+  const nightReady = night !== null;
+  useEffect(() => {
+    if (!siteArg || !nightReady || weekFor.current === siteArg) return;
+    weekFor.current = siteArg;
+    let cancelled = false;
+    let settled = false;
+    api.week(siteArg)
+      .then((data) => {
+        settled = true;
+        if (!cancelled) setWeek({ site: siteArg, nights: data.nights });
+      })
+      // A convenience: the dashboard stands without it. Allow a retry when
+      // the next night loads.
+      .catch(() => {
+        settled = true;
+        if (!cancelled) weekFor.current = "";
+      });
+    return () => {
+      cancelled = true;
+      // Torn down before it answered -- the date moved on, say. Un-mark it,
+      // or the rerun would skip and leave the week empty.
+      if (!settled) weekFor.current = "";
+    };
+  }, [siteArg, nightReady]);
+
   // --- events, on their own horizon ---
   useEffect(() => {
     if (!siteArg || !date) return;
@@ -829,6 +865,8 @@ export default function App() {
             window={night.window}
             session={night.session}
             onSessionChange={setSession}
+            week={week?.site === siteArg ? week.nights : null}
+            onSelectNight={changeDate}
           />
 
           <FinderSlotProvider value={finderSlots}>

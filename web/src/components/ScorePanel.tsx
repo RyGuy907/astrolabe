@@ -7,6 +7,10 @@
  * observer actually acts on sit next to the dials, and everything else is one
  * click away.
  *
+ * After the facts comes the week ahead (`WeekStrip`), in whatever the facts
+ * leave empty of their last row, so the next good night is visible from
+ * tonight's dashboard without stepping through the dates.
+ *
  * PLAN.md §3.2: "always show the factor breakdown so the number is auditable."
  * The limiting factor is named without any interaction; the full six-factor
  * table is in the disclosure.
@@ -16,16 +20,18 @@
  * would be a confident verdict on a night we know nothing about.
  */
 
-import { Fragment, useMemo, useState } from "react";
+import { Fragment, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type {
   FactorsModel,
   NightWindowModel,
   ObservingWindow,
   ScoreModel,
   SlotModel,
+  WeekNightModel,
 } from "../api";
 import { ConditionsStrip } from "./ConditionsStrip";
 import { SessionEditor } from "./SessionEditor";
+import { WeekStrip } from "./WeekStrip";
 import {
   formatHours,
   formatTemp,
@@ -106,12 +112,57 @@ function FactorCell({ value }: { value: number }) {
   );
 }
 
-export function ScorePanel({ score, window: night, session, onSessionChange }: {
+/** Narrower than this, the week goes on a row of its own under the facts
+ *  rather than squeezing seven nights into the gap after the last one. */
+const WEEK_MIN_WIDTH = 360;
+
+/**
+ * Where the week sits in the facts grid: in the columns left empty after the
+ * last fact, when they are wide enough, else across a row of its own.
+ *
+ * The grid is auto-fit, so how many columns there are -- and so how many
+ * the last row leaves free -- depends on the screen: three at 1600 px, seven
+ * at 1920, none at 1150, where the facts fill three full rows. CSS cannot
+ * say "span whatever is left of this row", so this measures the tracks and
+ * counts. Re-measured whenever the grid is resized.
+ */
+function useWeekPlacement(factCount: number) {
+  const gridRef = useRef<HTMLDivElement>(null);
+  const [column, setColumn] = useState("1 / -1");
+
+  useLayoutEffect(() => {
+    const grid = gridRef.current;
+    if (!grid) return;
+    const place = () => {
+      const style = getComputedStyle(grid);
+      const tracks = style.gridTemplateColumns.split(" ").filter(Boolean);
+      const columns = tracks.length;
+      const width = parseFloat(tracks[0]) || 0;
+      const gap = parseFloat(style.columnGap) || 0;
+      const free = columns > 0 ? (columns - (factCount % columns)) % columns : 0;
+      const room = free * width + Math.max(0, free - 1) * gap;
+      setColumn(free > 0 && room >= WEEK_MIN_WIDTH ? `span ${free}` : "1 / -1");
+    };
+    place();
+    const observer = new ResizeObserver(place);
+    observer.observe(grid);
+    return () => observer.disconnect();
+  }, [factCount]);
+
+  return { gridRef, column };
+}
+
+export function ScorePanel({ score, window: night, session, onSessionChange,
+                             week, onSelectNight }: {
   score: ScoreModel;
   window: NightWindowModel;
   session: ObservingWindow | null;
   /** null restores the default hours: dusk to 01:00 local. */
   onSessionChange: (session: [string, string] | null) => void;
+  /** The next seven nights, or null while they load or if they could not. */
+  week: WeekNightModel[] | null;
+  /** Open another night from the week. */
+  onSelectNight: (date: string) => void;
 }) {
   const [open, setOpen] = useState(false);
   const tz = night.location.timezone;
@@ -140,6 +191,11 @@ export function ScorePanel({ score, window: night, session, onSessionChange }: {
   // grade is what makes that legible rather than contradictory.
   const cloud = useMemo(() => spread((slot) => slot.cloud_cover),
                         [score.slots]);
+
+  // The facts that are actually shown: observing hours only with a session,
+  // temperature and cloud only with weather.
+  const factCount = 6 + (session ? 1 : 0) + (temps ? 1 : 0) + (cloud ? 1 : 0);
+  const { gridRef, column: weekColumn } = useWeekPlacement(factCount);
 
   return (
     <section className="panel score-panel" aria-labelledby="score-heading">
@@ -173,7 +229,7 @@ export function ScorePanel({ score, window: night, session, onSessionChange }: {
             still returns it, for the CLI. */}
         <div className="score-body">
           {/* The six facts you act on, in the space the dials used to leave empty. */}
-          <div className="key-facts">
+          <div className="key-facts" ref={gridRef}>
             {session && (
               <div>
                 <span>Observing</span>
@@ -252,6 +308,18 @@ export function ScorePanel({ score, window: night, session, onSessionChange }: {
                   : "nothing limiting"}
               </em>
             </div>
+            {/* Last, so it lands in whatever the facts leave of their final
+                row; see useWeekPlacement. */}
+            {week && week.length > 0 && (
+              <WeekStrip
+                nights={week}
+                timeZone={tz}
+                selected={night.date}
+                onSelect={onSelectNight}
+                expanded={open}
+                style={{ gridColumn: weekColumn }}
+              />
+            )}
           </div>
         </div>
       </div>
@@ -261,6 +329,12 @@ export function ScorePanel({ score, window: night, session, onSessionChange }: {
           <strong>No weather data.</strong> {score.weather_note}. These scores
           reflect darkness and moonlight only and are not a verdict on
           conditions — which is why no grade is shown.
+        </p>
+      )}
+      {score.weather_stale_since && (
+        <p className="warning">
+          Forecast from {formatTime(score.weather_stale_since, tz, true)}; it could
+          not be refreshed ({score.weather_stale_reason})
         </p>
       )}
       {score.seeing_estimated && (

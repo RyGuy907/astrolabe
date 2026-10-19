@@ -156,6 +156,12 @@ class ScoreModel(BaseModel):
     weather_available: bool
     weather_note: str | None
     weather_sources: list[str]
+    weather_stale_since: datetime | None = Field(
+        default=None,
+        description="Set when a refresh failed and an older cached forecast "
+                    "stood in: when that forecast was fetched.",
+    )
+    weather_stale_reason: str | None = None
     seeing_estimated: bool
     dew_warning: bool
     verdict: str
@@ -204,6 +210,48 @@ class NightResponse(BaseModel):
     window: NightWindowModel
     score: ScoreModel
     session: ObservingWindowModel | None = None
+
+
+class WeekNightModel(BaseModel):
+    """One night of the week ahead, scored as its own dashboard scores it."""
+
+    date: date
+    session: IntervalModel | None = Field(
+        default=None,
+        description="The default session the night was scored over: "
+                    "astronomical dusk to 01:00 local.",
+    )
+    deep_sky_peak: float
+    deep_sky_mean: float
+    planetary_peak: float
+    planetary_mean: float
+    best_window: IntervalModel | None = None
+    best_window_score: float = 0.0
+    deep_sky_grade: str
+    planetary_grade: str
+    is_gradeable: bool = Field(
+        description="False when the forecast does not reach this night; the "
+                    "scores then describe darkness and moonlight only.",
+    )
+    weather_available: bool
+    weather_note: str | None
+    seeing_estimated: bool = Field(
+        description="Past 7Timer's 72 hours: seeing and transparency are "
+                    "estimated from humidity and wind.",
+    )
+    limiting_factor: str | None
+    cloud_mean_pct: float | None
+    temperature_low_c: float | None
+    moon_illumination: float
+    moon_waxing: bool
+    dark_hours: float
+
+
+class WeekResponse(BaseModel):
+    location: LocationModel
+    first_date: date
+    nights: list[WeekNightModel]
+    weather_sources: list[str]
 
 
 class TargetModel(BaseModel):

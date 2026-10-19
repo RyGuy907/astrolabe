@@ -53,6 +53,17 @@ export function formatNight(isoDate: string): string {
   }).format(new Date(`${isoDate}T12:00:00Z`)).replace(",", "");
 }
 
+/** A night as a column heading in the week ahead: "Mon" over "19". */
+export function formatNightHeading(isoDate: string): { weekday: string; day: string } {
+  const noon = new Date(`${isoDate}T12:00:00Z`);
+  return {
+    weekday: new Intl.DateTimeFormat("en-GB", { timeZone: "UTC", weekday: "short" })
+      .format(noon),
+    day: new Intl.DateTimeFormat("en-GB", { timeZone: "UTC", day: "numeric" })
+      .format(noon),
+  };
+}
+
 export function timeZoneAbbreviation(timeZone: string): string {
   const parts = new Intl.DateTimeFormat("en-US", {
     timeZone,

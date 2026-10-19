@@ -191,6 +191,25 @@ def grade(score: float) -> str:
     return "F"
 
 
+#: A factor averaging at least this is not worth blaming for anything.
+LIMITING_THRESHOLD = 0.99
+
+
+def limiting_factor(score: NightScore) -> str | None:
+    """What holds a night back, averaged over it, or None if nothing does.
+
+    From the night's mean factors, not the peak slot's: the peak slot is the
+    least cloudy one by construction, so read off it cloud could never be
+    blamed on a night that clouds over halfway through -- which is the
+    commonest way a night goes wrong. Shared by the dashboard and the week
+    ahead so the two never name a different culprit for the same night.
+    """
+    if not score.slots:
+        return None
+    name, value = score.mean_factors_deep_sky.weakest()
+    return name if value < LIMITING_THRESHOLD else None
+
+
 # --- individual factors -----------------------------------------------------
 
 def clear_factor(cloud_cover_pct: float | None) -> float:

@@ -428,6 +428,15 @@ def _map_with_tiles(tmp_path, *, with_tiles=True):
     return raster
 
 
+def test_an_unreadable_map_reads_as_no_answer_not_a_500(client, monkeypatch, tmp_path):
+    """A configured raster that cannot be opened must not break the form."""
+    monkeypatch.setenv("ASTRO_SKYBRIGHTNESS_RASTER", str(tmp_path / "missing.tif"))
+    response = client.get("/api/skybrightness/at", params={"lat": 40.5, "lon": -111.5})
+    assert response.status_code == 200
+    body = response.json()
+    assert body["sqm"] is None and body["in_coverage"] is False
+
+
 @pytest.fixture
 def configured_map(monkeypatch, tmp_path):
     import engine.skybrightness as sb
@@ -754,6 +763,34 @@ def test_night_defaults_to_a_session_and_says_what_it_used(client):
     assert 0 <= session["dark_hours"] <= session["hours"] + 1e-9
     # Scored over the session, so fewer slots than the whole night.
     assert len(body["score"]["slots"]) > 0
+
+
+@requires_ephemeris
+def test_week_gives_consecutive_nights_scored_like_the_night_endpoint(client):
+    week = client.get("/api/week?date=2026-09-15&location=home").json()
+    assert week["first_date"] == "2026-09-15"
+    assert [n["date"] for n in week["nights"]] == [
+        f"2026-09-{day}" for day in range(15, 22)]
+
+    # Offline in tests, so nothing is gradeable -- and each night says so
+    # rather than grading the Moon.
+    first = week["nights"][0]
+    assert first["is_gradeable"] is False and first["deep_sky_grade"] == "n/a"
+    assert first["weather_note"]
+    assert _is_utc_iso(first["session"]["start"])
+
+    # The first night is the night endpoint's default session, number for number.
+    night = client.get("/api/night?date=2026-09-15&location=home").json()
+    assert first["session"]["start"] == night["session"]["start"]
+    assert first["deep_sky_mean"] == pytest.approx(night["score"]["deep_sky_mean"])
+    assert first["moon_illumination"] == pytest.approx(night["window"]["moon_illumination"])
+
+
+@requires_ephemeris
+def test_week_length_is_bounded(client):
+    assert len(client.get("/api/week?date=2026-09-15&location=home&nights=3")
+               .json()["nights"]) == 3
+    assert client.get("/api/week?date=2026-09-15&location=home&nights=15").status_code == 422
 
 
 @requires_ephemeris

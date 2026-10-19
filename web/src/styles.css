@@ -848,6 +848,22 @@ table.targets tr:last-child td { border-bottom: none; }
 .site-form input.invalid { border-color: var(--bad); }
 
 .site-actions { display: flex; align-items: center; gap: 12px; margin: 12px 0 4px; }
+
+/* Editing a site: the name, the horizon and the sky each a full-width field,
+   since they are what an edit is for, and the location as one line with its
+   own toggle underneath. */
+.site-edit .site-form label, .site-edit .site-form label.wide { grid-column: 1 / -1; }
+.site-edit .site-form input[type="text"] { font-size: 1rem; }
+.site-location { margin: 16px 0 4px; padding-top: 12px; border-top: 1px solid var(--line); }
+.site-location-summary {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 6px 14px;
+  font-variant-numeric: tabular-nums;
+}
+.site-location-summary .muted { text-transform: uppercase; letter-spacing: 0.05em; font-size: 0.7rem; }
 .modal-body .warning code, .modal-body .note code {
   background: var(--panel-2);
   border-radius: 4px;
@@ -1761,6 +1777,62 @@ select, input[type="date"] { height: 36px; padding: 0 14px; border-radius: var(-
   line-height: 1.15;
 }
 
+/* The week ahead, in whatever the facts leave of their last row (or a row of
+   its own; ScorePanel decides). Small type, because seven nights have to fit where three facts would. The
+   key-facts rules style every span inside the grid as a fact's label, so the
+   table's own spans are reset here. */
+.key-facts > .week-strip { min-width: 0; gap: 4px; margin-bottom: 10px; }
+.week-scroll { overflow-x: auto; }
+.week-table {
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: fixed;
+  font-variant-numeric: tabular-nums;
+  font-size: 0.82rem;
+}
+.week-table th, .week-table td { padding: 2px 3px; text-align: center; white-space: nowrap; }
+.week-table td { color: var(--text); }
+.week-table thead th:first-child, .week-table th[scope="row"] { width: 4.6em; }
+.week-table th[scope="row"] {
+  padding-left: 0;
+  text-align: left;
+  font-size: 0.62rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted-text);
+}
+.week-table thead button {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: 100%;
+  padding: 3px 0;
+  background: none;
+  border: 0;
+  border-radius: 6px;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+.week-table thead button:hover { background: rgba(255, 255, 255, 0.06); }
+.key-facts .week-table span {
+  font-size: inherit;
+  text-transform: none;
+  letter-spacing: 0;
+  font-weight: inherit;
+  color: inherit;
+}
+.key-facts .week-table .week-weekday { font-size: 0.68rem; color: var(--muted-text); }
+.key-facts .week-table .week-day { font-size: 0.95rem; }
+.key-facts .week-table .week-score { font-weight: 600; }
+.key-facts .week-table .week-none { color: var(--muted); }
+/* The night on screen, as a lit column. */
+.week-table .is-selected { background: rgba(255, 255, 255, 0.07); }
+.week-table thead .is-selected { border-radius: 6px 6px 0 0; }
+.week-table tbody tr:last-child .is-selected { border-radius: 0 0 6px 6px; }
+
+
 .factor-track { height: 3px; border-radius: 2px; background: rgba(255, 255, 255, 0.09); }
 .factor-fill { border-radius: 2px; }
 .factor-value { font-variant-numeric: tabular-nums; color: var(--muted-text); }
@@ -2472,6 +2544,10 @@ table.targets tbody tr.has-chart:not(.revealed) { background-color: rgba(255, 25
   .score-body { min-width: 0; flex: 1 1 100%; }
   .key-facts { gap: 22px 18px; }
   .key-facts strong { font-size: clamp(1.3rem, 6.4vw, 1.7rem); }
+  /* Seven nights across a 340px phone: "100%" overran its column by a few
+     pixels with the desktop padding and put a scrollbar under the table. */
+  .week-table th, .week-table td { padding: 2px 0; }
+  .week-table thead th:first-child, .week-table th[scope="row"] { width: 4.3em; }
 
   /* Small print a phone at arm's length can still read. */
   .badge { font-size: 0.72rem; }

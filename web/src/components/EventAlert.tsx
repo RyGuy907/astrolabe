@@ -11,11 +11,36 @@
  * banner would train you to ignore it.
  */
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import type { EventsResponse } from "../api";
 import { titleCase } from "../format";
 
 const ALERT_DAYS = 7;
+
+/** Events dismissed in this tab, by identity. sessionStorage, not state: the
+ *  alert unmounts while each new night loads, and state kept in it was lost
+ *  every time the date moved -- so stepping through the week brought back an
+ *  alert that had just been closed. Not localStorage, deliberately: kept for
+ *  good, a dismissal could hide a once-a-year eclipse. */
+const DISMISSED_KEY = "astro:alerts-dismissed";
+
+function readDismissed(): Set<string> {
+  try {
+    const raw = window.sessionStorage.getItem(DISMISSED_KEY);
+    const keys = raw ? JSON.parse(raw) : [];
+    return new Set(Array.isArray(keys) ? keys.filter((k) => typeof k === "string") : []);
+  } catch {
+    return new Set();
+  }
+}
+
+function writeDismissed(keys: Set<string>): void {
+  try {
+    window.sessionStorage.setItem(DISMISSED_KEY, JSON.stringify([...keys]));
+  } catch {
+    /* a dismissal we could not save is not worth breaking the page over */
+  }
+}
 
 interface Item {
   key: string;
@@ -54,10 +79,11 @@ export function EventAlert({ events, fromDate, timeZone, onOpenEvents }: {
   timeZone: string;
   onOpenEvents: () => void;
 }) {
-  // Dismissal is keyed to *which* events are showing, so closing it does not
-  // suppress a different night's alert. It is also session-only, deliberately:
-  // persisting it could hide a once-a-year eclipse for good.
-  const [dismissed, setDismissed] = useState<string>("");
+  // Dismissal is by event, not by the alert's wording: the wording says
+  // "in 3 days" on one night and "tomorrow" on the next, and keying on it
+  // brought a closed alert back on every step of the date. An event not seen
+  // before still shows.
+  const [dismissed, setDismissed] = useState<Set<string>>(readDismissed);
 
   // Built before the early return below: hooks must run on every render, so
   // the "no events yet" case falls out of empty loops rather than a guard.
@@ -67,7 +93,7 @@ export function EventAlert({ events, fromDate, timeZone, onOpenEvents }: {
     const days = daysUntil(shower.peak_date, fromDate);
     if (days < 0 || days > ALERT_DAYS) continue;
     items.push({
-      key: `shower-${shower.code}`,
+      key: `shower-${shower.code}-${shower.peak_date}`,
       date: shower.peak_date,
       urgent: days <= 1,
       text:
@@ -107,16 +133,16 @@ export function EventAlert({ events, fromDate, timeZone, onOpenEvents }: {
   }
 
   items.sort((a, b) => a.date.localeCompare(b.date));
-  // The text is part of the signature, not just the key, so an alert you
-  // dismissed at "in 3 days" comes back when it becomes "tomorrow".
-  const signature = items.map((i) => `${i.key}:${i.text}`).join("|");
+  const shown = items.filter((item) => !dismissed.has(item.key));
 
-  // Reset the dismissal whenever the set of imminent events changes.
-  useEffect(() => {
-    setDismissed((current) => (current === signature ? current : ""));
-  }, [signature]);
+  function dismiss() {
+    const next = new Set(dismissed);
+    for (const item of items) next.add(item.key);
+    writeDismissed(next);
+    setDismissed(next);
+  }
 
-  if (items.length === 0 || dismissed === signature) return null;
+  if (shown.length === 0) return null;
 
   return (
     <div className="event-alert" role="status">
@@ -124,15 +150,15 @@ export function EventAlert({ events, fromDate, timeZone, onOpenEvents }: {
         <span className="event-alert-label">Next {ALERT_DAYS} days</span>
         <button
           className="event-alert-close"
-          onClick={() => setDismissed(signature)}
-          title="Dismiss until these events change"
+          onClick={dismiss}
+          title="Dismiss these events until this tab is closed"
           aria-label="Dismiss this alert"
         >
           ×
         </button>
       </div>
       <ul>
-        {items.map((item) => (
+        {shown.map((item) => (
           <li key={item.key} className={item.urgent ? "urgent" : undefined}>
             <span className="event-alert-date">
               {shortDate(item.date, timeZone)}

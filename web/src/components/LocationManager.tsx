@@ -259,6 +259,10 @@ export function LocationManager({ locations, editingKey, onClose, onSaved }: Pro
   const locateWatch = useRef<{ id: number; timer: number } | null>(null);
   useEffect(() => () => stopLocating(), []);
   const [showAdvanced, setShowAdvanced] = useState(false);
+  //: Editing only: whether the "Change location" section is open. Closed by
+  //: default -- most edits are a rename, and the map, the search and the
+  //: coordinates are for the rarer edit that moves the site.
+  const [showLocation, setShowLocation] = useState(false);
   //: An azimuth->altitude map built by naming visible constellations. When
   //: present it is sent instead of a preset, and the engine treats it as
   //: measured rather than generic.
@@ -284,7 +288,8 @@ export function LocationManager({ locations, editingKey, onClose, onSaved }: Pro
   // ever needs measuring once.
   useEffect(() => {
     if (!editing) return;
-    setEntry("manual");
+    // Behind "Change location", the map leads, as it does when adding.
+    setEntry("map");
     setName(editing.name);
     setKey(editing.key);
     setKeyEdited(true);
@@ -293,18 +298,22 @@ export function LocationManager({ locations, editingKey, onClose, onSaved }: Pro
     setElevation(editing.elevation_m.toFixed(0));
     setElevationTyped(false);
     setElevationFromTerrain(false);
+    // The site's sky as it was saved: the observer's class, the map's
+    // reading, or nothing known. Marked edited either way, so the atlas
+    // lookup for these coordinates does not overwrite the choice.
     if (editing.sky_source === "observer" && editing.bortle !== null) {
       setBortle(String(editing.bortle));
-      setBortleEdited(true);
+    } else {
+      setBortle(editing.sky_source === "atlas" ? "atlas" : "unknown");
     }
+    setBortleEdited(true);
     setHorizon(Math.round(editing.horizon_max_deg / 5) * 5);
     if (editing.horizon_points && !editing.horizon_is_generic) {
       setMeasuredHorizon(Object.fromEntries(
         Object.entries(editing.horizon_points)
           .map(([az, alt]) => [Number(az), alt])));
     }
-    // Advanced stays closed: editing opens on the coordinates tab, which
-    // already shows the fields most edits are for.
+    setShowLocation(false);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [editingKey]);
 
@@ -335,7 +344,10 @@ export function LocationManager({ locations, editingKey, onClose, onSaved }: Pro
   // else -- without this exception the form refuses to save what it loaded.
   const keyTaken = locations.some(
     (l) => l.key === normaliseKey(key) && l.key !== editingKey);
-  const bortleChosen = bortle !== "";
+  //: "atlas" is a choice only where the map has something to say: moved out
+  //: of its coverage, it would silently mean the Bortle 5 fallback.
+  const bortleChosen = bortle !== "" &&
+    (bortle !== "atlas" || atlas?.in_coverage === true);
 
   // --- debounced, cancellable geocode ---------------------------------------
   // The timer means a burst of keystrokes issues one request, not one each; the
@@ -622,8 +634,10 @@ export function LocationManager({ locations, editingKey, onClose, onSaved }: Pro
         lat: latValue,
         lon: lonValue,
         elevation_m: elevation.trim() === "" ? undefined : Number(elevation),
-        // "unknown" is stored as a real null, not as 5. See the module note.
-        bortle: bortle === "unknown" ? null : Number(bortle),
+        // "unknown" is stored as a real null, not as 5 (see the module note),
+        // and so is "atlas": with no class of its own a site takes the map's
+        // reading, decimal and all, and keeps up with a rebuilt map.
+        bortle: bortle === "unknown" || bortle === "atlas" ? null : Number(bortle),
         // A measured profile outranks the angle control. `parse_horizon`
         // reads a JSON object as an explicit azimuth->altitude map and does
         // not flag it generic, which is the whole point of measuring one; a
@@ -694,30 +708,11 @@ export function LocationManager({ locations, editingKey, onClose, onSaved }: Pro
     </>
   );
 
-  return (
-    <div className="modal-backdrop" onClick={onClose}>
-      <div
-        ref={dialog}
-        className="modal"
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="sites-dialog-title"
-        // Focusable so opening the dialog can land focus on it, which makes a
-        // screen reader announce the dialog and its label before its contents.
-        tabIndex={-1}
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="modal-head">
-          <h2 id="sites-dialog-title">
-            {editing ? `Edit ${editing.name}` : "Add a site"}
-          </h2>
-          <button className="modal-close" onClick={onClose} aria-label="Close">
-            ×
-          </button>
-        </div>
-
-        <div className="modal-body">
-
+  //: The three ways of placing a site -- map, name, coordinates -- and the
+  //: "use my location" button. All of adding a site starts here; editing
+  //: keeps it behind "Change location".
+  const locationPicker = (
+    <>
           <div className="segmented">
             <button
               className={entry === "map" ? "on" : ""}
@@ -838,6 +833,10 @@ export function LocationManager({ locations, editingKey, onClose, onSaved }: Pro
             <div className="site-form">{coordinateFields}</div>
           )}
 
+    </>
+  );
+
+  const nameField = (
           <div className="site-form">
             <label>
               <span>Name</span>
@@ -849,7 +848,9 @@ export function LocationManager({ locations, editingKey, onClose, onSaved }: Pro
               />
             </label>
           </div>
+  );
 
+  const angleField = (
           <div className="site-form">
             <label className="wide">
               <span>
@@ -877,7 +878,10 @@ export function LocationManager({ locations, editingKey, onClose, onSaved }: Pro
               </select>
             </label>
           </div>
+  );
 
+  const measureField = (
+    <>
           {latValid && lonValid && (
             <details className="horizon-measure-block">
               <summary>Measure the horizon by constellation</summary>
@@ -889,35 +893,10 @@ export function LocationManager({ locations, editingKey, onClose, onSaved }: Pro
             </details>
           )}
 
-          {/* Name is the only field that needs a person. The coordinates come
-              from the map, the Bortle class from the atlas, and the key is
-              derived -- so the rest is here for when it is wrong, not as a
-              form to fill in. */}
-          <button
-            className="link-button advanced-toggle"
-            onClick={() => setShowAdvanced(!showAdvanced)}
-            aria-expanded={showAdvanced}
-          >
-            <span className="caret">{showAdvanced ? "▾" : "▸"}</span>
-            Advanced settings
-          </button>
+    </>
+  );
 
-          {showAdvanced && (
-          <>
-          <div className="site-form">
-            <label>
-              <span>Key</span>
-              <input
-                type="text"
-                value={key}
-                onChange={(e) => {
-                  setKey(e.target.value);
-                  setKeyEdited(true);
-                }}
-                placeholder="site_key"
-              />
-            </label>
-            {entry !== "manual" && coordinateFields}
+  const bortleField = (
             <label>
               <span>
                 Bortle class
@@ -942,6 +921,13 @@ export function LocationManager({ locations, editingKey, onClose, onSaved }: Pro
                 }}
               >
                 <option value="">— choose —</option>
+                {/* Not a class of the observer's own: the site keeps the
+                    map's reading, decimal and all. */}
+                {atlas?.in_coverage && atlas.bortle_decimal !== null && (
+                  <option value="atlas">
+                    From the map — {atlas.bortle_decimal.toFixed(1)} (SQM {atlas.sqm?.toFixed(2)})
+                  </option>
+                )}
                 {BORTLE_CLASSES.map(([value, label]) => (
                   <option key={value} value={String(value)}>
                     {value} — {label}
@@ -950,8 +936,110 @@ export function LocationManager({ locations, editingKey, onClose, onSaved }: Pro
                 <option value="unknown">I don’t know</option>
               </select>
             </label>
-          </div>
-          </>
+  );
+
+  return (
+    <div className="modal-backdrop" onClick={onClose}>
+      <div
+        ref={dialog}
+        className="modal"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="sites-dialog-title"
+        // Focusable so opening the dialog can land focus on it, which makes a
+        // screen reader announce the dialog and its label before its contents.
+        tabIndex={-1}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="modal-head">
+          <h2 id="sites-dialog-title">
+            {editing ? `Edit ${editing.name}` : "Add a site"}
+          </h2>
+          <button className="modal-close" onClick={onClose} aria-label="Close">
+            ×
+          </button>
+        </div>
+
+        <div className="modal-body">
+
+          {editing ? (
+            <div className="site-edit">
+              {/* Editing leads with what edits are mostly for -- the name, then
+                  the horizon and the sky -- and keeps the location, which
+                  rarely changes, behind its own toggle. Adding a site has to
+                  start from the location, so it keeps the old order. */}
+              {nameField}
+              {angleField}
+              <div className="site-form">{bortleField}</div>
+              {measureField}
+
+              <div className="site-location">
+                <div className="site-location-summary">
+                  <span>
+                    <span className="muted small">Location </span>
+                    {latValid && lonValid
+                      ? `${latValue.toFixed(4)}, ${lonValue.toFixed(4)}`
+                      : "—"}
+                    {elevation.trim() !== "" && elevationValid && ` · ${Number(elevation).toFixed(0)} m`}
+                  </span>
+                  <button
+                    className="link-button"
+                    onClick={() => setShowLocation(!showLocation)}
+                    aria-expanded={showLocation}
+                  >
+                    <span className="caret">{showLocation ? "▾" : "▸"}</span>
+                    Change location
+                  </button>
+                </div>
+                {showLocation && (
+                  <>
+                    {locationPicker}
+                    {entry !== "manual" && (
+                      <div className="site-form">{coordinateFields}</div>
+                    )}
+                  </>
+                )}
+              </div>
+            </div>
+          ) : (
+            <>
+              {locationPicker}
+              {nameField}
+              {angleField}
+              {measureField}
+
+              {/* Name is the only field that needs a person. The coordinates
+                  come from the map, the Bortle class from the atlas, and the
+                  key is derived -- so the rest is here for when it is wrong,
+                  not as a form to fill in. */}
+              <button
+                className="link-button advanced-toggle"
+                onClick={() => setShowAdvanced(!showAdvanced)}
+                aria-expanded={showAdvanced}
+              >
+                <span className="caret">{showAdvanced ? "▾" : "▸"}</span>
+                Advanced settings
+              </button>
+
+              {showAdvanced && (
+                <div className="site-form">
+            <label>
+              <span>Key</span>
+              <input
+                type="text"
+                value={key}
+                onChange={(e) => {
+                  setKey(e.target.value);
+                  setKeyEdited(true);
+                }}
+                placeholder="site_key"
+              />
+            </label>
+                  {entry !== "manual" && coordinateFields}
+                  {bortleField}
+                </div>
+              )}
+            </>
           )}
 
           {keyTaken && (
