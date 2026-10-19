@@ -1,6 +1,6 @@
 """The objects a beginner actually points a telescope at.
 
-The catalogue holds 12,371 objects. Perhaps a hundred and thirty of them are
+The catalogue holds 12,391 objects. Perhaps a hundred and thirty of them are
 what anyone means by "things worth looking at" -- the Ring Nebula, M13, the
 Double Cluster -- and the rest is a reference work. Scrolling past four
 thousand anonymous NGC galaxies to reach the Dumbbell is not a filter problem

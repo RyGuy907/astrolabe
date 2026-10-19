@@ -209,7 +209,9 @@ PLANE_KM = 1.0  # cell size of the flat grid the convolution runs on
 # has it, a city 1.3-2 km up lost most of its own haze and came out 0.3-0.7
 # mag darker than an independent model (Lorenz's, behind lightpollutionmap.app)
 # puts it; measured from the valley floor they agree to about 0.15, and the
-# fit to the atlas and to the ground readings is as good either way.
+# fit to the atlas and to the ground readings is as good either way. (In the
+# committed kernel the fit gave haze no weight at all, so for now this choice
+# changes nothing; it matters again if a refit gives haze some weight.)
 LAYERS_KM = (9.62, 1.52)
 # "Surrounding low ground": the 10th percentile of height within about 15 km,
 # smoothed, so a canyon does not count as the floor and a peak above a valley
@@ -236,7 +238,9 @@ NATURAL = 0.171168465
 # at Night sky-meter sites, 2024-25, clear, moonless and fully dark, fitting
 # measured = natural + k x model. It errs toward a brighter sky than the atlas,
 # which is the safe side for planning a drive: at the research-grade sites
-# (mostly Tucson, 2017) it reads about 0.4 mag bright.
+# (mostly Tucson, 2017) it reads about 0.4 mag bright. That fit is not part of
+# this script: the Globe at Night readings are not redistributable here, so
+# the result is recorded as a constant. Refit it by hand if the model changes.
 GROUND_CALIBRATION = 1.55
 
 

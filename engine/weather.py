@@ -1,6 +1,7 @@
 """Weather clients: Open-Meteo + 7Timer, cached and blended.
 
-**This is the only module in `engine/` permitted to touch the network.**
+**One of the two modules in `engine/` permitted to touch the network**
+(the other is `geocode.py`).
 PLAN.md §1: the astronomy must work with no network at all; weather and live
 feeds may hit it, and every one of them must degrade to "unknown" rather than
 crash. Nothing here ever raises on a network failure — callers get a Forecast
@@ -24,9 +25,10 @@ import sqlite3
 import urllib.error
 import urllib.parse
 import urllib.request
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import datetime, timedelta
 from pathlib import Path
+from typing import Callable, NamedTuple
 
 from .locations import Location
 from .ratelimit import OPEN_METEO, SEVENTIMER, RateLimited, Upstream
@@ -37,6 +39,11 @@ SEVENTIMER_URL = "https://www.7timer.info/bin/api.pl"
 
 # PLAN.md §2: cache aggressively, one fetch per location per model run.
 CACHE_TTL = timedelta(hours=3)
+# How old a cached forecast may be and still stand in when a refresh fails.
+# A day-old forecast for tonight is still far better than none, and it is
+# labelled as old; past a day it is closer to a guess. Rows older than this
+# are useless, so they are also what the cache prunes.
+STALE_LIMIT = timedelta(hours=24)
 REQUEST_TIMEOUT = 20
 
 # Published horizons. Past these, a source returns no data rather than a guess.
@@ -115,6 +122,10 @@ class Forecast:
     unavailable_reason: str | None = None
     sources: tuple[str, ...] = ()
     seeing_estimated: bool = False
+    # Set when a refresh failed and a cached copy older than CACHE_TTL stood in:
+    # when that copy was fetched, and why it could not be refreshed.
+    stale_since: datetime | None = None
+    stale_reason: str | None = None
 
     def at(self, when: datetime) -> HourlyConditions | None:
         """Nearest hourly sample to `when`, or None if the forecast is empty."""
@@ -281,7 +292,8 @@ def _cache_key(source: str, location: Location) -> str:
     return f"{source}:{location.lat:.2f},{location.lon:.2f}"
 
 
-def _cache_get(key: str, ttl: timedelta = CACHE_TTL) -> dict | None:
+def _cache_read(key: str, max_age: timedelta) -> tuple[dict, datetime] | None:
+    """The cached payload and when it was fetched, if no older than `max_age`."""
     path = cache_path()
     if not path.exists():
         return None
@@ -302,12 +314,17 @@ def _cache_get(key: str, ttl: timedelta = CACHE_TTL) -> dict | None:
     fetched_at = datetime.fromisoformat(row[0])
     if fetched_at.tzinfo is None:
         fetched_at = fetched_at.replace(tzinfo=UTC)
-    if now_utc() - fetched_at > ttl:
+    if now_utc() - fetched_at > max_age:
         return None
     try:
-        return json.loads(row[1])
+        return json.loads(row[1]), fetched_at
     except json.JSONDecodeError:
         return None
+
+
+def _cache_get(key: str, ttl: timedelta = CACHE_TTL) -> dict | None:
+    hit = _cache_read(key, ttl)
+    return hit[0] if hit else None
 
 
 def _cache_put(key: str, payload: dict) -> None:
@@ -317,9 +334,17 @@ def _cache_put(key: str, payload: dict) -> None:
         connection = sqlite3.connect(path)
         try:
             connection.executescript(CACHE_DDL)
+            now = now_utc()
             connection.execute(
                 "INSERT OR REPLACE INTO weather_cache VALUES (?, ?, ?)",
-                (key, now_utc().isoformat(), json.dumps(payload)),
+                (key, now.isoformat(), json.dumps(payload)),
+            )
+            # Every site anyone has looked at leaves a row. Past STALE_LIMIT a
+            # row can never be served, so drop those rather than grow forever.
+            # All stamps are aware-UTC isoformat, so they compare as text.
+            connection.execute(
+                "DELETE FROM weather_cache WHERE fetched_at < ?",
+                ((now - STALE_LIMIT).isoformat(),),
             )
             connection.commit()
         finally:
@@ -363,25 +388,52 @@ def _get_json(url: str, params: dict, *, upstream: Upstream, cost: int = 1,
 
 # --- Open-Meteo -------------------------------------------------------------
 
-def fetch_open_meteo(location: Location, *, use_cache: bool = True) -> dict | None:
-    """Raw Open-Meteo payload, cached. None on any failure."""
-    key = _cache_key("open-meteo", location)
+class _Fetched(NamedTuple):
+    payload: dict | None
+    fetched_at: datetime | None = None
+    stale: bool = False
+
+
+def _fetch(key: str, fetch: Callable[[], dict], *, use_cache: bool) -> _Fetched:
+    """Fresh cache, else the network, else a stale cache no older than STALE_LIMIT.
+
+    Without the last step, one failed refresh after the TTL ran out -- a
+    timeout, or a backoff after a 429 -- turned a perfectly good forecast from
+    an hour ago into "no weather".
+    """
     if use_cache:
-        cached = _cache_get(key)
-        if cached is not None:
-            return cached
+        hit = _cache_read(key, CACHE_TTL)
+        if hit is not None:
+            return _Fetched(hit[0], hit[1])
     try:
-        payload = _get_json(OPEN_METEO_URL, {
+        payload = fetch()
+    except (urllib.error.URLError, OSError, ValueError, NetworkDisabled, RateLimited):
+        if use_cache:
+            hit = _cache_read(key, STALE_LIMIT)
+            if hit is not None:
+                return _Fetched(hit[0], hit[1], stale=True)
+        return _Fetched(None)
+    _cache_put(key, payload)
+    return _Fetched(payload, now_utc())
+
+
+def _open_meteo(location: Location, *, use_cache: bool) -> _Fetched:
+    return _fetch(
+        _cache_key("open-meteo", location),
+        lambda: _get_json(OPEN_METEO_URL, {
             "latitude": round(location.lat, 4),
             "longitude": round(location.lon, 4),
             "hourly": ",".join(OPEN_METEO_FIELDS),
             "timezone": "UTC",
             "forecast_days": 16,
-        }, upstream=OPEN_METEO, cost=OPEN_METEO_FORECAST_COST)
-    except (urllib.error.URLError, OSError, ValueError, NetworkDisabled, RateLimited):
-        return None
-    _cache_put(key, payload)
-    return payload
+        }, upstream=OPEN_METEO, cost=OPEN_METEO_FORECAST_COST),
+        use_cache=use_cache,
+    )
+
+
+def fetch_open_meteo(location: Location, *, use_cache: bool = True) -> dict | None:
+    """Raw Open-Meteo payload, cached. None on any failure."""
+    return _open_meteo(location, use_cache=use_cache).payload
 
 
 def parse_open_meteo(payload: dict) -> list[HourlyConditions]:
@@ -422,29 +474,28 @@ def parse_open_meteo(payload: dict) -> list[HourlyConditions]:
 
 # --- 7Timer -----------------------------------------------------------------
 
+def _7timer(location: Location, *, use_cache: bool) -> _Fetched:
+    # No `ac` (altitude correction). 7Timer accepts only 0, 2 or 7 -- km of
+    # correction for a site standing well above the terrain around it, a
+    # summit rather than a high valley -- and elevation alone cannot tell the
+    # two apart. Sending round(elevation_km) produced 1 and 3, which the API
+    # does not define.
+    return _fetch(
+        _cache_key("7timer", location),
+        lambda: _get_json(SEVENTIMER_URL, {
+            "lon": round(location.lon, 3),
+            "lat": round(location.lat, 3),
+            "product": "astro",
+            "output": "json",
+            "unit": "metric",
+        }, upstream=SEVENTIMER),
+        use_cache=use_cache,
+    )
+
+
 def fetch_7timer(location: Location, *, use_cache: bool = True) -> dict | None:
     """Raw 7Timer ASTRO payload, cached. None on any failure."""
-    key = _cache_key("7timer", location)
-    if use_cache:
-        cached = _cache_get(key)
-        if cached is not None:
-            return cached
-    params = {
-        "lon": round(location.lon, 3),
-        "lat": round(location.lat, 3),
-        "product": "astro",
-        "output": "json",
-        "unit": "metric",
-    }
-    # PLAN.md §2: `ac` corrects for sites well above surrounding terrain.
-    if location.elevation_m and location.elevation_m > 1000:
-        params["ac"] = round(location.elevation_m / 1000.0)
-    try:
-        payload = _get_json(SEVENTIMER_URL, params, upstream=SEVENTIMER)
-    except (urllib.error.URLError, OSError, ValueError, NetworkDisabled, RateLimited):
-        return None
-    _cache_put(key, payload)
-    return payload
+    return _7timer(location, use_cache=use_cache).payload
 
 
 def parse_7timer(payload: dict) -> list[HourlyConditions]:
@@ -559,20 +610,32 @@ def get_forecast(location: Location, *, start: datetime | None = None,
     if not network_enabled():
         return unavailable(location, "network disabled (ASTRO_NO_NETWORK)")
 
-    meteo_payload = fetch_open_meteo(location, use_cache=use_cache)
-    if meteo_payload is None:
+    meteo = _open_meteo(location, use_cache=use_cache)
+    if meteo.payload is None:
         # Held back by the budget or a backoff, say so: "unreachable" would
         # send someone looking for a fault that is not there.
         return unavailable(location, OPEN_METEO.unavailable_reason() or "Open-Meteo unreachable")
 
-    seventimer_payload = fetch_7timer(location, use_cache=use_cache)
+    seventimer = _7timer(location, use_cache=use_cache)
 
     forecast = blend(
         location,
-        parse_open_meteo(meteo_payload),
-        parse_7timer(seventimer_payload) if seventimer_payload else [],
+        parse_open_meteo(meteo.payload),
+        parse_7timer(seventimer.payload) if seventimer.payload else [],
         reference=reference,
     )
+
+    # An old copy standing in is fine, but not silently: say how old, from the
+    # older of the two sources if both are, and why it was not refreshed.
+    stale = [f for f in (meteo, seventimer) if f.stale and f.fetched_at]
+    if forecast.available and stale:
+        if meteo.stale:
+            reason = OPEN_METEO.unavailable_reason() or "Open-Meteo unreachable"
+        else:
+            reason = SEVENTIMER.unavailable_reason() or "7Timer unreachable"
+        forecast = replace(forecast,
+                           stale_since=min(f.fetched_at for f in stale),
+                           stale_reason=reason)
 
     if forecast.available and start is not None and end is not None:
         if not forecast.covers(start, end):

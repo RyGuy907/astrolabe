@@ -368,3 +368,117 @@ def test_at_returns_the_nearest_sample(home):
 
     nearest = forecast.at(start + timedelta(hours=2, minutes=20))
     assert nearest.time_utc == start + timedelta(hours=2)
+
+
+# --- stale fallback and pruning ---------------------------------------------
+
+@pytest.fixture
+def cache_at(monkeypatch, tmp_path):
+    """The weather cache in a scratch file, with the network 'on' but every
+    request failing -- the case where a refresh is attempted and does not
+    come back."""
+    import urllib.error
+
+    import engine.weather as weather
+
+    path = tmp_path / "weather.sqlite3"
+    monkeypatch.setattr(weather, "cache_path", lambda: path)
+    monkeypatch.delenv("ASTRO_NO_NETWORK", raising=False)
+
+    def refuse(*args, **kwargs):
+        raise urllib.error.URLError("unreachable in tests")
+
+    monkeypatch.setattr(weather, "_get_json", refuse)
+    return path
+
+
+def _age(path, key, hours):
+    """Backdate one cached row by `hours`."""
+    import sqlite3
+
+    stamp = (now_utc() - timedelta(hours=hours)).isoformat()
+    with sqlite3.connect(path) as connection:
+        connection.execute("UPDATE weather_cache SET fetched_at = ? WHERE key = ?",
+                           (stamp, key))
+
+
+def _hourly_payload(start: datetime, hours: int) -> dict:
+    times = [(start + timedelta(hours=i)).strftime("%Y-%m-%dT%H:00") for i in range(hours)]
+    return {"hourly": {"time": times, "cloud_cover": [20] * hours,
+                       "relative_humidity_2m": [50] * hours,
+                       "wind_gusts_10m": [10] * hours}}
+
+
+def test_a_failed_refresh_falls_back_to_an_older_forecast(cache_at, home):
+    import engine.weather as weather
+
+    start = now_utc().replace(minute=0, second=0, microsecond=0)
+    key = weather._cache_key("open-meteo", home)
+    weather._cache_put(key, _hourly_payload(start, 24))
+    _age(cache_at, key, 5)                  # past the 3 h TTL, inside a day
+
+    forecast = get_forecast(home)
+    assert forecast.available is True
+    assert forecast.stale_since is not None
+    assert now_utc() - forecast.stale_since > weather.CACHE_TTL
+    assert "unreachable" in forecast.stale_reason.lower()
+
+
+def test_a_fresh_cache_is_not_marked_stale(cache_at, home):
+    import engine.weather as weather
+
+    start = now_utc().replace(minute=0, second=0, microsecond=0)
+    weather._cache_put(weather._cache_key("open-meteo", home), _hourly_payload(start, 24))
+
+    forecast = get_forecast(home)
+    assert forecast.available is True
+    assert forecast.stale_since is None and forecast.stale_reason is None
+
+
+def test_a_forecast_older_than_a_day_is_not_served(cache_at, home):
+    import engine.weather as weather
+
+    start = now_utc().replace(minute=0, second=0, microsecond=0)
+    key = weather._cache_key("open-meteo", home)
+    weather._cache_put(key, _hourly_payload(start, 48))
+    _age(cache_at, key, 30)
+
+    forecast = get_forecast(home)
+    assert forecast.available is False
+
+
+def test_writing_the_cache_prunes_rows_too_old_to_serve(cache_at, home):
+    import sqlite3
+
+    import engine.weather as weather
+
+    weather._cache_put("open-meteo:old", {"hourly": {}})
+    _age(cache_at, "open-meteo:old", 30)
+    weather._cache_put("open-meteo:recent", {"hourly": {}})
+    _age(cache_at, "open-meteo:recent", 5)
+    weather._cache_put("open-meteo:new", {"hourly": {}})
+
+    with sqlite3.connect(cache_at) as connection:
+        keys = {row[0] for row in connection.execute("SELECT key FROM weather_cache")}
+    assert keys == {"open-meteo:recent", "open-meteo:new"}
+
+
+def test_7timer_is_asked_without_an_undefined_altitude_correction(monkeypatch, home):
+    """7Timer's `ac` takes only 0, 2 or 7; elevation alone cannot choose, so
+    the request leaves it out rather than sending round(elevation_km)."""
+    import dataclasses
+
+    import engine.weather as weather
+
+    sent = {}
+
+    def capture(url, params, **kwargs):
+        sent.update(params)
+        return {"init": "2026082512", "dataseries": []}
+
+    monkeypatch.delenv("ASTRO_NO_NETWORK", raising=False)
+    monkeypatch.setattr(weather, "_get_json", capture)
+    high = dataclasses.replace(home, elevation_m=1300.0)
+    weather.fetch_7timer(high, use_cache=False)
+    assert sent["product"] == "astro"
+    assert "ac" not in sent

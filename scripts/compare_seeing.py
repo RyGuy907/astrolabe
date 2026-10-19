@@ -1,4 +1,4 @@
-"""Compare engine/seeing.py and 7Timer against Meteoblue's seeing forecast.
+"""Compare scripts/seeing_model.py and 7Timer against Meteoblue's seeing forecast.
 
 Development-time only: it reads the network directly and the engine never
 imports it.

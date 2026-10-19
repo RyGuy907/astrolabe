@@ -27,7 +27,7 @@ A hand-off spec for Claude Code. Goal: given a **date** (default: tonight) and a
    Request: `cloud_cover`, `cloud_cover_low`, `cloud_cover_mid`, `cloud_cover_high`, `temperature_2m`, `dew_point_2m`, `relative_humidity_2m`, `wind_speed_10m`, `wind_gusts_10m`, `visibility`, `precipitation_probability`, `is_day`. Set `timezone=auto`.
    Low/mid/high split matters: high cirrus kills transparency for galaxies but leaves planets workable; low cloud kills everything.
 2. **7Timer! ASTRO** (`https://www.7timer.info/bin/api.pl?lon=..&lat=..&product=astro&output=json`) — the only free source of **astronomical seeing** and **transparency**. 3-hourly, **72-hour horizon only**, GFS-derived, refreshed every 6h.
-   Indices: `seeing` 1–8 (1 = <0.5″, 8 = >2.5″), `transparency` 1–8 (1 = best), `cloudcover` 1–9, `liftedindex`. Note the inversion — lower is better for all of these. `ac` param applies altitude correction for sites >1000 m above surrounding terrain (relevant for Sierra/Utah sites).
+   Indices: `seeing` 1–8 (1 = <0.5″, 8 = >2.5″), `transparency` 1–8 (1 = best), `cloudcover` 1–9, `liftedindex`. Note the inversion — lower is better for all of these. `ac` param applies altitude correction for sites well above surrounding terrain, and takes only 0, 2 or 7 (km). Elevation alone cannot tell a summit from a high valley, so the planner does not send it.
 
 **Blend rule:** cloud/humidity/wind from Open-Meteo (better resolution, longer horizon); seeing/transparency from 7Timer when the date is within 72h, otherwise fall back to a humidity-and-wind-shear proxy and clearly label it as estimated. Cache responses to SQLite keyed by `(lat_rounded, lon_rounded, model_run)` with a 3-hour TTL — do not re-fetch on every page load.
 
@@ -94,7 +94,7 @@ Suggested factors — tune later, but start here:
 | `clear` | `(1 − total_cloud/100)^1.5` | same |
 | `transparency` | strong weight; high cloud and RH penalized hard | weak weight (0.8–1.0 range) |
 | `moon` | `1 − 0.75 · illum · max(0, sin(moon_alt))^0.6` | `1.0` (Moon is irrelevant or is the target) |
-| `seeing` | mild: `0.85 + 0.15 · seeing_quality` | **dominant**: `seeing_quality^1.5` |
+| `seeing` | mild: `0.85 + 0.15 · seeing_quality` | **dominant**: `seeing_quality` (was `^1.5`, which on 7Timer's class scale turned a 1–1.25″ night into 0.43; see `engine/scoring.py`) |
 | `wind` | full score below 10 mph, linear to 0.4 at 25 mph gusts | same (Dobs shake) |
 | `dew` | dewpoint spread < 2 °C → 0.85 and raise a dew warning flag | same |
 

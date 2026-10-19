@@ -409,4 +409,6 @@ def test_a_location_carrying_an_atlas_value_is_still_hashable():
 @requires_raster
 def test_out_of_coverage_is_none_rather_than_a_guess():
     """PLAN.md §2: return None outside coverage rather than guessing."""
-    assert sqm_at(89.9, 0.0) is None or isinstance(sqm_at(89.9, 0.0), float)
+    # 89.9 N is outside every raster this reads: the US build stops at 50 N
+    # and Falchi's world atlas at 85 N.
+    assert sqm_at(89.9, 0.0) is None

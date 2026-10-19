@@ -38,9 +38,13 @@ from .equipment import (
     Scope,
     airmass,
     extinction_mag,
+    naked_eye_limiting_mag,
+    telescopic_gain,
     telescopic_limiting_mag,
 )
 from .locations import BORTLE_SQM, Location
+from .moonlight import (MIN_VALID_SEPARATION_DEG, moonlit_sky_sb,
+                        phase_angle_from_illumination)
 from .timeutil import ensure_utc, local_midnight_utc
 
 DEFAULT_MIN_ALTITUDE_DEG = 25.0
@@ -98,6 +102,19 @@ MOON_SEPARATION_ILLUM_DEG = 60.0
 MOON_TOLERANT_GROUPS = {"Open Clusters", "Globular Clusters", "Double Stars",
                         "Asterisms"}
 MOON_TOLERANT_FACTOR = 0.5
+
+# How moonlight enters the detectability tests.
+#
+# "flat": one sky brightness for every object all night -- the site's SQM less
+#   3 mag x illumination if the Moon is up at any point in the session -- plus
+#   the separation rule above as a hard cut. The original model.
+# "ks": Krisciunas & Schaefer's moonlit sky (engine/moonlight.py) at each
+#   object's own position, at every sample, and the object judged at its best
+#   moment. The separation rule falls away: nearness to the Moon is already in
+#   the sky brightness, which is what it was standing in for. Only the
+#   innermost few degrees, where K&S is not valid, remain a hard cut.
+MOON_MODELS = ("flat", "ks")
+DEFAULT_MOON_MODEL = "flat"
 
 # Only these are judged on surface brightness. A galaxy or a nebula is a
 # diffuse glow competing with the sky background across its whole area, so
@@ -315,6 +332,12 @@ def _contiguous_spans(times: list[datetime], mask: np.ndarray,
     return spans
 
 
+def _airmass_array(altitude_deg: np.ndarray) -> np.ndarray:
+    """`equipment.airmass` (Pickering 2002) over an array of altitudes > 0."""
+    h = np.asarray(altitude_deg, dtype=float)
+    return 1.0 / np.sin(np.radians(h + 244.0 / (165.0 + 47.0 * h ** 1.1)))
+
+
 def _required_separation(obj: DeepSkyObject, illumination: float) -> float:
     """Moon separation an object needs, scaled by how bright the moon is."""
     required = MOON_SEPARATION_BASE_DEG + MOON_SEPARATION_ILLUM_DEG * illumination
@@ -406,6 +429,7 @@ def assess_targets(
     extinction_k: float = DEFAULT_EXTINCTION_K,
     logged: set[str] | None = None,
     include_too_faint: bool = False,
+    moon_model: str = DEFAULT_MOON_MODEL,
 ) -> list[TargetAssessment]:
     """Every catalog object that passes the hard filters, best first.
 
@@ -424,11 +448,12 @@ def assess_targets(
             min_altitude_deg=min_altitude_deg, session=session,
             min_minutes_above_floor=min_minutes_above_floor, step=step,
             contrast_floor=contrast_floor, extinction_k=extinction_k,
-            logged=logged, include_too_faint=include_too_faint)
+            logged=logged, include_too_faint=include_too_faint,
+            moon_model=moon_model)
 
     key = (id(window), scope, equipment.eye_pupil_mm, min_altitude_deg,
            session, min_minutes_above_floor, step, contrast_floor,
-           extinction_k, frozenset(logged or ()), include_too_faint)
+           extinction_k, frozenset(logged or ()), include_too_faint, moon_model)
     hit = _ASSESSED.get(key)
     if hit is not None and hit[0] is window:
         _ASSESSED.move_to_end(key)
@@ -438,7 +463,8 @@ def assess_targets(
         window, equipment, scope, min_altitude_deg=min_altitude_deg,
         session=session, min_minutes_above_floor=min_minutes_above_floor,
         step=step, contrast_floor=contrast_floor, extinction_k=extinction_k,
-        logged=logged, include_too_faint=include_too_faint)
+        logged=logged, include_too_faint=include_too_faint,
+        moon_model=moon_model)
     # The window is held alongside, so its id cannot be reused by another
     # object while the entry lives.
     _ASSESSED[key] = (window, tuple(result))
@@ -467,6 +493,7 @@ def _assess_uncached(
     extinction_k: float = DEFAULT_EXTINCTION_K,
     logged: set[str] | None = None,
     include_too_faint: bool = False,
+    moon_model: str = DEFAULT_MOON_MODEL,
 ) -> list[TargetAssessment]:
     """The assessment behind `assess_targets`, uncached.
 
@@ -486,6 +513,8 @@ def _assess_uncached(
     behaviour and still what the CLI wants -- see `engine/session.py` for why
     the web UI does not.
     """
+    if moon_model not in MOON_MODELS:
+        raise ValueError(f"moon_model must be one of {MOON_MODELS}, got {moon_model!r}")
     location = window.location
     scope = scope or equipment.scope()
 
@@ -546,6 +575,7 @@ def _assess_uncached(
     azimuths = np.empty((len(times), len(candidates)))
     separations = np.empty((len(times), len(candidates)))
     moon_up = np.empty(len(times), dtype=bool)
+    moon_alts = np.empty(len(times))
 
     for index in range(len(times)):
         moment = sky_times[index]
@@ -557,6 +587,7 @@ def _assess_uncached(
 
         moon_position = here.observe(moon).apparent()
         moon_alt = float(moon_position.altaz()[0].degrees)
+        moon_alts[index] = moon_alt
         moon_up[index] = moon_alt > 0.0
         separations[index] = star_positions.separation_from(moon_position).degrees
 
@@ -577,6 +608,21 @@ def _assess_uncached(
     # moonlight while the point-source magnitude test was not, so compact
     # objects slipped through a filter that should have caught them.
     base_limit = telescopic_limiting_mag(scope, sky_sb, equipment.eye_pupil_mm)
+
+    ks = moon_model == "ks"
+    if ks:
+        dark_sb = location.sqm if location.sqm is not None else BORTLE_SQM[5]
+        # sky_grid[i][j]: the sky at object j at time i, Moon included.
+        sky_grid = moonlit_sky_sb(
+            dark_sb, phase_angle_from_illumination(window.moon_illumination),
+            moon_alts[:, None], altitudes, separations, extinction_k)
+        # Zenith limiting magnitude under each sample's sky: linear in SQM, so
+        # it vectorises. Extinction comes off per sample, per object, below.
+        gain = telescopic_gain(scope.aperture_mm, equipment.eye_pupil_mm)
+        limit_grid = naked_eye_limiting_mag(sky_grid) + gain
+        dark_limit = naked_eye_limiting_mag(dark_sb) + gain
+        # Too close to the Moon for K&S to say anything, and in the glare.
+        glare = moon_up[:, None] & (separations < MIN_VALID_SEPARATION_DEG)
 
     horizon = location.horizon
     # How dark each sample is, so an object only counts as up when the sky is
@@ -645,35 +691,77 @@ def _assess_uncached(
             separation = float(separations[moon_up & above, j].min())
         else:
             separation = 180.0
-        required = _required_separation(obj, window.moon_illumination)
-        # Moon glare is a sky condition, not a positional one: the object is
-        # up and pointable, it is just drowned. Treated like any other
-        # too-faint case so the list can say so rather than omitting it.
-        swamped_by_moon = separation < required
+        diffuse = obj.group in DIFFUSE_GROUPS
+        judged_on_sb = (diffuse and obj.is_extended
+                        and obj.surface_brightness is not None)
+        # PLAN.md 7: extended objects live or die by surface brightness. A
+        # large, bright object is judged on its core rather than on the mean
+        # over an extent dominated by faint outer nebulosity. The test itself
+        # is unchanged, so a bright enough sky still wins.
+        concentrated = (judged_on_sb and obj.magnitude is not None
+                        and obj.magnitude <= BRIGHT_CORE_MAG)
+        effective_sb = (obj.surface_brightness
+                        - (BRIGHT_CORE_SB_BONUS if concentrated else 0.0)
+                        if judged_on_sb else None)
+
+        if ks:
+            # Judged at its best moment: of the samples it is usable (or, if
+            # it only rises after the session, up), the one where it clears
+            # its test by the most -- often not its highest, if the Moon sets
+            # or climbs away during the night.
+            pool = np.flatnonzero(usable if usable.any() else above)
+            alts = np.maximum(column[pool], 1.0)
+            ext = extinction_k * (_airmass_array(alts) - 1.0)
+            skies = sky_grid[pool, j]
+            limits = limit_grid[pool, j] - ext
+            if judged_on_sb:
+                margin = skies - effective_sb - contrast_floor
+                dark_margin = dark_sb - effective_sb - contrast_floor
+            elif obj.magnitude is not None:
+                margin = limits - obj.magnitude
+                dark_margin = float((dark_limit - ext).max()) - obj.magnitude
+            else:
+                margin = np.zeros(len(pool))
+                dark_margin = 0.0
+            margin = np.where(glare[pool, j], -np.inf, margin)
+            best = int(np.argmax(margin))
+            obj_sky = float(skies[best])
+            limit = float(limits[best])
+            # The Moon is to blame when the object fails now and would pass
+            # under this site's moonless sky.
+            swamped_by_moon = bool(margin[best] < 0 and dark_margin >= 0)
+            required = MIN_VALID_SEPARATION_DEG
+            # A galaxy or nebula with no surface brightness in the catalogue
+            # (3,000-odd, the Veil among them) can only be judged on its
+            # integrated magnitude, which says it is a mag-7 star and so
+            # survives any Moon. For those the old separation rule is still
+            # the better guess, so it stays as a floor.
+            if diffuse and obj.is_extended and not judged_on_sb:
+                flat_required = _required_separation(obj, window.moon_illumination)
+                if separation < flat_required:
+                    swamped_by_moon = True
+                    required = flat_required
+        else:
+            obj_sky = sky_sb
+            limit = base_limit - extinction_mag(max(peak_alt, 1.0), extinction_k)
+            required = _required_separation(obj, window.moon_illumination)
+            # Moon glare is a sky condition, not a positional one: the object
+            # is up and pointable, it is just drowned. Treated like any other
+            # too-faint case so the list can say so rather than omitting it.
+            swamped_by_moon = separation < required
         if swamped_by_moon and not include_too_faint:
             continue
-
-        limit = base_limit - extinction_mag(max(peak_alt, 1.0), extinction_k)
 
         notes: list[str] = []
         contrast: float | None = None
         too_faint = False
-        diffuse = obj.group in DIFFUSE_GROUPS
-        if diffuse and obj.is_extended and obj.surface_brightness is not None:
-            # PLAN.md 7: extended objects live or die by surface brightness.
-            # A large, bright object is judged on its core rather than on the
-            # mean over an extent dominated by faint outer nebulosity. The
-            # test itself is unchanged, so a bright enough sky still wins.
-            concentrated = (obj.magnitude is not None
-                            and obj.magnitude <= BRIGHT_CORE_MAG)
-            effective_sb = (obj.surface_brightness
-                            - (BRIGHT_CORE_SB_BONUS if concentrated else 0.0))
-            contrast = sky_sb - effective_sb
+        if judged_on_sb:
+            contrast = obj_sky - effective_sb
             too_faint = contrast < contrast_floor
             # Only worth saying when the correction changed the answer. An
             # object that clears the floor on its mean too needs no
             # explanation of a distinction that did not arise.
-            mean_contrast = sky_sb - obj.surface_brightness
+            mean_contrast = obj_sky - obj.surface_brightness
             if concentrated and mean_contrast < contrast_floor:
                 notes.append(
                     f"large and bright: outer extent {abs(mean_contrast):.1f} "
@@ -690,8 +778,12 @@ def _assess_uncached(
 
         if swamped_by_moon:
             too_faint = True
-            notes.append(f"washed out by the moon - {separation:.0f} deg away, "
-                         f"needs {required:.0f} deg")
+            if ks:
+                notes.append(f"washed out by the moon - sky {obj_sky:.1f} "
+                             f"mag/arcsec^2 there at best, {separation:.0f} deg away")
+            else:
+                notes.append(f"washed out by the moon - {separation:.0f} deg away, "
+                             f"needs {required:.0f} deg")
         elif too_faint:
             if not include_too_faint:
                 continue

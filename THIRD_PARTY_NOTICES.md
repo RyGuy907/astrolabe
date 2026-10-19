@@ -94,7 +94,7 @@ use or large-scale redistribution.
 
 - **Files:** `engine/catalog/data/stars.csv` (41,411 stars to magnitude 8,
   ~2 MB) and `engine/catalog/data/constellation_lines.json` (the stick
-  figures, 18 KB).
+  figures, 23 KB).
 - **Source:** [d3-celestial](https://github.com/ofrohn/d3-celestial) by
   **Olaf Frohn**, files `stars.8.json`, `starnames.json` and
   `constellations.lines.json`; and the
@@ -191,8 +191,9 @@ use or large-scale redistribution.
 - **Endpoints:** `api.open-meteo.com`, `geocoding-api.open-meteo.com`
 - **Source:** https://open-meteo.com — keyless. Free tier is intended for
   non-commercial use; check current terms before deploying publicly.
-- Responses are cached to SQLite with a 3-hour TTL, keyed by rounded
-  coordinates and model run, to keep request volume low.
+- Responses are cached to SQLite with a 3-hour TTL, keyed by coordinates
+  rounded to 0.01°, to keep request volume low. When a refresh fails, a copy
+  up to a day old stands in and is labelled with its age.
 - `api.open-meteo.com/v1/elevation` fills in the ground height of a site
   picked off the map (its terrain model is Copernicus DEM GLO-90). One request
   per settled pin position, cached in memory, never per keystroke.
@@ -222,17 +223,13 @@ use or large-scale redistribution.
   prefetching. Attribution is rendered by the map control; nothing prefetches.
   Re-read that policy before deploying publicly.
 
-### Minor Planet Center — comet orbital elements
+### Google Fonts — Inter
 
-- **Endpoint:** `www.minorplanetcenter.net/iau/MPCORB/CometEls.txt`
-- **Source:** IAU Minor Planet Center, https://www.minorplanetcenter.net —
-  keyless. Fetched once into the local cache directory through Skyfield's
-  loader, by `engine/events.py`.
-- Used only by `planner events` for comet availability; no astronomy depends
-  on it, the HTTP API never calls it, and it degrades to
-  "MPC unavailable" rather than failing.
-- The MPC asks that use of its data be acknowledged. Note its terms on bulk
-  or automated querying before increasing how often this is fetched.
+- **Endpoint:** `fonts.googleapis.com` (stylesheet) and `fonts.gstatic.com`
+  (font files), loaded by `web/index.html`.
+- **Font:** Inter, by Rasmus Andersson, SIL Open Font License 1.1.
+- The browser fetches it directly; the server never does. If it cannot load,
+  the page falls back to the system sans-serif named in `styles.css`.
 
 ### NASA GIBS — VIIRS night-lights overlay
 

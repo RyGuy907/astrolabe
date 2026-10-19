@@ -234,6 +234,28 @@ def test_one_visitor_is_told_to_wait(client):
     assert client.get("/api/skybrightness/at", params={"lat": 40, "lon": -111}).status_code == 200
 
 
+def test_resolving_saved_sites_does_not_spend_the_outbound_limit(client):
+    """The page resolves every saved site on each load. With coordinates that
+    reaches no other service, so it must not count toward the 40/min."""
+    from api import main
+
+    for _ in range(main._REACHING_OUT.limit + 5):
+        response = client.post("/api/sites/resolve", json={"lat": 40.5, "lon": -111.6})
+        assert response.status_code == 200
+    assert client.get("/api/elevation", params={"lat": 40, "lon": -111}).status_code == 200
+
+
+def test_resolving_by_name_does_spend_the_outbound_limit(client):
+    from api import main
+
+    for _ in range(main._REACHING_OUT.limit):
+        # Offline, so the geocoder finds nothing: 404, but the call counted.
+        assert client.post("/api/sites/resolve", json={"query": "Moab"}).status_code == 404
+    refused = client.post("/api/sites/resolve", json={"query": "Moab"})
+    assert refused.status_code == 429
+    assert int(refused.headers["Retry-After"]) >= 1
+
+
 def test_the_health_check_is_never_limited(client):
     from api import main
 
