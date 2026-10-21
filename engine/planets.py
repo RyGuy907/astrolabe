@@ -51,6 +51,17 @@ TOO_NEAR_SUN_DEG = 15.0
 DEFAULT_MIN_ALTITUDE_DEG = 25.0
 DEFAULT_MIN_HOURS = 1.0
 
+# Mercury and Venus are seen in twilight or not at all, but not in daylight:
+# the usual criterion is the Sun at least 6 degrees down (civil twilight
+# over) with the planet still 5 up, for half an hour. Assessed from sunset
+# with a 0-degree floor, the app called Mercury observable on 29% of the
+# nights of 2026 from 40.5 N when it never once met that -- an 8-degree
+# "peak" at the moment of sunset -- and Venus on 10%; it was never wrong the
+# other way.
+INNER_SUN_LIMIT_DEG = -6.0
+INNER_MIN_ALTITUDE_DEG = 5.0
+INNER_MIN_HOURS = 0.5
+
 
 @dataclass(frozen=True)
 class PlanetReport:
@@ -281,8 +292,13 @@ def next_visibility(planet: str, location: Location, after: date, *,
 
     # Sunset/sunrise refer to the Sun's upper limb with refraction (-0.833);
     # astronomical night to the centre 18 deg down.
-    sun_limit = -0.833 if planet in INNER_PLANETS else -18.0
-    dark = sun_alt < sun_limit
+    # Inner planets: civil twilight over, as in `report_planet`. The rest:
+    # astronomical night, the Sun's centre 18 deg down.
+    inner = planet in INNER_PLANETS
+    sun_limit = INNER_SUN_LIMIT_DEG if inner else -18.0
+    floor = max(min_altitude_deg, INNER_MIN_ALTITUDE_DEG) if inner else min_altitude_deg
+    needed = INNER_MIN_HOURS if inner else min_hours
+    dark = sun_alt <= sun_limit
     best_altitude, best_date = -90.0, None
     for day, is_dark, altitudes in zip(candidates, dark, planet_alt):
         if not is_dark.any():
@@ -290,8 +306,8 @@ def next_visibility(planet: str, location: Location, after: date, *,
         peak = float(altitudes[is_dark].max())
         if peak > best_altitude:
             best_altitude, best_date = peak, day
-        above = int(np.sum(is_dark & (altitudes >= min_altitude_deg)))
-        if above * 0.5 >= min_hours:
+        above = int(np.sum(is_dark & (altitudes >= floor)))
+        if above * 0.5 >= needed:
             return Visibility(when=day, best_altitude_deg=peak, best_date=day)
     return Visibility(when=None, best_altitude_deg=best_altitude,
                       best_date=best_date)
@@ -322,9 +338,25 @@ def report_planet(planet: str, location: Location, window, *,
         cursor += timedelta(minutes=30)
 
     altitudes = np.asarray(_altitudes(eph, location, planet, stamps))
-    peak_index = int(np.argmax(altitudes))
+    if planet in INNER_PLANETS:
+        # Every ten minutes rather than every half hour: the usable stretch
+        # is often under an hour, and a coarse grid misses it or doubles it.
+        stamps = [start + timedelta(minutes=10 * k)
+                  for k in range(int((end - start).total_seconds() // 600) + 1)]
+        altitudes = np.asarray(_altitudes(eph, location, planet, stamps))
+        sun = np.asarray(_altitudes(eph, location, "sun", stamps))
+        floor = max(min_altitude_deg, INNER_MIN_ALTITUDE_DEG)
+        usable = (sun <= INNER_SUN_LIMIT_DEG) & (altitudes >= floor)
+        hours_above = float(usable.sum()) * 10.0 / 60.0
+        # Its best once the sky has darkened enough to see it, which is the
+        # number worth showing; an altitude at sunset is not a view.
+        dim = sun <= INNER_SUN_LIMIT_DEG
+        pool = np.where(dim, altitudes, -np.inf) if dim.any() else altitudes
+        peak_index = int(np.argmax(pool))
+    else:
+        peak_index = int(np.argmax(altitudes))
+        hours_above = float(np.sum(altitudes >= min_altitude_deg)) * 0.5
     peak_altitude = float(altitudes[peak_index])
-    hours_above = float(np.sum(altitudes >= min_altitude_deg)) * 0.5
 
     # Physical quantities sampled at peak altitude, the best moment to observe.
     moment = eph.timescale.from_datetime(stamps[peak_index])
@@ -349,10 +381,14 @@ def report_planet(planet: str, location: Location, window, *,
         event_name, event_date, _ = event
         days_to_event = (event_date - window.date).days
 
-    observable = peak_altitude >= min_altitude_deg and hours_above >= DEFAULT_MIN_HOURS
+    if planet in INNER_PLANETS:
+        observable = hours_above >= INNER_MIN_HOURS
+    else:
+        observable = peak_altitude >= min_altitude_deg and hours_above >= DEFAULT_MIN_HOURS
     notes: list[str] = []
     if planet in INNER_PLANETS:
-        notes.append("twilight object - assessed sunset to sunrise")
+        notes.append("twilight object - needs the Sun 6 deg down and the planet "
+                     "5 deg up")
     if elongation < TOO_NEAR_SUN_DEG:
         notes.append(f"only {elongation:.0f} deg from the Sun")
         observable = False

@@ -283,7 +283,7 @@ def _build_location(request: NewLocationRequest) -> Location:
             elevation_m=elevation or 0.0, bortle=request.bortle,
             tz=_resolve_tz(lat, lon),
             horizon=build_horizon(request.horizon, request.horizon_facing),
-            atlas_sqm=atlas_sqm_for(lat, lon, request.bortle),
+            atlas_sqm=atlas_sqm_for(lat, lon, request.bortle, elevation or 0.0),
         )
     except (ValueError, KeyError, TypeError) as exc:
         raise HTTPException(status_code=422, detail=str(exc))
@@ -1161,6 +1161,10 @@ def skybrightness_tile(z: int, x: int, y: int,
          tags=["locations"])
 def skybrightness_at(lat: float = Query(..., ge=-90.0, le=90.0),
                      lon: float = Query(..., ge=-180.0, le=180.0),
+                     elevation_m: float | None = Query(
+                         None, description="The site's height, for the haze "
+                                           "above it; the reading a saved site "
+                                           "gets uses its own."),
                      ) -> SkyBrightnessReading:
     """What the atlas says about one point, for the add-site form.
 
@@ -1173,7 +1177,7 @@ def skybrightness_at(lat: float = Query(..., ge=-90.0, le=90.0),
                                       source_label, sqm_at)
 
     try:
-        sqm = sqm_at(lat, lon)
+        sqm = sqm_at(lat, lon, elevation_m)
     except SkyBrightnessUnavailable:
         # A raster is configured but cannot be read (missing file, no
         # rasterio). Same answer as outside coverage: the form asks instead.

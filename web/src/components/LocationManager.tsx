@@ -441,7 +441,8 @@ export function LocationManager({ locations, editingKey, onClose, onSaved }: Pro
     const controller = new AbortController();
     const timer = window.setTimeout(() => {
       api
-        .skyBrightnessAt(latValue, lonValue, controller.signal)
+        .skyBrightnessAt(latValue, lonValue, controller.signal,
+                         elevation.trim() !== "" && elevationValid ? Number(elevation) : null)
         .then((reading) => {
           setAtlas(reading);
           if (bortleEdited) return;          // theirs now; leave it alone
@@ -467,8 +468,10 @@ export function LocationManager({ locations, editingKey, onClose, onSaved }: Pro
       window.clearTimeout(timer);
       controller.abort();
     };
+    // The height too: the map's reading depends on it (haze thins above a
+    // site), and the terrain lookup fills it in a moment after the pin moves.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [latValid, lonValid, latValue, lonValue, bortleEdited]);
+  }, [latValid, lonValid, latValue, lonValue, bortleEdited, elevation]);
 
   /** Put the site at a point with no name of its own -- a map click, or
    *  where the device says it is. */

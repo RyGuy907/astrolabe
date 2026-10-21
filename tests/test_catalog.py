@@ -240,3 +240,39 @@ def test_is_extended_flags_large_objects(catalog):
     assert find_object("M31", catalog).is_extended is True
     assert find_object("M57", catalog).is_extended is True     # 1.27'
     assert isinstance(find_object("M13", catalog), DeepSkyObject)
+
+
+
+# --- galaxy magnitudes checked against their colour ------------------------
+
+def test_an_implausible_galaxy_v_is_replaced_from_b():
+    """OpenNGC has NGC 253, one of the brightest galaxies in the sky, at
+    V 11.1 against B 7.9 -- which made it too faint from every site there is.
+    A galaxy's B-V lies within 0.2-1.5, so a V outside that is estimated from
+    B instead. A cluster's colour is too varied to correct this way, and for
+    M15 it is the B, 3.0 against V 6.3, that is wrong: it is left alone."""
+    from engine.catalog.loader import visual_magnitude
+
+    assert visual_magnitude(11.11, 7.94, "Galaxies") == pytest.approx(7.19)
+    assert visual_magnitude(9.20, 14.83, "Galaxies") == pytest.approx(14.08)   # IC 127
+    assert visual_magnitude(3.44, 4.29, "Galaxies") == pytest.approx(3.44)     # M31
+    assert visual_magnitude(None, 10.0, "Galaxies") == pytest.approx(9.25)     # B only
+    assert visual_magnitude(6.3, 3.0, "Globular Clusters") == pytest.approx(6.3)
+    assert visual_magnitude(None, 4.0, "Nebulae") == pytest.approx(4.0)
+
+
+def test_a_cache_built_by_an_older_version_is_rebuilt(tmp_path):
+    """What is computed on ingest changed, so a cache written before must not
+    be served: the server's lives on between deploys."""
+    import sqlite3
+
+    from engine.catalog import loader
+
+    path = tmp_path / "catalog.sqlite3"
+    loader.build_database(path)
+    connection = sqlite3.connect(path)
+    connection.execute("UPDATE meta SET value = '1' WHERE key = 'schema_version'")
+    connection.commit()
+    connection.close()
+    loader.load_catalog(path)
+    assert loader._schema_version(path) == loader.SCHEMA_VERSION

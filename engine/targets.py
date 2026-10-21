@@ -53,8 +53,19 @@ DEFAULT_STEP = timedelta(minutes=15)
 DEFAULT_GROUP_LIMIT = 8
 
 # How far below sky brightness an extended object can sit and still be
-# considered detectable in a 200 mm class scope, in mag/arcsec^2. Heuristic.
-DEFAULT_CONTRAST_FLOOR = -2.5
+# considered detectable in a 200 mm class scope, in mag/arcsec^2.
+#
+# Fitted, not guessed: against a published rating of every Messier galaxy for
+# an 8-inch scope (NexStar User's Guide II -- "Easy" and "Medium" visible from
+# most city skies, "Hard" only from the suburbs), -2.5 called 17 of 78
+# city-and-suburb verdicts wrong, M31, M81, M82, M51 and M104 among them, all
+# "too faint" from Bortle 8. -3.6 gets 5 wrong, and 6 when each galaxy is
+# judged by a floor fitted without it. A floor that loose would pass faint
+# galaxies wholesale under a dark sky, which the ratings cannot see, so an
+# extended object must also be within the telescope's stellar limit: see
+# `judged_on_sb` below. With both, nothing past magnitude 13.5 passes at
+# Bortle 4, against 2,751 before.
+DEFAULT_CONTRAST_FLOOR = -3.6
 
 # Concentrated-core correction for large, bright extended objects.
 #
@@ -85,13 +96,14 @@ DEFAULT_CONTRAST_FLOOR = -2.5
 # stopped calling bright objects too faint, which made M31 immune to light
 # pollution: it scored 77 from an inner-city sky, where it is a poor view at
 # best. Shifting the surface brightness and re-running the same test keeps the
-# sky in the argument. M31 now passes to Bortle 6 and fails from 7 up, which
-# is about right.
+# sky in the argument. With the floor fitted to observing ratings (see
+# DEFAULT_CONTRAST_FLOOR) M31 passes to Bortle 8 and fails at 9, and M42
+# passes from every sky, both as observers report.
 #
-# **What this still gets wrong.** M42 is rejected from Bortle 8, where it is
-# plainly visible -- the Trapezium region is orders of magnitude brighter than
-# the 90-arcminute mean, and no single constant can express that. Separating
-# M42 from M31 needs a concentration index the catalogue does not carry.
+# **What this still gets wrong.** The rule errs on 5 of 78 rated Messier
+# verdicts: M33 is passed from Bortle 7, where it is rated hard to see, and
+# M51 and M66 are failed there. A mean surface brightness cannot see a
+# galaxy's core; a concentration index the catalogue does not carry would.
 BRIGHT_CORE_MAG = 8.0
 BRIGHT_CORE_SB_BONUS = 1.0
 
@@ -113,8 +125,15 @@ MOON_TOLERANT_FACTOR = 0.5
 #   moment. The separation rule falls away: nearness to the Moon is already in
 #   the sky brightness, which is what it was standing in for. Only the
 #   innermost few degrees, where K&S is not valid, remain a hard cut.
+#
+# "ks" is the default. Against 114 Globe at Night sky-meter readings taken
+# with the Moon up, the flat penalty did worse than ignoring the Moon at all
+# -- 1.3 mag out, 2 at full Moon, 1.6 in cities, because 3 magnitudes off an
+# already bright city sky is far more than moonlight adds to it -- while K&S
+# was 0.43 out with no bias. It is what stopped a full Moon calling the
+# Pleiades and the Ring Nebula too faint.
 MOON_MODELS = ("flat", "ks")
-DEFAULT_MOON_MODEL = "flat"
+DEFAULT_MOON_MODEL = "ks"
 
 # Only these are judged on surface brightness. A galaxy or a nebula is a
 # diffuse glow competing with the sky background across its whole area, so
@@ -346,14 +365,36 @@ def _required_separation(obj: DeepSkyObject, illumination: float) -> float:
     return required
 
 
-def _sky_surface_brightness(location: Location, moon_illumination: float,
+def _site_sky(location: Location, span: Interval) -> float:
+    """The site's moonless sky over the hours being assessed, in SQM.
+
+    A class the observer chose is their judgement of their sky and is taken
+    as it stands. A reading off the map is the satellite's picture of the
+    lights at about midnight, and lights dim through the night, so it is moved
+    to the middle of the span (`skybrightness.at_hour`): about 0.1 mag
+    brighter for an evening session than for one round midnight.
+    """
+    if location.sqm is None:
+        return BORTLE_SQM[5]
+    if location.sky_source != "atlas":
+        return location.sqm
+    from zoneinfo import ZoneInfo
+
+    from .skybrightness import at_hour
+
+    middle = (span[0] + (span[1] - span[0]) / 2).astimezone(ZoneInfo(location.tz))
+    hours = middle.hour + middle.minute / 60.0
+    return at_hour(location.sqm, hours - 24.0 if hours >= 12.0 else hours)
+
+
+def _sky_surface_brightness(base: float, moon_illumination: float,
                             moon_is_up: bool) -> float:
     """Sky brightness in mag/arcsec^2, degraded when the moon is up.
 
-    The moonlight term is a rough linear penalty: a full moon costs about
-    3 mag/arcsec^2 at a dark site, which is the right order of magnitude.
+    The flat model's moonlight term, a rough linear penalty: a full moon costs
+    3 mag/arcsec^2 whatever the sky, which is about right at a dark site and
+    far too much in a city. `moon_model="ks"` replaces it.
     """
-    base = location.sqm if location.sqm is not None else BORTLE_SQM[5]
     if not moon_is_up:
         return base
     return base - 3.0 * moon_illumination
@@ -601,7 +642,8 @@ def _assess_uncached(
     # brightness depends on is what the sky is like during the session.
     moon_up_in_session = moon_up & in_session
     any_moon_up = bool(moon_up_in_session.any())
-    sky_sb = _sky_surface_brightness(location, window.moon_illumination, any_moon_up)
+    dark_sb = _site_sky(location, span)
+    sky_sb = _sky_surface_brightness(dark_sb, window.moon_illumination, any_moon_up)
     # Limiting magnitude must use the *moonlit* sky, not the site's dark-sky
     # SQM. Using the moonless value let mag-12 galaxies pass under a 97% moon:
     # the surface-brightness contrast test was correctly degraded for
@@ -611,11 +653,17 @@ def _assess_uncached(
 
     ks = moon_model == "ks"
     if ks:
-        dark_sb = location.sqm if location.sqm is not None else BORTLE_SQM[5]
-        # sky_grid[i][j]: the sky at object j at time i, Moon included.
+        # sky_grid[i][j]: the sky at object j at time i, Moon included. The
+        # Moon's light is physical, so it is added to the sky the eye works
+        # against -- REAL_SKY_OFFSET brighter than the Bortle scale's --
+        # and the sum brought back onto that scale, where the tests below
+        # were fitted.
+        from .skybrightness import REAL_SKY_OFFSET
+
         sky_grid = moonlit_sky_sb(
-            dark_sb, phase_angle_from_illumination(window.moon_illumination),
-            moon_alts[:, None], altitudes, separations, extinction_k)
+            dark_sb - REAL_SKY_OFFSET,
+            phase_angle_from_illumination(window.moon_illumination),
+            moon_alts[:, None], altitudes, separations, extinction_k) + REAL_SKY_OFFSET
         # Zenith limiting magnitude under each sample's sky: linear in SQM, so
         # it vectorises. Extinction comes off per sample, per object, below.
         gain = telescopic_gain(scope.aperture_mm, equipment.eye_pupil_mm)
@@ -715,8 +763,12 @@ def _assess_uncached(
             skies = sky_grid[pool, j]
             limits = limit_grid[pool, j] - ext
             if judged_on_sb:
-                margin = skies - effective_sb - contrast_floor
-                dark_margin = dark_sb - effective_sb - contrast_floor
+                # Both tests: bright enough per square arcsecond for the sky,
+                # and bright enough in all for the telescope.
+                margin = np.minimum(skies - effective_sb - contrast_floor,
+                                    limits - obj.magnitude)
+                dark_margin = min(dark_sb - effective_sb - contrast_floor,
+                                  float((dark_limit - ext).max()) - obj.magnitude)
             elif obj.magnitude is not None:
                 margin = limits - obj.magnitude
                 dark_margin = float((dark_limit - ext).max()) - obj.magnitude
@@ -757,7 +809,11 @@ def _assess_uncached(
         too_faint = False
         if judged_on_sb:
             contrast = obj_sky - effective_sb
-            too_faint = contrast < contrast_floor
+            # The floor is loose enough that a small faint galaxy would pass
+            # it under any dark sky, so its total light has to be within the
+            # telescope's reach as well.
+            too_faint = (contrast < contrast_floor
+                         or (obj.magnitude is not None and obj.magnitude > limit))
             # Only worth saying when the correction changed the answer. An
             # object that clears the floor on its mean too needs no
             # explanation of a distinction that did not arise.

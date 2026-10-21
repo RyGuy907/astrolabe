@@ -17,6 +17,7 @@ import math
 from dataclasses import dataclass
 from pathlib import Path
 
+import numpy as np
 import yaml
 
 CONFIG_DIR = Path(__file__).resolve().parent.parent / "config"
@@ -83,14 +84,27 @@ def load_equipment(path: Path | None = None) -> Equipment:
     )
 
 
-def naked_eye_limiting_mag(sqm: float) -> float:
+def naked_eye_limiting_mag(sqm):
     """Faintest naked-eye star for a sky of `sqm` mag/arcsec^2.
 
-    Linear fit anchored on the conventional pairings: SQM 21.9 (Bortle 1) is
-    about mag 7.8, SQM 18.0 (Bortle 8) about mag 4.3. Good enough for ranking;
-    it is not a detection model.
+    Schaefer's relation, NELM = 7.93 - 5 log10(10^(4.316 - V/5) + 1)
+    (Schaefer 1990, as given by Birriel, Walker & Thornsberry 2014, JAAVSO
+    42:219), evaluated on the sky an observer actually stands under:
+    `sqm` is on the Bortle scale's 22.00 natural sky, and the eye works
+    against one `skybrightness.REAL_SKY_OFFSET` brighter.
+
+    This replaced a straight line through Bortle's own pairings (7.8 at SQM
+    21.9, 4.3 at 18.0), which describe an expert's averted-vision best.
+    Against 1,539 Globe at Night readings carrying both a sky meter value and a
+    naked-eye star count, the line promised 0.7 mag fainter stars than people
+    saw (1.35 at dark sites); this is within 0.2, in both years separately.
+    Accepts an array as well as a float.
     """
-    return 4.3 + (sqm - 18.0) * (7.8 - 4.3) / (21.9 - 18.0)
+    from .skybrightness import REAL_SKY_OFFSET
+
+    v = np.asarray(sqm, dtype=float) - REAL_SKY_OFFSET
+    nelm = 7.93 - 5.0 * np.log10(10.0 ** (4.316 - v / 5.0) + 1.0)
+    return float(nelm) if nelm.ndim == 0 else nelm
 
 
 def telescopic_gain(aperture_mm: float, eye_pupil_mm: float) -> float:

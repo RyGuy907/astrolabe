@@ -303,16 +303,38 @@ lightpollutionmap.info's SQM ranges, the ones most observers learned the scale
 by -- Bortle 1 only at SQM 21.99 and darker, which is about 8% of the lower
 48's land, all of it in the remote West.
 
-**One calibration on top of the fit.** The shipped map's artificial light is
-the model's times 1.55. The satellite barely sees the blue of white LED
-light, so any map built on it -- the atlas included -- runs dark wherever
-streets have gone LED (Kyba et al. 2023, *Science*, found skies brightening
-several times faster to observers on the ground than to the satellite). The
-factor is fitted to 519 Globe at Night sky-meter readings from 2024-25, and it
-errs toward a brighter sky than the atlas, which is the safe side for planning
-a drive. With it, the map puts Salt Lake City at SQM
-17.4 (Bortle 9), Provo at 18.2 (8) and a Kansas farm at 20.6 (4), and the
-high-elevation cities within about 0.15 of Lorenz's independent model.
+**Calibrated against the ground, at query time.** The raster was built with
+its artificial light multiplied by 1.55, to match Globe at Night sky-meter
+readings. Tested properly -- 1,539 clear, dark, moonless readings from
+2024-25 at 564 sites, each region of the country predicted from a fit to the
+rest -- that factor was the wrong shape: the readings run 0.6-0.7 mag
+brighter than the map in *every* brightness band, pristine sites included,
+which no factor on artificial light can fix. `engine/skybrightness.py` now
+undoes it (reading the factor from the raster's own `CALIBRATION` tag) and
+applies what the readings do support, cutting the held-out error from 0.49
+to 0.28 mag:
+
+- **Artificial light is 0.94 of the model's, relative to the natural sky.**
+  Citizen meters read the whole sky brighter -- meter zero-point,
+  solar-maximum airglow, the readers' own habits -- but in proportion the
+  two are close to what the model says. The SQM keeps the Bortle scale's
+  natural sky of 22.00, so classes keep their meaning; what models the eye
+  (the naked-eye limit, moonlight) starts from a sky 0.83 mag brighter --
+  the meter's 0.66, plus the 0.17 at which Schaefer's relation matched the
+  star counts.
+- **Haze thins with height**, on a 2.5 km scale above 300 m. The fitted
+  kernel gave haze no weight, which left towns 1-2 km up about 0.4 mag too
+  bright; this halves the error at lit sites above 900 m, and naked-eye star
+  counts that no fit had seen show the same correction.
+- **Lights dim through the night**, about 4.5% an hour: the raster is the
+  satellite's ~01:30 picture, and a map-read site's sky is moved to the
+  middle of the observing session.
+
+With these the map puts Salt Lake City at SQM 18.3 (Bortle 7.6), Provo at
+19.2 (6.1), Highland at 19.9 (5.1), Tibble Fork at 21.3 (3.8) and Natural
+Bridges at 22.0 (1). The light-pollution overlay on the site map is drawn
+from pre-rendered tiles, which still show the old calibration until the map
+is rebuilt.
 
 How well it reproduces the atlas, on 2014 data, over every cell of the lower
 48 (SQM error in mag/arcsec²; the hold-out rows are fitted on one half of the
@@ -549,12 +571,23 @@ half an exponential disc's light falls inside 1.68 scale lengths while the
 catalogued D25 diameter runs to 3.2–4, which is 0.65–1.13 magnitudes — and are
 then put through the *same* test. That last part matters: an earlier version
 simply exempted them, which made M31 immune to light pollution and scored it 77
-from an inner-city sky. It now passes to Bortle 6 and fails from 7 up.
+from an inner-city sky.
 
-**What this still gets wrong.** M42 is rejected from Bortle 8, where it is
-plainly visible — the Trapezium is orders of magnitude brighter than the
-90-arcminute mean, and no single constant can express that. Separating M42 from
-M31 needs a concentration index the catalogue does not carry.
+**The floor is fitted, not guessed.** Against a published rating of every
+Messier galaxy for an 8-inch scope (NexStar User's Guide II: "Easy" and
+"Medium" visible from most city skies, "Hard" only from the suburbs), the old
+-2.5 mag/arcsec² floor got 17 of 78 city-and-suburb verdicts wrong, M31, M81,
+M82, M51 and M104 all "too faint" from Bortle 8. At -3.6 it gets 5 wrong, or
+6 with each galaxy judged by a floor fitted without it. A floor that loose
+would pass faint galaxies wholesale under a dark sky, so an extended object
+must also be within the telescope's stellar limit; with both, nothing past
+magnitude 13.5 passes at Bortle 4, against 2,751 before. M31 now passes to
+Bortle 8 and fails at 9, and M42 passes from every sky.
+
+**What this still gets wrong.** M33 is passed from Bortle 7, where it is
+rated hard, and M51 and M66 are failed there: a mean surface brightness
+cannot see a galaxy's core, and a concentration index the catalogue does not
+carry would be needed to.
 
 ## What a target's detail panel knows
 
@@ -770,11 +803,15 @@ Nebula's *central star*, not the nebula (OpenNGC has it at V=8.8). M57 is
 excluded from the magnitude check for that reason. Automating a cross-check
 without reading it would have "verified" a wrong number.
 
-**Not externally verified:** the detectability and ranking model. Limiting
-magnitude, extinction and surface brightness are standard formulae, but the
-contrast threshold and the score weights are tuned guesses, not calibrated
-against observing reports. They rank targets sensibly against each other;
-they are not detection predictions.
+**Partly verified:** the detectability model. The naked-eye limit is
+Schaefer's relation, which matched 1,539 Globe at Night readings carrying
+both a sky-meter value and a star count to within 0.2 mag (the straight line
+it replaced was 0.7 out). Moonlight is Krisciunas & Schaefer's model, 0.43
+mag out on 114 readings taken with the Moon up, where the flat penalty it
+replaced was 1.3. The contrast floor is fitted to published 8-inch ratings
+of the Messier galaxies (5 of 78 verdicts wrong). The score weights are
+still tuned guesses: they rank targets sensibly against each other, and are
+not detection predictions.
 
 ### Phase 2 — weather indices
 

@@ -41,7 +41,19 @@ DOUBLE_STARS_CSV = DATA_DIR / "double_stars.csv"
 #: designation, which is why `display_name` hides it.
 DOUBLE_STAR_PREFIX = "DBL"
 
-SCHEMA_VERSION = 1
+#: Bumped whenever what is computed on ingest changes, so a cache built by an
+#: older version is rebuilt rather than served: 3 checks galaxy magnitudes
+#: and gives B-only galaxies a surface brightness.
+SCHEMA_VERSION = 3
+
+#: A galaxy's B-V lies in this range. OpenNGC's V column is sometimes plainly
+#: wrong -- NGC 253, one of the brightest galaxies in the sky, at V 11.1
+#: against B 7.9; IC 127 at V 9.2 against B 14.8 -- and V is what everything
+#: here is judged on, so a galaxy whose V falls outside it is given one
+#: estimated from B instead. 142 objects have a V fainter than their B.
+GALAXY_BV_RANGE = (0.2, 1.5)
+#: A typical galaxy's B-V, for estimating V from B.
+GALAXY_BV = 0.75
 
 # OpenNGC type code -> our observing group (PLAN.md 3.3.5).
 TYPE_GROUPS = {
@@ -213,6 +225,21 @@ def surface_brightness(mag: float | None, major_arcmin: float | None,
     return mag + 2.5 * math.log10(area_arcsec2)
 
 
+def visual_magnitude(v_mag: float | None, b_mag: float | None,
+                     group: str) -> float | None:
+    """The V magnitude to judge an object on: its own, unless it is a galaxy
+    whose V is implausible beside its B, or has none (see GALAXY_BV_RANGE).
+    Other types keep V where there is one and B otherwise, as before --
+    a cluster's colour is too varied to correct by rule, and for M15 it is
+    the B that is wrong."""
+    if group != "Galaxies" or b_mag is None:
+        return v_mag if v_mag is not None else b_mag
+    low, high = GALAXY_BV_RANGE
+    if v_mag is not None and low <= b_mag - v_mag <= high:
+        return v_mag
+    return b_mag - GALAXY_BV
+
+
 def _parse_row(row: dict) -> DeepSkyObject | None:
     obj_type = (row.get("Type") or "").strip()
     messier_raw = (row.get("M") or "").strip().lstrip("0")
@@ -238,6 +265,7 @@ def _parse_row(row: dict) -> DeepSkyObject | None:
     )
     v_mag, b_mag = _float(row.get("V-Mag", "")), _float(row.get("B-Mag", ""))
     major, minor = _float(row.get("MajAx", "")), _float(row.get("MinAx", ""))
+    visual = visual_magnitude(v_mag, b_mag, group)
 
     return DeepSkyObject(
         name=(row.get("Name") or "").strip(),
@@ -250,10 +278,18 @@ def _parse_row(row: dict) -> DeepSkyObject | None:
         common_names=common,
         major_axis_arcmin=major,
         minor_axis_arcmin=minor,
-        v_mag=v_mag,
+        # The magnitude judged on, after the galaxy check above; OpenNGC's
+        # own V is still in the source CSV for anyone who wants it.
+        v_mag=visual if group == "Galaxies" else v_mag,
         b_mag=b_mag,
-        # Computed from V so it is consistent with visual detectability.
-        surface_brightness=surface_brightness(v_mag, major, minor),
+        # From the visual magnitude, so it is consistent with detectability.
+        # A galaxy with only a B now gets one, from its estimated V; it used
+        # to get none and be judged as a star. Other types still need a V:
+        # a "cluster + nebula" row's B is usually its cluster's, and spread
+        # over the nebula it made a dozen obscure Orion entries look brighter
+        # per square arcsecond than M42 and crowd it out of the list.
+        surface_brightness=surface_brightness(
+            visual if group == "Galaxies" else v_mag, major, minor),
         catalog_surface_brightness=_float(row.get("SurfBr", "")),
     )
 
@@ -387,7 +423,7 @@ def load_catalog(path: Path | None = None, *, rebuild: bool = False
     so this stays inside the engine's no-network contract.
     """
     path = path or catalog_db_path()
-    if rebuild or not path.exists():
+    if rebuild or not path.exists() or _schema_version(path) != SCHEMA_VERSION:
         build_database(path)
 
     # The catalogue is vendored and static, so parse it once. Every API
@@ -403,6 +439,20 @@ def load_catalog(path: Path | None = None, *, rebuild: bool = False
         _PARSED.clear()
         _PARSED[key] = cached
     return list(cached)
+
+
+def _schema_version(path: Path) -> int | None:
+    """The schema a cache was built with, or None if it cannot say."""
+    try:
+        connection = sqlite3.connect(path)
+        try:
+            row = connection.execute(
+                "SELECT value FROM meta WHERE key = 'schema_version'").fetchone()
+        finally:
+            connection.close()
+        return int(row[0]) if row else None
+    except (sqlite3.DatabaseError, ValueError):
+        return None
 
 
 #: (path, mtime) -> parsed objects. One entry: there is one catalogue.

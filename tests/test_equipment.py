@@ -96,30 +96,35 @@ def test_telescopic_gain_rejects_nonpositive():
 
 
 def test_naked_eye_limiting_mag_anchors():
-    """The fit is pinned at its two conventional pairings: SQM 21.9 is about
-    mag 7.8, SQM 18.0 about mag 4.3. They are SQM values, not Bortle classes:
-    the class table moved to lightpollutionmap.info's ranges, the pairings did
-    not."""
-    assert naked_eye_limiting_mag(21.9) == pytest.approx(7.8, abs=0.01)
-    assert naked_eye_limiting_mag(18.0) == pytest.approx(4.3, abs=0.01)
-    assert naked_eye_limiting_mag(BORTLE_SQM[8]) == pytest.approx(4.3, abs=0.01)
+    """Schaefer's relation on the sky the eye works against.
+
+    The Bortle-scale SQM is taken 0.83 brighter (REAL_SKY_OFFSET), then
+    NELM = 7.93 - 5 log10(10^(4.316 - V/5) + 1). That combination is what
+    matched 1,539 Globe at Night star counts to 0.2 mag, so it describes a
+    typical observer: 6.2 under a pristine sky, where experienced observers
+    report 6.3-7.1 (NPS) and the old line promised 7.9 to everyone.
+    """
+    assert naked_eye_limiting_mag(22.0) == pytest.approx(6.21, abs=0.01)
+    assert naked_eye_limiting_mag(18.0) == pytest.approx(3.25, abs=0.01)
+    assert 6.0 <= naked_eye_limiting_mag(22.0) < 6.5
     # Darker sky must never yield a fainter limit.
     values = [naked_eye_limiting_mag(BORTLE_SQM[b]) for b in range(1, 10)]
     assert values == sorted(values, reverse=True)
 
 
 def test_limiting_mag_at_home_site(ad8):
-    """Bortle 5 (SQM 20.4) with the AD8: about mag 13.9 at zenith.
+    """Bortle 5 (SQM 20.4) with the AD8: about mag 12.7 at zenith.
 
-    Naked eye 4.3 + (20.4-18.0)*3.5/3.9 = 6.45, plus 5*log10(203/6.5) = 7.47.
+    Naked eye: Schaefer at 20.4 - 0.83 = 19.57 gives 5.20; plus the
+    aperture's 5*log10(203/6.5) = 7.47.
     """
     # An explicit SQM, not whatever the example config currently ships: this
     # test is about the limiting-magnitude maths, and pinning it to a config
     # value made it fail when the seeded site changed.
     sqm = BORTLE_SQM[5]
     assert sqm == 20.4
-    assert naked_eye_limiting_mag(sqm) == pytest.approx(6.45, abs=0.01)
-    assert telescopic_limiting_mag(ad8, sqm, 6.5) == pytest.approx(13.93, abs=0.02)
+    assert naked_eye_limiting_mag(sqm) == pytest.approx(5.20, abs=0.01)
+    assert telescopic_limiting_mag(ad8, sqm, 6.5) == pytest.approx(12.67, abs=0.02)
 
 
 # --- airmass and extinction -------------------------------------------------

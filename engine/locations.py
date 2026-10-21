@@ -157,7 +157,8 @@ def _resolve_tz(lat: float, lon: float) -> str:
     return tz or "UTC"
 
 
-def atlas_sqm_for(lat: float, lon: float, bortle: int | None) -> float | None:
+def atlas_sqm_for(lat: float, lon: float, bortle: int | None,
+                  elevation_m: float | None = None) -> float | None:
     """Look up the atlas, but only where the observer supplied nothing.
 
     Imported lazily because `skybrightness` imports `BORTLE_SQM` from this
@@ -169,7 +170,7 @@ def atlas_sqm_for(lat: float, lon: float, bortle: int | None) -> float | None:
     try:
         from .skybrightness import sqm_at
 
-        return sqm_at(lat, lon)
+        return sqm_at(lat, lon, elevation_m)
     except Exception:                    # noqa: BLE001 - optional, never fatal
         return None
 
@@ -211,16 +212,17 @@ def load_locations(path: Path | None = None) -> dict[str, Location]:
         lat = float(spec["lat"])
         lon = float(spec["lon"])
         bortle = spec.get("bortle")
+        elevation = float(spec.get("elevation_m", 0.0))
         out[key] = Location(
             key=key,
             name=spec.get("name", key),
             lat=lat,
             lon=lon,
-            elevation_m=float(spec.get("elevation_m", 0.0)),
+            elevation_m=elevation,
             bortle=bortle,
             tz=spec.get("tz") or _resolve_tz(lat, lon),
             horizon=parse_horizon(spec.get("horizon")),
-            atlas_sqm=atlas_sqm_for(lat, lon, bortle),
+            atlas_sqm=atlas_sqm_for(lat, lon, bortle, elevation),
         )
     return out
 

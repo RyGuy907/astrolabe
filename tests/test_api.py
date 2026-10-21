@@ -149,22 +149,21 @@ def test_targets_still_rank_m31_first(client):
 
 
 @requires_ephemeris
-def test_a_city_sky_rejects_m31(client):
-    """The other half of that: from Bortle 8, M31 is not a recommendation.
+def test_a_city_sky_shows_m31_but_not_m33(client):
+    """From Bortle 8, the published 8-inch ratings call M31 "Easy" and M33
+    "Hard" -- visible only from the suburbs -- and the API should say the same.
 
-    Asserted on the badge rather than on absence from the list. The original
-    checked that M31 was not among the Galaxies group at all, which really
-    tested whether it fell inside `DEFAULT_GROUP_LIMIT` -- the group is
-    truncated to eight, so any change to the ranking could pass or fail this
-    without the light-pollution model moving at all. Narrowing the default
-    window to an observing session did exactly that.
+    This used to assert M31 was rejected from a city. That was the old
+    contrast floor's verdict, and the ratings the floor is now fitted to
+    disagree with it. Asserted on the badge, with the whole list asked for,
+    so the group's eight-row cap cannot decide it.
     """
-    body = client.get("/api/targets?date=2026-09-15&location=home").json()
+    body = client.get("/api/targets?date=2026-09-15&location=home"
+                      "&limit=1000&min_altitude=0").json()
     galaxies = body["groups"].get("Galaxies", [])
-    m31 = next((t for t in galaxies if t["messier"] == 31), None)
-    # Listed or truncated away, either is fine; what must not happen is it
-    # being presented as observable from an inner-city sky.
-    assert m31 is None or m31["too_faint"] is True
+    by_messier = {t["messier"]: t for t in galaxies if t["messier"]}
+    assert by_messier[31]["too_faint"] is False
+    assert 33 not in by_messier or by_messier[33]["too_faint"] is True
 
 
 @requires_ephemeris
@@ -810,16 +809,23 @@ def test_a_chosen_session_changes_the_conditions_summary(client):
 
 @requires_ephemeris
 def test_a_chosen_session_changes_the_target_list(client):
-    """A four-hour session cannot offer everything an eight-hour one does."""
-    short = client.get(
-        "/api/targets?date=2026-09-15&location=home&min_altitude=0"
-        "&session_start=2026-09-16T04:00:00Z&session_end=2026-09-16T06:00:00Z"
-    ).json()
-    long = client.get(
-        "/api/targets?date=2026-09-15&location=home&min_altitude=0"
-        "&session_start=2026-09-16T03:00:00Z&session_end=2026-09-16T11:00:00Z"
-    ).json()
-    assert long["total_passing"] > short["total_passing"]
+    """A four-hour session cannot offer everything an eight-hour one does.
+
+    Measured on what is up *during* each session. The count of objects
+    passing at all barely moves: an object that only rises after a short
+    session is still listed -- badged "visible late" -- and is judged at its
+    best moment of the night, so since the moonlight model judges objects
+    that way the two totals came out within one of each other.
+    """
+    def in_session(body):
+        return sum(1 for rows in body["groups"].values() for t in rows
+                   if not t["too_faint"] and not t["visible_late"])
+    query = "/api/targets?date=2026-09-15&location=home&min_altitude=0&limit=1000"
+    short = client.get(query + "&session_start=2026-09-16T04:00:00Z"
+                               "&session_end=2026-09-16T06:00:00Z").json()
+    long = client.get(query + "&session_start=2026-09-16T03:00:00Z"
+                              "&session_end=2026-09-16T11:00:00Z").json()
+    assert in_session(long) > in_session(short)
     assert short["session"]["hours"] < long["session"]["hours"]
 
 

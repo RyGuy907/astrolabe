@@ -70,7 +70,8 @@ def _row_to_location(row: sqlite3.Row) -> Location:
         bortle=row["bortle"],
         tz=row["tz"] or _resolve_tz(row["lat"], row["lon"]),
         horizon=parse_horizon(row["horizon"]),
-        atlas_sqm=atlas_sqm_for(row["lat"], row["lon"], row["bortle"]),
+        atlas_sqm=atlas_sqm_for(row["lat"], row["lon"], row["bortle"],
+                                row["elevation_m"]),
     )
 
 

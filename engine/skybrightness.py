@@ -53,6 +53,7 @@ import functools
 import json
 import math
 import os
+import re
 from pathlib import Path
 
 from .locations import BORTLE_SQM, BORTLE_SQM_LOWER
@@ -63,6 +64,52 @@ NATURAL_SKY_MCD_M2 = 0.171168465
 
 #: Zero point of the mcd/m² to mag/arcsec² relation.
 BRIGHTNESS_ZERO_POINT = 1.08e8
+
+# --- calibration against the ground ------------------------------------------
+#
+# A raster from `scripts/build_skyglow.py` reproduces the Falchi atlas, and was
+# shipped with its artificial light multiplied by a flat 1.55 to match Globe at
+# Night sky-meter readings. Tested against those readings with regions held
+# out (2024-25, 1,539 clear, dark, moonless readings at 564 sites), that factor
+# turned out to be the wrong shape: the readings run 0.6-0.7 mag brighter than
+# the map in *every* band, pristine sites included, which a factor on
+# artificial light alone cannot fix. Fitting the natural sky and the
+# artificial light separately does, and cut the held-out error from 0.49 to
+# 0.28 mag. What it says, and what is applied here at query time:
+#
+# * **Artificial light relative to the natural sky is 0.94 of the model's.**
+#   Both come out brighter on a citizen meter -- the natural sky by x1.84,
+#   which is meter zero-point, solar-maximum airglow and the readers' own
+#   bias -- but in proportion to each other they are nearly what the model
+#   says. The SQM here keeps the Bortle scale's natural sky of 22.00 and that
+#   ratio, so a class means the same balance of light as before; the brighter
+#   sky an observer actually stands under is `REAL_SKY_OFFSET` away.
+# * **Haze thins with height.** The fitted kernel gave the haze layer no
+#   weight, so towns 1-2 km up read ~0.4 mag too bright -- Salt Lake City,
+#   Provo, Denver. A 2.5 km scale height above 300 m halves the error at lit
+#   sites above 900 m, and naked-eye counts no fit had seen agree.
+# * **Lights dim through the night**, about 4.5% an hour. The raster is the
+#   satellite's ~01:30 picture, held here as midnight; `at_hour` moves it.
+#
+# The raster itself is left as built, so these apply to it as it is on disk.
+# Only to ours, though: a raster without a CALIBRATION tag (Falchi's) is
+# taken as it stands.
+
+#: The fitted ratio of artificial to natural light, against the model's.
+ARTIFICIAL_RATIO = 0.94
+#: Haze above this ground height thins with HAZE_SCALE_M.
+HAZE_FLOOR_M = 300.0
+HAZE_SCALE_M = 2500.0
+#: Fractional change in artificial light per hour after local midnight.
+HOURLY_DIMMING = 0.045
+#: How much brighter, in mag/arcsec^2, the sky the eye works against is than
+#: this module's SQM. Two measured steps: a sky meter reads the whole sky
+#: 0.66 brighter than the Bortle scale's 22.00 natural sky (the fitted
+#: natural x1.84), and Schaefer's naked-eye relation matched 1,539 star
+#: counts taken at the meter's reading less a further 0.17 -- Cinzano's
+#: SQM-to-V term. Where anything modelling what the eye sees starts from:
+#: `equipment.naked_eye_limiting_mag`, and moonlight in `engine/targets.py`.
+REAL_SKY_OFFSET = 0.83
 
 #: Environment variable naming a local artificial-brightness raster.
 RASTER_ENV_VAR = "ASTRO_SKYBRIGHTNESS_RASTER"
@@ -174,8 +221,44 @@ def _open_raster(path: str):
         ) from exc
 
 
-def sqm_at(lat: float, lon: float) -> float | None:
+@functools.lru_cache(maxsize=4)
+def _baked_calibration(path: str) -> float | None:
+    """The factor a raster's artificial light was multiplied by when built,
+    from its CALIBRATION tag ("artificial x1.55, ..."), or None for a raster
+    that is not one of ours."""
+    try:
+        tag = _open_raster(path).tags().get("CALIBRATION", "")
+    except Exception:                    # noqa: BLE001 - optional, never fatal
+        return None
+    match = re.search(r"x\s*([0-9.]+)", tag)
+    return float(match.group(1)) if match else None
+
+
+def haze_factor(elevation_m: float | None) -> float:
+    """How much of the artificial glow a site this high still has above it."""
+    if elevation_m is None:
+        return 1.0
+    return math.exp(-max(0.0, float(elevation_m) - HAZE_FLOOR_M) / HAZE_SCALE_M)
+
+
+def at_hour(sqm: float, hours_from_midnight: float) -> float:
+    """A site's SQM for another time of night than midnight.
+
+    The artificial part brightens before midnight and fades after it, by
+    HOURLY_DIMMING an hour; the natural sky is left alone. Clamped to six
+    hours either side, past which the fit has no data.
+    """
+    hours = min(max(float(hours_from_midnight), -6.0), 6.0)
+    artificial = artificial_brightness_from_sqm(sqm) * math.exp(-HOURLY_DIMMING * hours)
+    return sqm_from_artificial_brightness(artificial)
+
+
+def sqm_at(lat: float, lon: float, elevation_m: float | None = None) -> float | None:
     """Total sky SQM at a coordinate, or None if no raster is configured.
+
+    At local midnight, on the Bortle scale's 22.00 natural sky: see the
+    calibration notes above. `elevation_m` is the site's height, for the haze
+    above it; without one no altitude correction is made.
 
     Returns None rather than raising for a coordinate outside the raster's
     coverage or over a nodata cell — "we do not know" is a real answer here,
@@ -203,12 +286,15 @@ def sqm_at(lat: float, lon: float) -> float | None:
         # Falchi's grid uses small negative values as fill in places.
         return None
 
+    baked = _baked_calibration(str(path))
+    if baked:
+        artificial = artificial / baked * ARTIFICIAL_RATIO * haze_factor(elevation_m)
     return sqm_from_artificial_brightness(artificial)
 
 
-def bortle_at(lat: float, lon: float) -> int | None:
+def bortle_at(lat: float, lon: float, elevation_m: float | None = None) -> int | None:
     """Convenience wrapper: coordinate -> Bortle class, or None."""
-    sqm = sqm_at(lat, lon)
+    sqm = sqm_at(lat, lon, elevation_m)
     return None if sqm is None else bortle_from_sqm(sqm)
 
 

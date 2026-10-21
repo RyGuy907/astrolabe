@@ -213,8 +213,8 @@ def test_clusters_tolerate_moonlight_better_than_galaxies(catalog):
 
 
 def test_sky_brightness_degrades_when_the_moon_is_up(home):
-    dark = _sky_surface_brightness(home, 0.9, moon_is_up=False)
-    moonlit = _sky_surface_brightness(home, 0.9, moon_is_up=True)
+    dark = _sky_surface_brightness(home.sqm, 0.9, moon_is_up=False)
+    moonlit = _sky_surface_brightness(home.sqm, 0.9, moon_is_up=True)
     assert dark == home.sqm
     assert moonlit < dark          # smaller number = brighter sky
 
@@ -298,15 +298,31 @@ def test_moonlight_degrades_the_limiting_magnitude(home, kit, catalog):
     surface-brightness contrast test but *not* in the point-source limiting
     magnitude, so compact mag-12 galaxies passed under a near-full moon while
     diffuse ones were correctly rejected.
+
+    The thresholds changed with the moonlight model. The old flat penalty
+    took 3 magnitudes off any sky, and from this suburban site that left a
+    limit near mag 10; Krisciunas & Schaefer, which matched sky-meter
+    readings taken under the Moon far better, leave an 8-inch reaching about
+    mag 11.5-12 -- where small planetary nebulae and the brighter galaxies
+    are still found under a full Moon. So: the limit must fall, the list
+    must shrink, and almost nothing past mag 12 may survive.
     """
+    dark_night = night_window(REFERENCE_DATE, home)          # 27% moon
     bright_moon = night_window(date(2026, 8, 25), home)      # 97% illuminated
     assert bright_moon.moon_illumination > 0.9
 
+    dark = {a.obj.name: a for a in assess_targets(dark_night, kit, catalog=catalog)}
     results = assess_targets(bright_moon, kit, catalog=catalog)
-    faint = [a for a in results if a.obj.magnitude and a.obj.magnitude > 11.0]
+    moonlit = {a.obj.name: a for a in results}
 
-    assert len(faint) < 10, (
-        f"{len(faint)} objects fainter than mag 11 passed under a 97% moon"
+    assert len(moonlit) < 0.7 * len(dark)
+    common = set(dark) & set(moonlit)
+    drop = np.median([dark[n].limiting_mag_at_peak - moonlit[n].limiting_mag_at_peak
+                      for n in common])
+    assert drop > 0.5, f"the Moon cost only {drop:.2f} mag of limiting magnitude"
+    very_faint = [a for a in results if a.obj.magnitude and a.obj.magnitude > 12.0]
+    assert len(very_faint) < 80, (
+        f"{len(very_faint)} objects fainter than mag 12 passed under a 97% moon"
     )
     # What survives should be genuinely bright.
     assert results[0].obj.magnitude < 7.0
@@ -369,14 +385,15 @@ def test_globular_clusters_survive_a_bright_moon(home, kit, catalog):
 def test_diffuse_objects_are_still_rejected_under_a_bright_moon(home, kit, catalog):
     """The contrast test must keep working where it belongs.
 
-    M31 has a mean surface brightness of 22.3; under a 99% moon the sky is
-    brighter than the galaxy. Rejecting it is correct.
+    This used to be M31, whose bright core survives a full Moon from the
+    suburbs, as observers report, and the recalibrated test now says so.
+    The Trifid, a nebula of 8.5 spread over 28 arcminutes, does not.
     """
     bright_moon = night_window(date(2026, 8, 26), home)
     results = assess_targets(bright_moon, kit, catalog=catalog)
     names = {a.obj.name for a in results}
 
-    assert find_object("M31", catalog).name not in names
+    assert find_object("M20", catalog).name not in names
 
 
 @requires_ephemeris
@@ -575,19 +592,19 @@ def test_include_too_faint_keeps_them_flagged(home, kit, catalog):
 
 @requires_ephemeris
 def test_moon_glare_counts_as_too_faint_not_as_absent(home, kit, catalog):
-    """M31 under a 99% moon is up and pointable — it is just drowned.
+    """The Veil under a 99% moon is up and pointable — it is just drowned.
 
-    Moon separation is a sky condition, not a positional one, so it belongs
-    with the other faintness reasons rather than silently removing the object.
+    Moonlight is a sky condition, not a positional one, so it belongs with
+    the other faintness reasons rather than silently removing the object.
     """
     window = night_window(date(2026, 8, 26), home)
     both = assess_targets(window, kit, catalog=catalog, include_too_faint=True)
     by_name = {a.obj.name: a for a in both}
 
-    m31 = by_name.get(find_object("M31", catalog).name)
-    assert m31 is not None, "M31 is above the horizon and should be listed"
-    assert m31.too_faint is True
-    assert any("moon" in note for note in m31.notes)
+    veil = by_name.get("NGC6960")
+    assert veil is not None, "the Veil is above the horizon and should be listed"
+    assert veil.too_faint is True
+    assert any("moon" in note for note in veil.notes)
 
 
 @requires_ephemeris
@@ -611,19 +628,26 @@ def test_faint_objects_sort_after_solid_ones(home, kit, catalog):
 
 @requires_ephemeris
 def test_a_bright_galaxy_sorts_below_a_dimmer_visible_cluster(home, kit, catalog):
-    """The concrete case: M31 at mag 3.4 sits under NGC 7686 at mag 5.6,
-    because the moon has washed the galaxy out and not the cluster."""
+    """The concrete case: a galaxy the moon has washed out sits under a
+    fainter object it has not, in the same constellation. It was M31 under
+    NGC 7686; M31 now survives that Moon, so the pair is found rather than
+    named -- there has to be at least one."""
     window = night_window(date(2026, 8, 26), home)
     both = assess_targets(window, kit, catalog=catalog, include_too_faint=True)
     grouped = group_targets(both, limit_per_group=1000, by="constellation",
                             sort="brightness")
 
-    andromeda = grouped.get("And")
-    assert andromeda
-    names = [a.obj.name for a in andromeda]
-    m31 = find_object("M31", catalog).name
-    cluster = find_object("NGC 7686", catalog).name
-    assert names.index(cluster) < names.index(m31)
+    pairs = 0
+    for rows in grouped.values():
+        for i, faint in enumerate(rows):
+            if not faint.too_faint or faint.obj.magnitude is None:
+                continue
+            for j, solid in enumerate(rows):
+                if (not solid.too_faint and solid.obj.magnitude is not None
+                        and solid.obj.magnitude > faint.obj.magnitude):
+                    pairs += 1
+                    assert j < i, f"{faint.obj.name} sorted above {solid.obj.name}"
+    assert pairs > 0
 
 
 # ---------------------------------------------------------------------------
@@ -681,9 +705,13 @@ def test_the_correction_does_not_make_m31_immune_to_light_pollution(kit, catalog
     Simply exempting bright objects from the contrast test scored M31 at 77
     from Bortle 9, where it is a poor view at best. Shifting the surface
     brightness and re-running the same test keeps the sky in the argument.
+
+    Bortle 8 used to be asserted too faint as well. The published 8-inch
+    ratings the contrast floor is now fitted to call M31 "Easy" -- visible
+    from most city skies -- so it passes there; the inner city still wins.
     """
     assert not _verdict_for(31, 6, kit, catalog).too_faint
-    assert _verdict_for(31, 8, kit, catalog).too_faint
+    assert not _verdict_for(31, 8, kit, catalog).too_faint
     assert _verdict_for(31, 9, kit, catalog).too_faint
 
 
@@ -699,9 +727,11 @@ def test_the_correction_reaches_the_orion_nebula(kit, catalog):
 def test_the_correction_applies_to_a_dozen_objects_not_a_thousand(catalog):
     """A constant that relaxed the floor for everything would be a rewrite of
     `DEFAULT_CONTRAST_FLOOR` wearing a different name. Restricting it by
-    integrated magnitude is what keeps it surgical: at Bortle 6 it changes the
-    answer for around a dozen objects out of nearly two thousand failures."""
-    sky = 19.4                                        # Bortle 6
+    integrated magnitude is what keeps it surgical: from a city sky it changes
+    the answer for a handful of objects out of thousands of failures. (Bortle
+    8 since the floor was fitted to observing ratings: at the looser floor,
+    Bortle 6 fails too few objects for the correction to have work to do.)"""
+    sky = 18.0                                        # Bortle 8
     extended = [o for o in catalog
                 if o.group in ("Galaxies", "Nebulae")
                 and o.surface_brightness is not None
@@ -723,7 +753,7 @@ def test_the_correction_applies_to_a_dozen_objects_not_a_thousand(catalog):
 
 def test_the_rescued_objects_are_the_famous_ones(catalog):
     """Names, because a count cannot tell you whether the right things moved."""
-    sky = 19.4
+    sky = 18.0                                        # Bortle 8
     rescued = {
         o.messier for o in catalog
         if o.group in ("Galaxies", "Nebulae")
@@ -732,8 +762,8 @@ def test_the_rescued_objects_are_the_famous_ones(catalog):
         and o.magnitude <= BRIGHT_CORE_MAG
         and sky - o.surface_brightness < DEFAULT_CONTRAST_FLOOR
     }
-    # Orion, Andromeda, Triangulum, the Lagoon, the Eagle.
-    assert {42, 31, 33, 8, 16} <= rescued
+    # Orion, Andromeda and the Lagoon, all plainly visible from a city.
+    assert {42, 31, 8} <= rescued
 
 
 # ---------------------------------------------------------------------------
@@ -830,128 +860,6 @@ def test_the_moon_is_judged_over_the_session_not_the_whole_night(kit, catalog):
         "the sky brightness is not responding to when the session falls"
     )
     assert not after.too_faint
-
-
-@requires_ephemeris
-def test_the_correction_does_not_make_m31_immune_to_light_pollution(kit, catalog):
-    """The failure mode of the obvious fix.
-
-    Simply exempting bright objects from the contrast test scored M31 at 77
-    from Bortle 9, where it is a poor view at best. Shifting the surface
-    brightness and re-running the same test keeps the sky in the argument.
-    """
-    assert not _verdict_for(31, 6, kit, catalog).too_faint
-    assert _verdict_for(31, 8, kit, catalog).too_faint
-    assert _verdict_for(31, 9, kit, catalog).too_faint
-
-
-@requires_ephemeris
-def test_the_correction_reaches_the_orion_nebula(kit, catalog):
-    """M42 is the brightest deep-sky object in the sky and was being called
-    too faint from a rural site. January, so Orion is actually up."""
-    m42 = _verdict_for(42, 4, kit, catalog, when=date(2026, 1, 20))
-    assert m42 is not None
-    assert not m42.too_faint
-
-
-def test_the_correction_applies_to_a_dozen_objects_not_a_thousand(catalog):
-    """A constant that relaxed the floor for everything would be a rewrite of
-    `DEFAULT_CONTRAST_FLOOR` wearing a different name. Restricting it by
-    integrated magnitude is what keeps it surgical: at Bortle 6 it changes the
-    answer for around a dozen objects out of nearly two thousand failures."""
-    sky = 19.4                                        # Bortle 6
-    extended = [o for o in catalog
-                if o.group in ("Galaxies", "Nebulae")
-                and o.surface_brightness is not None
-                and o.magnitude is not None]
-    failing = [o for o in extended
-               if sky - o.surface_brightness < DEFAULT_CONTRAST_FLOOR]
-    rescued = [o for o in failing
-               if o.magnitude <= BRIGHT_CORE_MAG
-               and sky - (o.surface_brightness - BRIGHT_CORE_SB_BONUS)
-               >= DEFAULT_CONTRAST_FLOOR]
-
-    assert len(failing) > 1000
-    assert len(rescued) < 30, (
-        f"{len(rescued)} objects rescued -- this is meant to correct a "
-        "statistic for a handful of large bright objects, not to loosen the "
-        "contrast floor for the catalogue"
-    )
-
-
-def test_the_rescued_objects_are_the_famous_ones(catalog):
-    """Names, because a count cannot tell you whether the right things moved."""
-    sky = 19.4
-    rescued = {
-        o.messier for o in catalog
-        if o.group in ("Galaxies", "Nebulae")
-        and o.surface_brightness is not None
-        and o.magnitude is not None
-        and o.magnitude <= BRIGHT_CORE_MAG
-        and sky - o.surface_brightness < DEFAULT_CONTRAST_FLOOR
-    }
-    # Orion, Andromeda, Triangulum, the Lagoon, the Eagle.
-    assert {42, 31, 33, 8, 16} <= rescued
-
-
-# ---------------------------------------------------------------------------
-# Targets over a session
-# ---------------------------------------------------------------------------
-
-@requires_ephemeris
-def test_a_session_changes_what_ranks_not_what_exists(kit, catalog, home):
-    """Membership is the night; the session is the plan.
-
-    An earlier version narrowed the list itself, which had the side effect of
-    making "visible late" unsatisfiable -- if nothing outside the session is
-    listed, nothing can be flagged as rising after it. The session now moves
-    scores and badges instead.
-    """
-    from engine.session import default_session
-
-    window = night_window(REFERENCE_DATE, home)
-    session = default_session(window)
-    scoped = assess_targets(window, kit, catalog=catalog, session=session)
-    assert scoped, "a session must not empty the list"
-    assert any(a.visible_late for a in scoped), (
-        "nothing flagged late: the list is not reaching past the session"
-    )
-
-
-@requires_ephemeris
-def test_windows_are_the_objects_own_not_the_sessions(kit, catalog, home):
-    """The report that prompted this: every window ended exactly at the hour
-    the observer said they were going home, which is a fact about the plan
-    rather than about the sky."""
-    from engine.session import default_session
-
-    window = night_window(REFERENCE_DATE, home)
-    session = default_session(window)
-    scoped = assess_targets(window, kit, catalog=catalog, session=session)
-
-    assert any(a.best_window[1] > session[1] for a in scoped), (
-        "no window runs past the session end -- they are still being clipped"
-    )
-    # And none may run past the night itself.
-    assert all(a.best_window[1] <= window.sunrise_utc + timedelta(minutes=30)
-               for a in scoped)
-
-
-@requires_ephemeris
-def test_usable_hours_are_the_session_part_of_the_window(kit, catalog, home):
-    """Two different numbers, both true. `hours_above_floor` is how long the
-    object is up; `usable_hours` is how much of that you can use."""
-    from engine.session import default_session
-
-    window = night_window(REFERENCE_DATE, home)
-    session = default_session(window)
-    session_length = (session[1] - session[0]).total_seconds() / 3600.0
-
-    for a in assess_targets(window, kit, catalog=catalog, session=session):
-        assert a.usable_hours <= a.hours_above_floor + 1e-6
-        assert a.usable_hours <= session_length + 1e-6
-        if a.visible_late:
-            assert a.usable_hours == pytest.approx(0.0, abs=0.3)
 
 
 @requires_ephemeris
@@ -1085,3 +993,47 @@ def test_windows_begin_when_the_sky_is_dark_enough_to_find_them(home):
             bright_at_edge += first < nautical + timedelta(minutes=16)
     # Not vacuous: plenty of each kind are already up and start at the edge.
     assert faint_at_edge > 5 and bright_at_edge > 5
+
+
+
+# ---------------------------------------------------------------------------
+# The contrast floor, fitted to published ratings
+# ---------------------------------------------------------------------------
+
+@requires_ephemeris
+def test_a_city_sky_matches_the_published_8_inch_ratings(kit, catalog):
+    """Bortle 8 with an 8-inch, against the NexStar User's Guide II ratings
+    the floor is fitted to: "Easy" and "Medium" objects are visible from
+    most city skies, "Hard" ones only from the suburbs. The old floor called
+    every galaxy in the first group too faint."""
+    for visible in (31, 81, 82, 57, 27):
+        verdict = _verdict_for(visible, 8, kit, catalog)
+        assert verdict is not None and not verdict.too_faint, f"M{visible}"
+    for hard in (33, 74, 101):
+        verdict = _verdict_for(hard, 8, kit, catalog)
+        assert verdict is None or verdict.too_faint, f"M{hard}"
+
+
+@requires_ephemeris
+def test_an_extended_galaxy_must_also_be_within_the_telescopes_reach(kit):
+    """The looser floor would pass a small faint galaxy under any dark sky,
+    since a galaxy's mean surface brightness barely depends on how bright it
+    is. Its total light must be within the stellar limit as well: a 1.5'
+    galaxy of magnitude 15.5 has a surface brightness the floor accepts from
+    Bortle 1, and no 8-inch shows it."""
+    from engine.catalog.loader import DeepSkyObject, surface_brightness
+    from engine.locations import Location
+
+    faint = DeepSkyObject(
+        name="FAINT", obj_type="G", group="Galaxies", ra_deg=0.0, dec_deg=34.0,
+        constellation="And", messier=None, common_names=(),
+        major_axis_arcmin=1.5, minor_axis_arcmin=1.2, v_mag=15.5, b_mag=16.3,
+        surface_brightness=surface_brightness(15.5, 1.5, 1.2),
+        catalog_surface_brightness=None)
+    pristine = Location(key="dark", name="Dark", lat=34.0, lon=-118.5,
+                        elevation_m=300.0, bortle=1, tz="America/Los_Angeles")
+    window = night_window(date(2026, 10, 10), pristine)
+    [verdict] = assess_targets(window, kit, catalog=[faint], min_altitude_deg=0.0,
+                               include_too_faint=True)
+    assert 22.0 - faint.surface_brightness >= DEFAULT_CONTRAST_FLOOR   # the floor alone passes it
+    assert verdict.too_faint                                           # its magnitude does not

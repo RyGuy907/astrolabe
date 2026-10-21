@@ -189,7 +189,10 @@ def test_geminids_are_strong_and_orionids_are_moon_hit(home, showers):
     gem = assess_shower(geminids, home, night_window(date(2026, 12, 14), home))
     ori = assess_shower(orionids, home, night_window(date(2026, 10, 22), home))
 
-    assert gem.best_rate > 100, "Geminids near new moon should be excellent"
+    # From this suburban site (Bortle 5, naked-eye limit 5.2): a ZHR of 150
+    # comes down to about 60 an hour, which is what suburban observers see.
+    # It was asserted above 100 when the limit was the old, optimistic line.
+    assert gem.best_rate > 50, "Geminids near new moon should be excellent"
     assert gem.best_radiant_altitude_deg > 60
     assert ori.moon_illumination > 0.8
     assert any("moon" in note for note in ori.notes)

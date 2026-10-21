@@ -412,3 +412,65 @@ def test_out_of_coverage_is_none_rather_than_a_guess():
     # 89.9 N is outside every raster this reads: the US build stops at 50 N
     # and Falchi's world atlas at 85 N.
     assert sqm_at(89.9, 0.0) is None
+
+
+
+# --- the calibration applied at query time ---------------------------------
+
+def test_haze_thins_above_the_valley_floor():
+    from engine.skybrightness import haze_factor
+
+    assert haze_factor(None) == 1.0
+    assert haze_factor(0.0) == 1.0 and haze_factor(300.0) == 1.0
+    assert haze_factor(1300.0) == pytest.approx(math.exp(-1000 / 2500))
+    assert haze_factor(2800.0) < haze_factor(1300.0)
+
+
+def test_lights_brighten_the_evening_and_fade_after_midnight():
+    from engine.skybrightness import at_hour
+
+    city = 18.0
+    assert at_hour(city, 0.0) == pytest.approx(city)
+    assert at_hour(city, -3.0) < city < at_hour(city, 3.0)
+    # 4.5% an hour, on the artificial part only: about 0.14 mag over 3 h here.
+    assert city - at_hour(city, -3.0) == pytest.approx(0.14, abs=0.02)
+    # A pristine sky has nothing to dim.
+    assert at_hour(22.0, -3.0) == pytest.approx(22.0)
+
+
+def test_the_baked_calibration_is_read_from_the_raster(tmp_path, monkeypatch):
+    """A raster from build_skyglow says what its artificial light was
+    multiplied by; that is undone and replaced at query time. One without the
+    tag -- Falchi's -- is read as it stands."""
+    rasterio = pytest.importorskip("rasterio")
+    import numpy as np
+    from rasterio.transform import from_origin
+
+    from engine import skybrightness as sb
+
+    def write(path, tags):
+        with rasterio.open(path, "w", driver="GTiff", width=2, height=2, count=1,
+                           dtype="float32", crs="EPSG:4326",
+                           transform=from_origin(-112.0, 41.0, 0.5, 0.5)) as out:
+            out.write(np.full((1, 2, 2), 1.55, dtype=np.float32))
+            out.update_tags(**tags)
+
+    ours, theirs = tmp_path / "ours.tif", tmp_path / "theirs.tif"
+    write(ours, {"CALIBRATION": "artificial x1.55, fitted to Globe at Night"})
+    write(theirs, {})
+    sb._open_raster.cache_clear()
+    sb._baked_calibration.cache_clear()
+    try:
+        monkeypatch.setenv(sb.RASTER_ENV_VAR, str(ours))
+        low = sb.sqm_at(40.6, -111.6, elevation_m=300.0)
+        high = sb.sqm_at(40.6, -111.6, elevation_m=1800.0)
+        assert low == pytest.approx(
+            sb.sqm_from_artificial_brightness(1.0 * sb.ARTIFICIAL_RATIO), abs=1e-4)
+        assert high > low                                # haze thins with height
+
+        monkeypatch.setenv(sb.RASTER_ENV_VAR, str(theirs))
+        assert sb.sqm_at(40.6, -111.6, elevation_m=1800.0) == pytest.approx(
+            sb.sqm_from_artificial_brightness(1.55), abs=1e-4)
+    finally:
+        sb._open_raster.cache_clear()
+        sb._baked_calibration.cache_clear()

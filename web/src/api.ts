@@ -625,9 +625,12 @@ export const api = {
   elevation: (lat: number, lon: number, signal?: AbortSignal) =>
     get<ElevationReading>(`/api/elevation${query({ lat, lon })}`, signal),
 
-  skyBrightnessAt: (lat: number, lon: number, signal?: AbortSignal) =>
+  /** `elevationM`, when known, is the site's height: the map thins its
+   *  glow for the haze below a site that high, as it does once saved. */
+  skyBrightnessAt: (lat: number, lon: number, signal?: AbortSignal,
+                    elevationM?: number | null) =>
     get<SkyBrightnessReading>(
-      `/api/skybrightness/at${query({ lat, lon })}`, signal,
+      `/api/skybrightness/at${query({ lat, lon, elevation_m: elevationM ?? undefined })}`, signal,
     ),
 
   /** `session` is a [startIso, endIso] pair; omit it for the server default

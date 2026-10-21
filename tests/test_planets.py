@@ -270,3 +270,35 @@ def test_inner_planets_carry_a_twilight_note(home):
     for planet in INNER_PLANETS:
         report = report_planet(planet, home, window, find_next=False)
         assert any("twilight" in note for note in report.notes)
+
+
+
+# --- Mercury and Venus are twilight objects, not daylight ones -------------
+
+def _utah():
+    from engine.locations import Location
+
+    return Location(key="ut", name="UT", lat=40.5, lon=-111.9, elevation_m=1300.0,
+                    tz="America/Denver", bortle=5)
+
+
+@requires_ephemeris
+def test_mercury_is_not_observable_at_sunset_alone():
+    """October 2026's evening Mercury from 40.5 N: 8 degrees up at the moment
+    of sunset, under 3 once the Sun is 6 down. It used to be called
+    observable, and "best now"; there is no half hour with the Sun 6 degrees
+    down and the planet 5 up, which is the usual criterion."""
+    site = _utah()
+    report = report_planet("mercury", site, night_window(date(2026, 10, 11), site),
+                           min_altitude_deg=0.0, find_next=False)
+    assert not report.observable
+    assert report.peak_altitude_deg < 5.0
+
+
+@requires_ephemeris
+def test_a_morning_venus_in_twilight_still_counts():
+    site = _utah()
+    report = report_planet("venus", site, night_window(date(2027, 2, 15), site),
+                           min_altitude_deg=0.0, find_next=False)
+    assert report.observable
+    assert report.hours_above_floor >= 0.5
