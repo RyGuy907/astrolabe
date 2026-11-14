@@ -482,3 +482,156 @@ def test_7timer_is_asked_without_an_undefined_altitude_correction(monkeypatch, h
     weather.fetch_7timer(high, use_cache=False)
     assert sent["product"] == "astro"
     assert "ac" not in sent
+
+
+
+# --- failure log -------------------------------------------------------------
+# get_forecast degrades without a word, so a failed call has to leave its own
+# trace in the server's log -- in November 2026 Open-Meteo timed out for days
+# and the journal showed nothing.
+
+def test_a_failed_request_is_logged_by_host_without_coordinates(monkeypatch, caplog):
+    import logging
+
+    import engine.weather as weather
+    from engine.ratelimit import OPEN_METEO
+
+    def time_out(request, timeout):
+        raise TimeoutError("timed out")
+
+    monkeypatch.delenv("ASTRO_NO_NETWORK", raising=False)
+    monkeypatch.setattr(weather.urllib.request, "urlopen", time_out)
+    with caplog.at_level(logging.WARNING, logger="engine.weather"):
+        with pytest.raises(TimeoutError):
+            weather._get_json(weather.OPEN_METEO_URL,
+                              {"latitude": 40.4837, "longitude": -111.6458},
+                              upstream=OPEN_METEO)
+    message = caplog.records[-1].getMessage()
+    assert "Open-Meteo" in message and "api.open-meteo.com" in message
+    assert "timed out" in message
+    assert "40.48" not in message and "111.64" not in message
+
+
+
+# --- 7Timer alone, when Open-Meteo is out ------------------------------------
+# EXTERNAL SOURCE, checked 2026-11-14 against https://www.7timer.info/doc.php:
+#   rh2m        -4 = 0-5%, -3 = 5-10% ... 14 = 90-95%, 15 = 95-99%, 16 = 100%
+#   wind10m     1 <0.3 m/s, 2 0.3-3.4, 3 3.4-8.0, 4 8.0-10.8, 5 10.8-17.2,
+#               6 17.2-24.5, 7 24.5-32.6, 8 >32.6
+#   -9999       undefined
+
+def _7timer_payload(init: datetime, steps: int, **entry) -> dict:
+    """Shaped like a real ASTRO response: 3-hourly from `init`."""
+    base = {"cloudcover": 2, "seeing": 3, "transparency": 3, "lifted_index": 2,
+            "rh2m": 6, "wind10m": {"direction": "S", "speed": 2},
+            "temp2m": 7, "prec_type": "none"}
+    base.update(entry)
+    return {"product": "astro", "init": init.strftime("%Y%m%d%H"),
+            "dataseries": [dict(base, timepoint=3 * (i + 1)) for i in range(steps)]}
+
+
+def test_7timer_humidity_is_the_middle_of_its_band():
+    from engine.weather import rh_index_to_percent
+
+    assert rh_index_to_percent(-4) == pytest.approx(2.5)
+    assert rh_index_to_percent(6) == pytest.approx(52.5)        # 50-55%
+    assert rh_index_to_percent(14) == pytest.approx(92.5)       # 90-95%
+    assert rh_index_to_percent(15) == pytest.approx(97.0)       # 95-99%
+    assert rh_index_to_percent(16) == pytest.approx(100.0)
+    assert rh_index_to_percent(None) is None
+
+
+def test_7timer_wind_class_gives_the_band_middle_and_its_top_as_gust():
+    from engine.weather import wind_class_to_kmh
+
+    sustained, gust = wind_class_to_kmh(3)                      # 3.4-8.0 m/s
+    assert sustained == pytest.approx(5.7 * 3.6)
+    assert gust == pytest.approx(8.0 * 3.6)
+    assert gust > sustained                                     # errs windy
+    assert wind_class_to_kmh(None) is None
+
+
+def test_dew_point_from_temperature_and_humidity():
+    from engine.weather import dew_point_c
+
+    assert dew_point_c(10.0, 100.0) == pytest.approx(10.0)
+    assert dew_point_c(20.0, 50.0) == pytest.approx(9.3, abs=0.1)
+    assert dew_point_c(10.0, None) is None
+
+
+def test_parse_7timer_reads_humidity_wind_temperature_and_skips_undefined():
+    from engine.weather import parse_7timer
+
+    init = datetime(2026, 11, 13, 18, tzinfo=timezone.utc)
+    hour = parse_7timer(_7timer_payload(init, 1, rh2m=10, temp2m=4,
+                                        wind10m={"direction": "S", "speed": 3}))[0]
+    assert hour.time_utc == init + timedelta(hours=3)
+    assert hour.humidity_pct == pytest.approx(72.5)
+    assert hour.temperature_c == 4.0
+    assert hour.dew_point_spread_c == pytest.approx(4.5, abs=0.3)
+    assert hour.wind_gust_kmh == pytest.approx(28.8)
+
+    blank = parse_7timer(_7timer_payload(init, 1, rh2m=-9999, temp2m=-9999,
+                                         cloudcover=-9999))[0]
+    assert blank.humidity_pct is None and blank.temperature_c is None
+    assert blank.cloud_cover is None and blank.dew_point_c is None
+
+
+def _sources(monkeypatch, *, meteo, seventimer):
+    """Stand in for the two fetches: each a payload, or None for a failure."""
+    import engine.weather as weather
+
+    monkeypatch.setattr(weather, "network_enabled", lambda: True)
+    monkeypatch.setattr(weather, "_open_meteo",
+                        lambda loc, use_cache: weather._Fetched(meteo, now_utc() if meteo else None))
+    monkeypatch.setattr(weather, "_7timer",
+                        lambda loc, use_cache: weather._Fetched(seventimer, now_utc() if seventimer else None))
+
+
+def test_with_open_meteo_out_the_forecast_is_7timer_alone_and_says_so(monkeypatch, home):
+    init = now_utc().replace(minute=0, second=0, microsecond=0) - timedelta(hours=3)
+    _sources(monkeypatch, meteo=None, seventimer=_7timer_payload(init, 24))
+    forecast = get_forecast(home, use_cache=False)
+    assert forecast.available
+    assert forecast.sources == ("7Timer",)
+    assert forecast.fallback_reason == "Open-Meteo unreachable"
+    assert not forecast.seeing_estimated
+    hour = forecast.at(init + timedelta(hours=6))
+    assert hour.cloud_cover is not None and hour.humidity_pct is not None
+    assert hour.wind_gust_kmh is not None and hour.seeing_quality is not None
+
+
+def test_with_both_out_there_is_no_forecast_and_open_meteo_is_named(monkeypatch, home):
+    _sources(monkeypatch, meteo=None, seventimer=None)
+    forecast = get_forecast(home, use_cache=False)
+    assert not forecast.available
+    assert forecast.unavailable_reason == "Open-Meteo unreachable"
+
+
+def test_a_night_past_7timers_three_days_says_why(monkeypatch, home):
+    init = now_utc().replace(minute=0, second=0, microsecond=0) - timedelta(hours=3)
+    _sources(monkeypatch, meteo=None, seventimer=_7timer_payload(init, 24))
+    start = now_utc() + timedelta(days=5)
+    forecast = get_forecast(home, start=start, end=start + timedelta(hours=4),
+                            use_cache=False)
+    assert not forecast.available
+    assert "7Timer's 3-day forecast" in forecast.unavailable_reason
+    assert "Open-Meteo unreachable" in forecast.unavailable_reason
+
+
+def test_with_open_meteo_up_its_wind_and_humidity_win(monkeypatch, home):
+    """7Timer's humidity and wind are parsed now, but only stand in when
+    Open-Meteo is out; the blend still takes them from Open-Meteo."""
+    start = now_utc().replace(minute=0, second=0, microsecond=0)
+    meteo = _hourly_payload(start, 24)
+    meteo["hourly"]["relative_humidity_2m"] = [40.0] * 24
+    meteo["hourly"]["wind_gusts_10m"] = [5.0] * 24
+    _sources(monkeypatch, meteo=meteo,
+             seventimer=_7timer_payload(start - timedelta(hours=3), 8, rh2m=14,
+                                        wind10m={"direction": "S", "speed": 5}))
+    forecast = get_forecast(home, use_cache=False)
+    assert forecast.fallback_reason is None
+    assert forecast.sources == ("Open-Meteo", "7Timer")
+    hour = forecast.at(start + timedelta(hours=3))
+    assert hour.humidity_pct == 40.0
+    assert hour.wind_gust_kmh == 5.0

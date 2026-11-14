@@ -331,6 +331,13 @@ export function ScorePanel({ score, window: night, session, onSessionChange,
           conditions — which is why no grade is shown.
         </p>
       )}
+      {score.weather_available && score.weather_fallback_reason && (
+        <p className="warning">
+          From 7Timer alone ({score.weather_fallback_reason}): three days ahead,
+          a reading every three hours, coarser cloud, and wind estimated without
+          gusts
+        </p>
+      )}
       {score.weather_stale_since && (
         <p className="warning">
           Forecast from {formatTime(score.weather_stale_since, tz, true)}; it could

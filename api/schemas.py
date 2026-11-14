@@ -162,6 +162,12 @@ class ScoreModel(BaseModel):
                     "stood in: when that forecast was fetched.",
     )
     weather_stale_reason: str | None = None
+    weather_fallback_reason: str | None = Field(
+        default=None,
+        description="Set when Open-Meteo could not be used and the scores come "
+                    "from 7Timer alone: why. Three days ahead, three-hourly, "
+                    "coarser cloud, and wind estimated without gusts.",
+    )
     seeing_estimated: bool
     dew_warning: bool
     verdict: str

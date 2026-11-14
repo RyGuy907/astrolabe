@@ -214,6 +214,8 @@ export interface ScoreModel {
   /** ISO time an older forecast was fetched, when a refresh failed. */
   weather_stale_since: string | null;
   weather_stale_reason: string | null;
+  /** Why Open-Meteo was not used, when the scores come from 7Timer alone. */
+  weather_fallback_reason?: string | null;
   seeing_estimated: boolean;
   dew_warning: boolean;
   verdict: string;

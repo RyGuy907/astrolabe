@@ -85,6 +85,20 @@ def test_a_night_past_the_forecast_is_not_graded(home):
 
 
 @requires_ephemeris
+def test_past_a_7timer_only_forecast_the_note_says_why_it_is_short(home):
+    """With Open-Meteo out, 7Timer's three days are all there is; the nights
+    past them say so, rather than just "outside the forecast's range"."""
+    import dataclasses
+
+    short = dataclasses.replace(_forecast(home, 3), sources=("7Timer",),
+                                fallback_reason="Open-Meteo unreachable")
+    week = week_outlook(home, REFERENCE_DATE, short)
+    assert week[0].is_gradeable
+    assert week[-1].weather_note == ("beyond 7Timer's 3-day forecast; "
+                                     "Open-Meteo unreachable")
+
+
+@requires_ephemeris
 def test_no_forecast_at_all_still_gives_every_night_with_the_reason(home):
     week = week_outlook(home, REFERENCE_DATE, unavailable(home, "network disabled"))
     assert len(week) == 7

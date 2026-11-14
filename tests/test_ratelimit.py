@@ -155,27 +155,34 @@ def _serve(monkeypatch, answers):
     return asked
 
 
+def _open_meteo_calls(asked: list[str]) -> list[str]:
+    """Only the Open-Meteo requests: with Open-Meteo out, 7Timer is still
+    asked, for the 7Timer-only fallback."""
+    return [url for url in asked if "open-meteo" in url]
+
+
 def test_after_a_429_open_meteo_is_not_asked_again(monkeypatch, home):
-    asked = _serve(monkeypatch, [_http_error(429, "600")])
+    seventimer_down = urllib.error.URLError("7Timer down too")
+    asked = _serve(monkeypatch, [_http_error(429, "600"), seventimer_down, seventimer_down])
     forecast = weather.get_forecast(home, use_cache=False)
-    assert len(asked) == 1
+    assert len(_open_meteo_calls(asked)) == 1
     assert not forecast.available
 
     again = weather.get_forecast(home, use_cache=False)
-    assert len(asked) == 1                      # rested: no second request
+    assert len(_open_meteo_calls(asked)) == 1   # rested: no second request
     assert "asked for fewer requests" in again.unavailable_reason
 
 
 def test_the_backoff_is_shared_by_every_open_meteo_endpoint(monkeypatch, home):
-    asked = _serve(monkeypatch, [_http_error(429)])
+    asked = _serve(monkeypatch, [_http_error(429), urllib.error.URLError("7Timer down")])
     weather.get_forecast(home, use_cache=False)
     assert geocode.search("Moab") == []
     assert geocode.elevation_at(38.57, -109.55) is None
-    assert len(asked) == 1
+    assert len(_open_meteo_calls(asked)) == 1
 
 
 def test_a_spent_budget_says_so_rather_than_unreachable(monkeypatch, home):
-    _serve(monkeypatch, [])
+    _serve(monkeypatch, [urllib.error.URLError("7Timer down")])
     monkeypatch.setattr(ratelimit.OPEN_METEO, "per_day", 0)
     forecast = weather.get_forecast(home, use_cache=False)
     assert not forecast.available

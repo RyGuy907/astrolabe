@@ -129,6 +129,8 @@ def week_outlook(location: Location, first: date, forecast: Forecast | None,
                 reason = forecast.unavailable_reason or "no forecast"
             elif forecast is None:
                 reason = "no forecast"
+            elif forecast.fallback_reason:
+                reason = f"beyond 7Timer's 3-day forecast; {forecast.fallback_reason}"
             else:
                 reason = "outside the forecast's range"
             night_forecast = unavailable(location, reason)

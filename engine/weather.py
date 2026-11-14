@@ -21,6 +21,8 @@ Two traps from PLAN.md §7 are handled explicitly:
 from __future__ import annotations
 
 import json
+import logging
+import math
 import sqlite3
 import urllib.error
 import urllib.parse
@@ -33,6 +35,8 @@ from typing import Callable, NamedTuple
 from .locations import Location
 from .ratelimit import OPEN_METEO, SEVENTIMER, RateLimited, Upstream
 from .timeutil import UTC, ensure_utc, now_utc
+
+log = logging.getLogger(__name__)
 
 OPEN_METEO_URL = "https://api.open-meteo.com/v1/forecast"
 SEVENTIMER_URL = "https://www.7timer.info/bin/api.pl"
@@ -126,6 +130,10 @@ class Forecast:
     # when that copy was fetched, and why it could not be refreshed.
     stale_since: datetime | None = None
     stale_reason: str | None = None
+    # Set when Open-Meteo could not be used and the forecast is 7Timer's alone:
+    # why not. Three days, three-hourly, coarser cloud, and wind from sustained
+    # speed bands rather than gusts -- see `from_7timer`.
+    fallback_reason: str | None = None
 
     def at(self, when: datetime) -> HourlyConditions | None:
         """Nearest hourly sample to `when`, or None if the forecast is empty."""
@@ -250,6 +258,71 @@ def cloudcover_index_to_percent(index: float | None) -> float | None:
     return (clamped - 1.0) / 8.0 * 100.0
 
 
+#: 7Timer marks a value it does not have with this.
+SEVENTIMER_UNDEFINED = -9999
+
+
+def _defined(value) -> float | None:
+    """A 7Timer number, or None for missing, unparseable or -9999."""
+    if value is None:
+        return None
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return None
+    return None if number == SEVENTIMER_UNDEFINED else number
+
+
+def rh_index_to_percent(index: float | None) -> float | None:
+    """7Timer ASTRO `rh2m` index -> percent, the middle of its band.
+
+    EXTERNAL SOURCE, the 7Timer documentation (https://www.7timer.info/doc.php),
+    checked 2026-11-14: -4 = 0-5%, -3 = 5-10%, ... 14 = 90-95%, then
+    15 = 95-99% and 16 = 100%.
+    """
+    if index is None:
+        return None
+    i = round(max(-4.0, min(float(index), 16.0)))
+    if i == 16:
+        return 100.0
+    if i == 15:
+        return 97.0
+    return (i + 4) * 5.0 + 2.5
+
+
+#: 7Timer's `wind10m.speed` classes as (low, high) in m/s, from the same
+#: documentation: 1 calm (<0.3), 2 light, 3 moderate, 4 fresh, 5 strong,
+#: 6 gale, 7 storm, 8 hurricane (>32.6). The open top is given a nominal edge.
+WIND_CLASS_MS = ((0.0, 0.3), (0.3, 3.4), (3.4, 8.0), (8.0, 10.8),
+                 (10.8, 17.2), (17.2, 24.5), (24.5, 32.6), (32.6, 40.0))
+
+
+def wind_class_to_kmh(index: float | None) -> tuple[float, float] | None:
+    """7Timer wind class -> (sustained, gust stand-in) in km/h.
+
+    Sustained is the middle of the band. 7Timer gives no gusts, and the score
+    is built on gusts, so the band's top edge stands in: about 1.4 times the
+    middle across the bands that matter, a typical gust factor over land, and
+    it errs towards calling a night windier rather than calmer.
+    """
+    if index is None:
+        return None
+    low, high = WIND_CLASS_MS[round(max(1.0, min(float(index), 8.0))) - 1]
+    return (low + high) / 2.0 * 3.6, high * 3.6
+
+
+def dew_point_c(temperature_c: float | None, humidity_pct: float | None) -> float | None:
+    """Dew point from temperature and relative humidity (Magnus formula,
+    Sonntag 1990 constants). From 7Timer's whole degrees and 5% bands it is
+    good to about a degree: enough for the 2 C fogging warning, no more."""
+    if temperature_c is None or humidity_pct is None or humidity_pct <= 0:
+        return None
+    b, c = 17.62, 243.12
+    gamma = (math.log(min(humidity_pct, 100.0) / 100.0)
+             + b * temperature_c / (c + temperature_c))
+    return c * gamma / (b - gamma)
+
+
 def estimate_seeing_quality(humidity_pct: float | None,
                             wind_gust_kmh: float | None) -> float | None:
     """Fallback seeing estimate past the 7Timer horizon.
@@ -372,14 +445,20 @@ def _get_json(url: str, params: dict, *, upstream: Upstream, cost: int = 1,
     query = urllib.parse.urlencode(params)
     request = urllib.request.Request(f"{url}?{query}",
                                      headers={"User-Agent": USER_AGENT})
+    host = urllib.parse.urlsplit(url).netloc
     try:
         with urllib.request.urlopen(request, timeout=timeout) as response:
             payload = json.loads(response.read().decode("utf-8"))
     except urllib.error.HTTPError as exc:
+        # The caller degrades without a word, so this is the only trace of a
+        # failure in the server's log. The host only: coordinates stay out.
+        log.warning("%s request to %s failed: HTTP %s", upstream.name, host, exc.code)
         upstream.failed(status=exc.code,
                         retry_after=exc.headers.get("Retry-After") if exc.headers else None)
         raise
-    except (urllib.error.URLError, OSError, ValueError):
+    except (urllib.error.URLError, OSError, ValueError) as exc:
+        log.warning("%s request to %s failed: %s: %s",
+                    upstream.name, host, type(exc).__name__, exc)
         upstream.failed()
         raise
     upstream.succeeded()
@@ -513,12 +592,22 @@ def parse_7timer(payload: dict) -> list[HourlyConditions]:
         offset = entry.get("timepoint")
         if offset is None:
             continue
+        # Humidity, wind and temperature are used only when Open-Meteo is
+        # out (`from_7timer`); otherwise `blend` takes them from Open-Meteo.
+        temperature = _defined(entry.get("temp2m"))
+        humidity = rh_index_to_percent(_defined(entry.get("rh2m")))
+        wind = wind_class_to_kmh(_defined((entry.get("wind10m") or {}).get("speed")))
         out.append(HourlyConditions(
             time_utc=init + timedelta(hours=float(offset)),
-            cloud_cover=cloudcover_index_to_percent(entry.get("cloudcover")),
-            humidity_pct=None,
-            seeing_quality=seeing_index_to_quality(entry.get("seeing")),
-            transparency_quality=transparency_index_to_quality(entry.get("transparency")),
+            cloud_cover=cloudcover_index_to_percent(_defined(entry.get("cloudcover"))),
+            temperature_c=temperature,
+            dew_point_c=dew_point_c(temperature, humidity),
+            humidity_pct=humidity,
+            wind_speed_kmh=wind[0] if wind else None,
+            wind_gust_kmh=wind[1] if wind else None,
+            seeing_quality=seeing_index_to_quality(_defined(entry.get("seeing"))),
+            transparency_quality=transparency_index_to_quality(
+                _defined(entry.get("transparency"))),
             seeing_estimated=False,
         ))
     return out
@@ -587,6 +676,23 @@ def blend(location: Location, meteo: list[HourlyConditions],
                     sources=sources, seeing_estimated=any_estimated)
 
 
+def from_7timer(location: Location, seventimer: list[HourlyConditions], *,
+                reason: str) -> Forecast:
+    """A forecast from 7Timer alone, for when Open-Meteo cannot be had.
+
+    Better than none, and labelled: three days instead of sixteen, a sample
+    every three hours, 7Timer's coarser cloud bands, and wind scored from a
+    stand-in for gusts (see `wind_class_to_kmh`). Seeing and transparency are
+    7Timer's own either way, so they lose nothing. `reason` says why Open-Meteo
+    was not used and rides along as `fallback_reason`.
+    """
+    if not seventimer:
+        return unavailable(location, reason)
+    hours = sorted(seventimer, key=lambda h: h.time_utc)
+    return Forecast(location=location, hours=hours, available=True,
+                    sources=("7Timer",), fallback_reason=reason)
+
+
 def get_forecast(location: Location, *, start: datetime | None = None,
                  end: datetime | None = None, use_cache: bool = True) -> Forecast:
     """The public entry point. Never raises; never partially succeeds silently.
@@ -611,19 +717,19 @@ def get_forecast(location: Location, *, start: datetime | None = None,
         return unavailable(location, "network disabled (ASTRO_NO_NETWORK)")
 
     meteo = _open_meteo(location, use_cache=use_cache)
+    seventimer = _7timer(location, use_cache=use_cache)
+    seventimer_hours = parse_7timer(seventimer.payload) if seventimer.payload else []
+
     if meteo.payload is None:
         # Held back by the budget or a backoff, say so: "unreachable" would
-        # send someone looking for a fault that is not there.
-        return unavailable(location, OPEN_METEO.unavailable_reason() or "Open-Meteo unreachable")
-
-    seventimer = _7timer(location, use_cache=use_cache)
-
-    forecast = blend(
-        location,
-        parse_open_meteo(meteo.payload),
-        parse_7timer(seventimer.payload) if seventimer.payload else [],
-        reference=reference,
-    )
+        # send someone looking for a fault that is not there. Then score what
+        # 7Timer has rather than nothing: in November 2026 Open-Meteo's
+        # forecast host stopped answering for days while 7Timer was fine.
+        reason = OPEN_METEO.unavailable_reason() or "Open-Meteo unreachable"
+        forecast = from_7timer(location, seventimer_hours, reason=reason)
+    else:
+        forecast = blend(location, parse_open_meteo(meteo.payload),
+                         seventimer_hours, reference=reference)
 
     # An old copy standing in is fine, but not silently: say how old, from the
     # older of the two sources if both are, and why it was not refreshed.
@@ -639,5 +745,8 @@ def get_forecast(location: Location, *, start: datetime | None = None,
 
     if forecast.available and start is not None and end is not None:
         if not forecast.covers(start, end):
+            if forecast.fallback_reason:
+                return unavailable(location, "beyond 7Timer's 3-day forecast; "
+                                             f"{forecast.fallback_reason}")
             return unavailable(location, "forecast does not cover that window")
     return forecast
